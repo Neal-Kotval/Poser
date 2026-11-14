@@ -7,3 +7,5 @@ xcuserdata/
 .playwright-mcp/
 .venv/
 __pycache__/
+Poser/Secrets/Typesense.plist
+Tools/Typesense/.venv/

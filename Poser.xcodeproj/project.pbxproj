@@ -28,8 +28,13 @@
 		5A0C1E7B2D4F6A8B9C0D1E08 /* LiveCoach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */; };
 		5A0C1E7B2D4F6A8B9C0D1E0C /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E0B /* ProfileView.swift */; };
 		5A0C1E7B2D4F6A8B9C0D1E0E /* UserProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E0D /* UserProfileStore.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E12 /* TypesenseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E11 /* TypesenseConfig.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E14 /* TypesenseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E13 /* TypesenseClient.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E16 /* ReferenceSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E15 /* ReferenceSearch.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E1A /* Secrets in Resources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E19 /* Secrets */; };
 		5A0C1E7B2D4F6A8B9C0D1E0A /* LiveCoachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */; };
 		5A0C1E7B2D4F6A8B9C0D1E10 /* ProfileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E0F /* ProfileStoreTests.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E18 /* ReferenceSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E17 /* ReferenceSearchTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,8 +71,13 @@
 		5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCoach.swift; sourceTree = "<group>"; };
 		5A0C1E7B2D4F6A8B9C0D1E0B /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		5A0C1E7B2D4F6A8B9C0D1E0D /* UserProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileStore.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E11 /* TypesenseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypesenseConfig.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E13 /* TypesenseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypesenseClient.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E15 /* ReferenceSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceSearch.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E19 /* Secrets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Secrets; sourceTree = "<group>"; };
 		5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCoachTests.swift; sourceTree = "<group>"; };
 		5A0C1E7B2D4F6A8B9C0D1E0F /* ProfileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStoreTests.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E17 /* ReferenceSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceSearchTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -96,6 +106,7 @@
 				5A0C1E7B2D4F6A8B9C0D1E05 /* ShotSpecTests.swift */,
 				5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */,
 				5A0C1E7B2D4F6A8B9C0D1E0F /* ProfileStoreTests.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E17 /* ReferenceSearchTests.swift */,
 			);
 			path = PoserTests;
 			sourceTree = "<group>";
@@ -104,6 +115,7 @@
 			isa = PBXGroup;
 			children = (
 				76BBB6E7618692362776FC5B /* Assets.xcassets */,
+				5A0C1E7B2D4F6A8B9C0D1E19 /* Secrets */,
 				B28EA2C3D4E5F60718293A4B /* PinterestLibrary */,
 				00E9C851F5E46FCB3464F117 /* Camera.swift */,
 				2F796CF4EF566BF4C674566A /* Design.swift */,
@@ -122,6 +134,9 @@
 				5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */,
 				5A0C1E7B2D4F6A8B9C0D1E0B /* ProfileView.swift */,
 				5A0C1E7B2D4F6A8B9C0D1E0D /* UserProfileStore.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E11 /* TypesenseConfig.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E13 /* TypesenseClient.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E15 /* ReferenceSearch.swift */,
 			);
 			path = Poser;
 			sourceTree = "<group>";
@@ -211,6 +226,7 @@
 			files = (
 				97E9A3BF780BAF0A78277ECA /* Assets.xcassets in Resources */,
 				A17D91B2C3D4E5F60718293A /* PinterestLibrary in Resources */,
+				5A0C1E7B2D4F6A8B9C0D1E1A /* Secrets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -225,6 +241,7 @@
 				5A0C1E7B2D4F6A8B9C0D1E06 /* ShotSpecTests.swift in Sources */,
 				5A0C1E7B2D4F6A8B9C0D1E0A /* LiveCoachTests.swift in Sources */,
 				5A0C1E7B2D4F6A8B9C0D1E10 /* ProfileStoreTests.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E18 /* ReferenceSearchTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +266,9 @@
 				5A0C1E7B2D4F6A8B9C0D1E08 /* LiveCoach.swift in Sources */,
 				5A0C1E7B2D4F6A8B9C0D1E0C /* ProfileView.swift in Sources */,
 				5A0C1E7B2D4F6A8B9C0D1E0E /* UserProfileStore.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E12 /* TypesenseConfig.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E14 /* TypesenseClient.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E16 /* ReferenceSearch.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -46,6 +46,9 @@ struct HomeView: View {
     @State private var showShotDetails = false
     @State private var selectedReferenceTag: ReferenceTag?
     @State private var referenceQuery = ""
+    @State private var remoteReferences: [ReferenceAsset]?
+    @State private var isRemoteSearching = false
+    @State private var referenceSearchTask: Task<Void, Never>?
     @State private var isReferenceSearchExpanded = false
     @State private var isSearchKeyboardVisible = false
     @FocusState private var isReferenceSearchFocused: Bool
@@ -423,6 +426,9 @@ struct HomeView: View {
                     .font(.system(size: 21, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                 Spacer()
+                if isRemoteSearching {
+                    ProgressView().tint(.white).scaleEffect(0.8)
+                }
                 Text("\(filteredReferences.count) photos")
                     .font(PoserType.caption)
                     .foregroundStyle(Palette.secondaryText)
@@ -441,6 +447,7 @@ struct HomeView: View {
                     Button("Clear search and filters") {
                         referenceQuery = ""
                         selectedReferenceTag = nil
+                        remoteReferences = nil
                     }
                 }
             }
@@ -453,10 +460,33 @@ struct HomeView: View {
                 }
             }
         }
+        .onChange(of: referenceQuery) { _, _ in scheduleReferenceSearch() }
+        .onChange(of: selectedReferenceTag) { _, _ in scheduleReferenceSearch() }
     }
 
     private var filteredReferences: [ReferenceAsset] {
-        ReferenceCatalog.items(matching: selectedReferenceTag, query: referenceQuery)
+        if let remoteReferences { return remoteReferences }
+        return ReferenceCatalog.items(matching: selectedReferenceTag, query: referenceQuery)
+    }
+
+    private func scheduleReferenceSearch() {
+        referenceSearchTask?.cancel()
+        let query = referenceQuery
+        let tag = selectedReferenceTag
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            remoteReferences = nil
+            isRemoteSearching = false
+            return
+        }
+        isRemoteSearching = TypesenseConfig.isConfigured
+        referenceSearchTask = Task {
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            guard !Task.isCancelled else { return }
+            let results = await ReferenceSearch.text(query, tag: tag)
+            guard !Task.isCancelled else { return }
+            remoteReferences = results
+            isRemoteSearching = false
+        }
     }
 
     private var referenceSearchBubble: some View {
@@ -477,7 +507,10 @@ struct HomeView: View {
                     .accessibilityIdentifier("referenceSearchField")
                     .onSubmit { closeReferenceSearch() }
                 if !referenceQuery.isEmpty {
-                    Button { referenceQuery = "" } label: {
+                    Button {
+                        referenceQuery = ""
+                        remoteReferences = nil
+                    } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(Palette.secondaryText)
                             .frame(width: 44, height: 44)
@@ -1026,16 +1059,13 @@ struct HomeView: View {
         analysis = nil
         isAnalyzing = true
 
-        var candidates = ReferenceCatalog.items.compactMap { reference -> SceneCandidate? in
-            guard let image = reference.preview else { return nil }
-            return SceneCandidate(id: reference.id, image: image)
-        }
+        var inspirationCandidates: [SceneCandidate] = []
         for item in inspirationStore.items {
             if let inspiration = inspirationStore.image(for: item) {
-                candidates.append(SceneCandidate(id: item.id, image: inspiration))
+                inspirationCandidates.append(SceneCandidate(id: item.id, image: inspiration))
             }
         }
-        let matches = await SceneMatcher.rank(scene: image, candidates: candidates)
+        let matches = await ReferenceSearch.sceneMatches(for: image, inspiration: inspirationCandidates)
         guard requestID == flowID else { return }
         if matches.isEmpty {
             await analyze(image, scene: true)
