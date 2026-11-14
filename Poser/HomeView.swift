@@ -9,6 +9,7 @@ struct HomeView: View {
     @StateObject private var shootStore = ShootStore()
     @StateObject private var profileStore = UserProfileStore()
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var deletingReference: InspirationItem?
     @State private var referenceImage: UIImage?
     @State private var analysis: PhotoAnalysis?
     @State private var selectedRecipe: ShotRecipe?
@@ -98,6 +99,25 @@ struct HomeView: View {
         )) {
             Button("OK", role: .cancel) { savedMessage = nil }
         } message: { Text(savedMessage ?? "") }
+        .confirmationDialog("Delete this reference photo?", isPresented: Binding(
+            get: { deletingReference != nil },
+            set: { if !$0 { deletingReference = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete reference", role: .destructive) {
+                guard let item = deletingReference else { return }
+                deletingReference = nil
+                do {
+                    try inspirationStore.remove(item)
+                    if shootQueue.contains(item.id) { reset() }
+                    selectedMatches.remove(item.id)
+                    sceneMatches.removeAll { $0.id == item.id }
+                } catch {
+                    errorMessage = "Could not delete this reference photo. \(error.localizedDescription)"
+                }
+            }
+        } message: {
+            Text("This removes the saved photo from Poser.")
+        }
     }
 
     @ViewBuilder
@@ -369,21 +389,9 @@ struct HomeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(asset.title) inspiration")
 
-            HStack(alignment: .center) {
-                Text(asset.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                Spacer()
-                if let source = asset.source {
-                    Link(destination: source) {
-                        Image(systemName: "link")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Palette.secondaryText)
-                            .frame(width: 38, height: 38)
-                    }
-                    .accessibilityLabel("Open original Pin")
-                }
-            }
+            Text(asset.title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
             Rectangle().fill(Palette.border).frame(height: 1).padding(.top, 9)
         }
     }
@@ -410,28 +418,40 @@ struct HomeView: View {
                     HStack(spacing: 11) {
                         ForEach(inspirationStore.items) { item in
                             if let image = inspirationStore.image(for: item) {
-                                Button {
-                                    Task {
-                                        let original = inspirationStore.originalData(for: item)
-                                        await analyze(original.flatMap(UIImage.init(data:)) ?? image,
-                                                      scene: false, imageData: original)
+                                ZStack(alignment: .topTrailing) {
+                                    Button {
+                                        Task {
+                                            let original = inspirationStore.originalData(for: item)
+                                            await analyze(original.flatMap(UIImage.init(data:)) ?? image,
+                                                          scene: false, imageData: original)
+                                        }
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 7) {
+                                            Image(uiImage: image)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 132, height: 132)
+                                                .clipped()
+                                                .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                                            Text(item.title)
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundStyle(.white)
+                                                .lineLimit(1)
+                                        }
+                                        .frame(width: 132, alignment: .leading)
                                     }
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 132, height: 132)
-                                            .clipped()
-                                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                                        Text(item.title)
-                                            .font(.system(size: 12, weight: .medium))
+                                    .buttonStyle(.plain)
+                                    Button { deletingReference = item } label: {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 13, weight: .semibold))
                                             .foregroundStyle(.white)
-                                            .lineLimit(1)
+                                            .frame(width: 36, height: 36)
+                                            .background(.black.opacity(0.78), in: Circle())
                                     }
-                                    .frame(width: 132, alignment: .leading)
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Delete \(item.title)")
+                                    .padding(6)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }

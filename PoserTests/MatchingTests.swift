@@ -174,6 +174,23 @@ final class MatchingTests: XCTestCase {
     }
 
     @MainActor
+    func testDeletingImportedReferenceRemovesOriginalAndIndexEntry() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let image = solidImage(.systemGreen)
+        let original = try XCTUnwrap(image.pngData())
+        let store = InspirationStore(folder: folder)
+        let item = try store.add(image, source: .photoLibrary, originalData: original)
+
+        try store.remove(item)
+
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertNil(store.image(for: item))
+        XCTAssertNil(store.originalData(for: item))
+        XCTAssertTrue(InspirationStore(folder: folder).items.isEmpty)
+    }
+
+    @MainActor
     func testOriginalReferenceDataSurvivesLibraryReload() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }

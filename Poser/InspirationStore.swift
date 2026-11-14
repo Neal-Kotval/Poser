@@ -93,4 +93,19 @@ final class InspirationStore: ObservableObject {
     func originalData(for item: InspirationItem) -> Data? {
         try? Data(contentsOf: folder.appendingPathComponent("\(item.id.uuidString).original"))
     }
+
+    func remove(_ item: InspirationItem) throws {
+        guard items.contains(where: { $0.id == item.id }) else { return }
+        let updated = items.filter { $0.id != item.id }
+        let imageURL = folder.appendingPathComponent(item.filename)
+        let originalURL = folder.appendingPathComponent("\(item.id.uuidString).original")
+        try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
+        items = updated
+        if FileManager.default.fileExists(atPath: imageURL.path) {
+            try FileManager.default.removeItem(at: imageURL)
+        }
+        if FileManager.default.fileExists(atPath: originalURL.path) {
+            try FileManager.default.removeItem(at: originalURL)
+        }
+    }
 }
