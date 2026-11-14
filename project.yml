@@ -1,0 +1,24 @@
+name: Poser
+options:
+  bundleIdPrefix: com.nealkotval
+  deploymentTarget:
+    iOS: '27.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    TARGETED_DEVICE_FAMILY: '1,2'
+    INFOPLIST_KEY_NSCameraUsageDescription: Poser uses the camera to scan your surroundings and guide your shot.
+    INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Poser uses a photo you select as a reference.
+    INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: Poser saves photos you capture to your library.
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    GENERATE_INFOPLIST_FILE: YES
+targets:
+  Poser:
+    type: application
+    platform: iOS
+    sources:
+      - path: Poser
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nealkotval.Poser
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
