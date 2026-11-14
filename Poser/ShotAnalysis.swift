@@ -28,8 +28,75 @@ struct PhotoAnalysis {
     let labels: [String]
     let subjectPoint: CGPoint?
     let hasPerson: Bool
+    let poseSkeleton: PoseSkeleton?
     let summary: String
     let recipe: ShotRecipe
+}
+
+enum PoseJoint: String, CaseIterable {
+    case nose, neck
+    case leftShoulder, rightShoulder, leftElbow, rightElbow, leftWrist, rightWrist
+    case leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle
+}
+
+struct PoseSkeleton {
+    let points: [PoseJoint: CGPoint]
+
+    subscript(_ joint: PoseJoint) -> CGPoint? { points[joint] }
+
+    static func example(for recipe: ShotRecipe) -> PoseSkeleton {
+        var points: [PoseJoint: CGPoint] = [
+            .nose: CGPoint(x: 0.50, y: 0.12), .neck: CGPoint(x: 0.50, y: 0.23),
+            .leftShoulder: CGPoint(x: 0.38, y: 0.28), .rightShoulder: CGPoint(x: 0.62, y: 0.28),
+            .leftElbow: CGPoint(x: 0.30, y: 0.43), .rightElbow: CGPoint(x: 0.70, y: 0.43),
+            .leftWrist: CGPoint(x: 0.27, y: 0.57), .rightWrist: CGPoint(x: 0.73, y: 0.57),
+            .leftHip: CGPoint(x: 0.43, y: 0.55), .rightHip: CGPoint(x: 0.57, y: 0.55),
+            .leftKnee: CGPoint(x: 0.42, y: 0.74), .rightKnee: CGPoint(x: 0.60, y: 0.74),
+            .leftAnkle: CGPoint(x: 0.40, y: 0.94), .rightAnkle: CGPoint(x: 0.63, y: 0.94)
+        ]
+        if recipe.id == "street" {
+            points[.rightElbow] = CGPoint(x: 0.64, y: 0.45)
+            points[.rightWrist] = CGPoint(x: 0.57, y: 0.58)
+            points[.leftKnee] = CGPoint(x: 0.38, y: 0.74)
+        } else if recipe.id == "cafe" {
+            points[.leftElbow] = CGPoint(x: 0.35, y: 0.47)
+            points[.leftWrist] = CGPoint(x: 0.48, y: 0.47)
+            points[.leftKnee] = CGPoint(x: 0.58, y: 0.76)
+            points[.rightKnee] = CGPoint(x: 0.72, y: 0.76)
+        }
+        return PoseSkeleton(points: points)
+    }
+
+    static func detected(from observation: VNHumanBodyPoseObservation) -> PoseSkeleton? {
+        let names: [(PoseJoint, VNHumanBodyPoseObservation.JointName)] = [
+            (.nose, .nose), (.neck, .neck),
+            (.leftShoulder, .leftShoulder), (.rightShoulder, .rightShoulder),
+            (.leftElbow, .leftElbow), (.rightElbow, .rightElbow),
+            (.leftWrist, .leftWrist), (.rightWrist, .rightWrist),
+            (.leftHip, .leftHip), (.rightHip, .rightHip),
+            (.leftKnee, .leftKnee), (.rightKnee, .rightKnee),
+            (.leftAnkle, .leftAnkle), (.rightAnkle, .rightAnkle)
+        ]
+        var raw: [PoseJoint: CGPoint] = [:]
+        for (key, name) in names {
+            if let point = try? observation.recognizedPoint(name), point.confidence > 0.28 {
+                raw[key] = CGPoint(x: point.location.x, y: 1 - point.location.y)
+            }
+        }
+        guard raw.count >= 6,
+              raw[.leftShoulder] != nil, raw[.rightShoulder] != nil else { return nil }
+        let xs = raw.values.map(\.x)
+        let ys = raw.values.map(\.y)
+        guard let minX = xs.min(), let maxX = xs.max(),
+              let minY = ys.min(), let maxY = ys.max() else { return nil }
+        let width = max(maxX - minX, 0.1)
+        let height = max(maxY - minY, 0.1)
+        let normalized = raw.mapValues { point in
+            CGPoint(x: 0.18 + 0.64 * (point.x - minX) / width,
+                    y: 0.10 + 0.82 * (point.y - minY) / height)
+        }
+        return PoseSkeleton(points: normalized)
+    }
 }
 
 enum AnalysisService {
@@ -50,6 +117,7 @@ enum AnalysisService {
             let observations = Array((classify.results ?? []).prefix(15))
             let labels = observations.prefix(8).map(\.identifier)
             let pose = person.results?.first
+            let poseSkeleton = pose.flatMap(PoseSkeleton.detected)
             let point: CGPoint?
             if let pose, let nose = try? pose.recognizedPoint(.nose), nose.confidence > 0.25 {
                 point = CGPoint(x: nose.location.x, y: 1 - nose.location.y)
@@ -75,7 +143,7 @@ enum AnalysisService {
             } else {
                 summary = "We found a person in the frame. Match their position, then refine your angle and light."
             }
-            return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil, summary: summary, recipe: recipe)
+            return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil, poseSkeleton: poseSkeleton, summary: summary, recipe: recipe)
         }.value
     }
 }

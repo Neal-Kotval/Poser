@@ -12,6 +12,7 @@ struct HomeView: View {
     @State private var capturedImage: UIImage?
     @State private var showingLink = false
     @State private var showingScan = false
+    @State private var showingPoseTutorial = false
     @State private var isAnalyzing = false
     @State private var errorMessage: String?
     @State private var savedMessage: String?
@@ -84,6 +85,14 @@ struct HomeView: View {
                 Task { await analyze(image, scene: true) }
             }
         }
+        .fullScreenCover(isPresented: $showingPoseTutorial) {
+            if let selectedRecipe {
+                PoseTutorialView(referenceImage: referenceImage, analysis: analysis, recipe: selectedRecipe) {
+                    showingPoseTutorial = false
+                    activeTab = .camera
+                }
+            }
+        }
         .alert("Could not continue", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -112,7 +121,13 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Home")
-            Button { activeTab = .camera } label: {
+            Button {
+                if activeTab == .home, selectedRecipe != nil, capturedImage == nil {
+                    showingPoseTutorial = true
+                } else {
+                    activeTab = .camera
+                }
+            } label: {
                 Image(systemName: "camera.fill")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.black)
@@ -293,9 +308,9 @@ struct HomeView: View {
                 instruction(symbol: "square.dashed", title: "Frame", body: recipe.framing)
             }
             Button {
-                activeTab = .camera
+                showingPoseTutorial = true
             } label: {
-                Text("Open camera")
+                Text("See pose guide")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)

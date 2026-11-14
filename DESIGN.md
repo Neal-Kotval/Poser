@@ -29,6 +29,8 @@ The compatibility names `ink`, `panel`, `raised`, `cyan`, `cream`, and `muted` r
 
 The bottom navigation contains Home and a prominent camera control. The camera opens first. Home holds references, inspiration, shot plans, and captured images. On the camera screen, the shutter is the strongest control and live guidance appears only when a recipe exists.
 
+The pre-shot pose guide uses a white line figure on a dark surface. It animates between a neutral stance and detected body landmarks when available; the example pose is labeled when detection is unavailable. Keep its camera distance and subject instructions readable before the user opens the live camera.
+
 ## Accessibility
 
 - Keep interactive areas at least 44 by 44 points; the shared buttons have a 52-point minimum height.
