@@ -21,6 +21,9 @@ struct LiveReading {
 }
 
 final class LiveFrameAnalyzer {
+    #if DEBUG
+    private static var lastFailureReport: String?
+    #endif
     let subjectHeightMeters: Double
     let minimumInterval: TimeInterval
     private var lastRun = Date.distantPast
@@ -58,8 +61,16 @@ final class LiveFrameAnalyzer {
                         subjectHeightMeters: Double) -> LiveReading {
         let pose2D = VNDetectHumanBodyPoseRequest()
         let pose3D = VNDetectHumanBodyPose3DRequest()
-        try? handler.perform([pose2D])
-        try? handler.perform([pose3D])
+        let failures = [("2D pose", VisionRunner.perform(pose2D, on: handler)),
+                        ("3D pose", VisionRunner.perform(pose3D, on: handler))]
+            .compactMap { name, error in error.map { "\(name): \($0)" } }
+        #if DEBUG
+        let report = failures.joined(separator: " | ")
+        if report != lastFailureReport {
+            lastFailureReport = report
+            print(report.isEmpty ? "[LiveCoach] Vision requests ok" : "[LiveCoach] Vision failed: \(report)")
+        }
+        #endif
 
         var reading = LiveReading()
         reading.frameAspect = frameSize.width / max(frameSize.height, 1)
