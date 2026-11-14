@@ -20,14 +20,14 @@ Scene matching searches the local inspiration library and the bundled examples. 
 
 ## Optional Gemini image guidance
 
-Poser can ask Gemini to describe a reference pose and compare a captured shot with its reference. Each request starts when the user taps its button; the selected image or image pair is sent to Google. Gemini supplies qualitative advice only. Vision continues to calculate pose measurements and the pose score locally.
+When a user chooses a reference photo, Poser sends it to Gemini during preparation. Gemini returns a short shot summary and visible pose, framing, lighting, and qualitative camera cues. The app maps clear camera cues to editable starting suggestions and uses pose style only to illustrate joints that Vision could not see. These suggestions are not measurements of the original camera; Vision remains the source of measured geometry and the live pose score. On the shot review screen, **Get photo tips** optionally sends the reference and captured photo to Gemini for qualitative feedback.
 
 The iOS client uses [Firebase AI Logic](https://firebase.google.com/docs/ai-logic) so a Gemini API key is not embedded in the app. To enable it:
 
 1. The dedicated Firebase project is `poser-neal-app-20261114`, registered to iOS bundle ID `com.nealkotval.Poser` with the Gemini Developer API. It uses the no-billing Spark plan, and Firebase AI Logic generation is limited to 5 requests per minute per user.
 2. [Firebase App Check](https://firebase.google.com/docs/ai-logic/app-check) is enforced for AI Logic. Local Debug builds use the App Check debug provider; register each device's logged debug token in Firebase before using Gemini. A production release needs App Attest and an Apple Developer team that supports that capability; the current Personal Team does not.
 3. `Poser/GoogleService-Info.plist` is the Firebase app config and is included in the target's **Copy Bundle Resources**. It contains a Firebase client API key, not a Gemini API key; that key is restricted to the Poser iOS bundle ID and supported Firebase APIs. Keep debug tokens out of the repository. If regenerating the project from `project.yml`, check that the config resource and Release App Attest entitlement remain included.
-4. Build and run. The Gemini buttons appear when the Firebase configuration is bundled. They use `gemini-3.5-flash-lite` and show errors without interrupting local analysis.
+4. Build and run. Reference preparation and optional photo tips use `gemini-3.5-flash-lite`. If cloud preparation fails, the local Vision setup remains available.
 
 The committed Firebase config identifies the Poser project. App Check still requires a registered development token for Debug builds or a supported production attestation provider for Release builds.
 

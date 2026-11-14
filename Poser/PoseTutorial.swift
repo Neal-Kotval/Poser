@@ -13,18 +13,54 @@ struct ReferenceStartingSetup {
         tiltDegrees = min(35, max(-35, spec?.pitchDegrees ?? 0))
         distanceFromFace = faceEstimate != nil
     }
+
+    mutating func apply(_ plan: GeminiReferencePlan, preserving spec: ShotSpec) {
+        guard plan.hasPerson else { return }
+        if spec.distanceMeters == nil && !distanceFromFace {
+            switch plan.distance {
+            case .close: distanceMeters = 1.2
+            case .medium: distanceMeters = 2.5
+            case .far: distanceMeters = 4
+            case .unknown: break
+            }
+        }
+        if spec.cameraHeightMeters == nil {
+            switch plan.cameraLevel {
+            case .ground: heightMeters = 0.35
+            case .knee: heightMeters = 0.6
+            case .hip: heightMeters = 1
+            case .chest: heightMeters = 1.3
+            case .eye: heightMeters = plan.poseStyle == .seated ? 1.2 : 1.6
+            case .overhead: heightMeters = 2
+            case .unknown: break
+            }
+        }
+        if spec.pitchDegrees == nil {
+            switch plan.tilt {
+            case .up: tiltDegrees = 10
+            case .level: tiltDegrees = 0
+            case .down: tiltDegrees = -10
+            case .unknown: break
+            }
+        }
+    }
 }
 
 struct PoseTutorialView: View {
     let analysis: PhotoAnalysis?
     let recipe: ShotRecipe
     let referenceImage: UIImage?
+    let referencePlan: GeminiReferencePlan?
     @Binding var startingSetup: ReferenceStartingSetup
     let onContinue: () -> Void
     let onClose: () -> Void
 
     private var skeleton: PoseSkeleton {
-        analysis?.poseSkeleton ?? .example(for: recipe)
+        if let measured = analysis?.poseSkeleton { return measured }
+        if let referencePlan, referencePlan.hasPerson {
+            return .illustration(for: referencePlan.poseStyle, recipe: recipe)
+        }
+        return .example(for: recipe)
     }
 
     private var shotGeometry: ShotGeometry {
@@ -59,10 +95,17 @@ struct PoseTutorialView: View {
 
                     ScrollView {
                         VStack(spacing: PoserSpace.regular) {
-                            Text(analysis?.poseSkeleton == nil ? "EXAMPLE SETUP" : "MATCH THIS POSE")
+                            Text(analysis?.poseSkeleton == nil ? "POSE STARTING POINT" : "MATCH THIS POSE")
                                 .font(.system(size: 16, weight: .bold, design: .rounded))
                                 .tracking(2)
                                 .multilineTextAlignment(.center)
+
+                            if let referencePlan {
+                                Text(referencePlan.summary)
+                                    .font(PoserType.supporting)
+                                    .foregroundStyle(Palette.secondaryText)
+                                    .multilineTextAlignment(.center)
+                            }
 
                             if let referenceImage, analysis?.poseSkeleton == nil {
                                 Image(uiImage: referenceImage)
@@ -74,6 +117,10 @@ struct PoseTutorialView: View {
                             }
 
                             PoseDiagramView(skeleton: skeleton, geometry: shotGeometry,
+                                            illustrativeFallback: referencePlan.flatMap {
+                                                $0.hasPerson ? PoseSkeleton.illustration(for: $0.poseStyle,
+                                                                                        recipe: recipe) : nil
+                                            },
                                             startingSetup: analysis?.shotSpec.source == .pose3D ? nil : startingSetup)
                                 .frame(height: min(400, max(320, screen.size.height * 0.46)))
 
@@ -82,8 +129,8 @@ struct PoseTutorialView: View {
                                     Text("Adjustable starting setup")
                                         .font(.system(size: 17, weight: .semibold))
                                     Text(startingSetup.distanceFromFace
-                                         ? "Distance starts from face size and assumed lens and face width. Height and tilt are starting points, not measurements from the photo."
-                                         : "These are starting points, not measurements from the photo. Adjust them to match the reference.")
+                                         ? "Distance starts from face size and an assumed lens. Other values are adjustable suggestions, not camera measurements."
+                                         : "These values are adjustable suggestions from the photo, not measurements of the original camera.")
                                         .font(PoserType.supporting)
                                         .foregroundStyle(Palette.secondaryText)
                                     setupSlider("Distance", value: $startingSetup.distanceMeters,
@@ -100,6 +147,14 @@ struct PoseTutorialView: View {
                             if let cue = analysis?.poseSkeleton?.shortCue {
                                 Text(cue)
                                     .font(.system(.body, design: .rounded, weight: .semibold))
+                                    .multilineTextAlignment(.center)
+                            }
+
+                            if let referencePlan, referencePlan.hasPerson,
+                               !referencePlan.poseCue.isEmpty {
+                                Text(referencePlan.poseCue)
+                                    .font(PoserType.supporting)
+                                    .foregroundStyle(Palette.secondaryText)
                                     .multilineTextAlignment(.center)
                             }
 
@@ -166,6 +221,7 @@ struct PoseTutorialView: View {
 private struct PoseDiagramView: View {
     let skeleton: PoseSkeleton
     let geometry: ShotGeometry
+    let illustrativeFallback: PoseSkeleton?
     let startingSetup: ReferenceStartingSetup?
 
     var body: some View {
@@ -213,7 +269,7 @@ private struct PoseDiagramView: View {
                     .rotationEffect(.degrees(-Double(self.geometry.tiltDegrees)))
                     .position(layout.phonePoint)
 
-                AnimatedPoseFigure(skeleton: skeleton)
+                AnimatedPoseFigure(skeleton: skeleton, illustrativeFallback: illustrativeFallback)
                     .frame(width: layout.figureWidth, height: layout.figureHeight)
                     .position(x: layout.subjectX, y: layout.floor - layout.figureHeight / 2)
 
@@ -261,6 +317,39 @@ private struct PoseDiagramView: View {
 }
 
 private extension PoseSkeleton {
+    static func illustration(for style: GeminiReferencePlan.PoseStyle,
+                             recipe: ShotRecipe) -> PoseSkeleton {
+        var points = example(for: recipe).points
+        switch style {
+        case .walking:
+            points[.leftWrist] = CGPoint(x: 0.29, y: 0.44)
+            points[.rightWrist] = CGPoint(x: 0.70, y: 0.53)
+            points[.leftKnee] = CGPoint(x: 0.34, y: 0.72)
+            points[.leftAnkle] = CGPoint(x: 0.25, y: 0.94)
+            points[.rightKnee] = CGPoint(x: 0.65, y: 0.75)
+            points[.rightAnkle] = CGPoint(x: 0.72, y: 0.94)
+        case .seated:
+            points[.leftHip] = CGPoint(x: 0.42, y: 0.58)
+            points[.rightHip] = CGPoint(x: 0.58, y: 0.58)
+            points[.leftKnee] = CGPoint(x: 0.28, y: 0.68)
+            points[.rightKnee] = CGPoint(x: 0.74, y: 0.68)
+            points[.leftAnkle] = CGPoint(x: 0.28, y: 0.92)
+            points[.rightAnkle] = CGPoint(x: 0.75, y: 0.92)
+            points[.leftWrist] = CGPoint(x: 0.38, y: 0.62)
+            points[.rightWrist] = CGPoint(x: 0.64, y: 0.62)
+        case .leaning:
+            points[.nose] = CGPoint(x: 0.58, y: 0.12)
+            points[.neck] = CGPoint(x: 0.56, y: 0.23)
+            points[.leftShoulder] = CGPoint(x: 0.45, y: 0.29)
+            points[.rightShoulder] = CGPoint(x: 0.69, y: 0.27)
+            points[.leftElbow] = CGPoint(x: 0.38, y: 0.42)
+            points[.rightElbow] = CGPoint(x: 0.73, y: 0.42)
+        case .standing, .unknown:
+            break
+        }
+        return PoseSkeleton(points: points)
+    }
+
     static func photographer(cameraHeightMeters: Double, phoneYInFigure: CGFloat) -> PoseSkeleton {
         let crouch = min(1, max(0, CGFloat((1.25 - cameraHeightMeters) / 0.6)))
         let upright = photographer(crouched: false)
@@ -344,11 +433,12 @@ struct MiniPoseGuide: View {
 
 private struct AnimatedPoseFigure: View {
     let skeleton: PoseSkeleton
+    var illustrativeFallback: PoseSkeleton? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var progress: CGFloat = 0
 
     var body: some View {
-        BubblePoseFigure(target: skeleton, progress: progress)
+        BubblePoseFigure(target: skeleton, illustrativeFallback: illustrativeFallback, progress: progress)
             .onAppear {
                 if reduceMotion {
                     progress = 1
@@ -365,6 +455,7 @@ private struct AnimatedPoseFigure: View {
 
 struct BubblePoseFigure: View, Animatable {
     let target: PoseSkeleton
+    var illustrativeFallback: PoseSkeleton? = nil
     var progress: CGFloat
 
     var animatableData: CGFloat {
@@ -375,7 +466,7 @@ struct BubblePoseFigure: View, Animatable {
     var body: some View {
         Canvas { context, size in
             let neutral = PoseSkeleton.example(for: ShotRecipe.presets[1])
-            let completeTarget = target.displayingMissingJoints()
+            let completeTarget = target.displayingMissingJoints(fallback: illustrativeFallback)
             let hipY = ((completeTarget[.leftHip]?.y ?? 0.55) + (completeTarget[.rightHip]?.y ?? 0.55)) / 2
             let ankleY = ((completeTarget[.leftAnkle]?.y ?? 0.94) + (completeTarget[.rightAnkle]?.y ?? 0.94)) / 2
             let legOffset = min(0.08, max(0, (ankleY - hipY) * 0.2))

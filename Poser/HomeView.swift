@@ -41,10 +41,9 @@ struct HomeView: View {
     @State private var isSceneScan = false
     @State private var comparisonNote: String?
     @State private var poseScore: Int?
-    @State private var geminiReferenceNote: String?
+    @State private var referencePlan: GeminiReferencePlan?
     @State private var geminiShotFeedback: String?
     @State private var geminiMessage: String?
-    @State private var isDescribingReference = false
     @State private var isGeneratingFeedback = false
     @State private var scannedScene: UIImage?
     @State private var sceneMatches: [SceneMatch] = []
@@ -110,7 +109,8 @@ struct HomeView: View {
         .overlay {
             if showingPoseTutorial, let selectedRecipe {
                 PoseTutorialView(analysis: analysis, recipe: selectedRecipe,
-                                 referenceImage: referenceImage, startingSetup: $startingSetup) {
+                                 referenceImage: referenceImage, referencePlan: referencePlan,
+                                 startingSetup: $startingSetup) {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
                 } onClose: {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
@@ -432,6 +432,12 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
+
+            if GeminiImageCoach.isConfigured {
+                Text("Reference photos are sent to Gemini for shot suggestions.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondaryText)
+            }
 
             if !inspirationStore.items.isEmpty {
                 savedInspiration
@@ -901,6 +907,23 @@ struct HomeView: View {
                         imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
                     }
             }
+            if let analysis {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("SHOT PLAN")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.5)
+                        .foregroundStyle(Palette.secondaryText)
+                    Text(referencePlan?.summary ?? analysis.summary)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.white)
+                    Text(referencePlan == nil
+                         ? "Based on on-device analysis; refine in the pose guide."
+                         : "Suggested from the photo; refine in the pose guide.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.secondaryText)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             VStack(spacing: 0) {
                 instruction(symbol: "arrow.left.and.right", title: "Distance", body: analysis.map {
                     $0.shotSpec.distanceMeters != nil ? $0.geometry.distanceLabel :
@@ -918,33 +941,15 @@ struct HomeView: View {
                     "Start at \(Int(startingSetup.tiltDegrees))° (adjustable)"
                 } ?? "Analyzing reference")
                 rowDivider
-                instruction(symbol: "figure.stand", title: "Pose", body: analysis.map { $0.poseSkeleton?.shortCue ?? "Pose not measured; use the photo as your guide." } ?? recipe.pose)
+                instruction(symbol: "figure.stand", title: "Pose", body: analysis?.poseSkeleton?.shortCue
+                            ?? referencePlan.flatMap { $0.hasPerson && !$0.poseCue.isEmpty ? $0.poseCue : nil }
+                            ?? "Pose not measured; use the photo as your guide.")
             }
             if let analysis, analysis.shotSpec.source != .pose3D {
                 Text("These starting values are adjustable in the pose guide. Height and tilt are not measured from this photo.")
                     .font(.system(size: 13))
                     .foregroundStyle(Palette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            if GeminiImageCoach.isConfigured, let referenceImage {
-                VStack(alignment: .leading, spacing: 10) {
-                    Button {
-                        Task { await describeReference(referenceImage) }
-                    } label: {
-                        Label(isDescribingReference ? "Describing pose…" : "Describe pose with Gemini",
-                              systemImage: "sparkles")
-                    }
-                    .disabled(isDescribingReference)
-                    Text("Sends the reference photo to Gemini when you tap.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.secondaryText)
-                    if isDescribingReference { ProgressView().tint(.white) }
-                    if let geminiReferenceNote { Text(geminiReferenceNote).font(.system(size: 14)) }
-                    if let geminiMessage { Text(geminiMessage).font(.system(size: 13)).foregroundStyle(Palette.secondaryText) }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
             }
             Button {
                 openPoseGuide()
@@ -959,9 +964,11 @@ struct HomeView: View {
             .buttonStyle(.plain)
             DisclosureGroup("More setup details", isExpanded: $showShotDetails) {
                 VStack(spacing: 0) {
-                    instruction(symbol: "sun.max", title: "Light", body: analysis == nil ? recipe.light : "Match the light direction in the reference.")
+                    instruction(symbol: "sun.max", title: "Light", body: referencePlan.flatMap { $0.lightCue.isEmpty ? nil : $0.lightCue }
+                                ?? (analysis == nil ? recipe.light : "Match the light direction in the reference."))
                     rowDivider
-                    instruction(symbol: "square.dashed", title: "Frame", body: analysis == nil ? recipe.framing : "Place the subject where they appear in the reference.")
+                    instruction(symbol: "square.dashed", title: "Frame", body: referencePlan.flatMap { $0.framingCue.isEmpty ? nil : $0.framingCue }
+                                ?? (analysis == nil ? recipe.framing : "Place the subject where they appear in the reference."))
                 }
             }
             .font(.system(size: 14, weight: .medium))
@@ -1005,7 +1012,7 @@ struct HomeView: View {
                     Button {
                         Task { await generateFeedback(reference: referenceImage, shot: image) }
                     } label: {
-                        Label(isGeneratingFeedback ? "Comparing photos…" : "Get Gemini feedback",
+                        Label(isGeneratingFeedback ? "Comparing photos…" : "Get photo tips",
                               systemImage: "sparkles")
                     }
                     .disabled(isGeneratingFeedback)
@@ -1144,7 +1151,7 @@ struct HomeView: View {
         capturedImage = nil
         comparisonNote = nil
         poseScore = nil
-        geminiReferenceNote = nil
+        referencePlan = nil
         geminiShotFeedback = nil
         geminiMessage = nil
         selectedRecipe = nil
@@ -1152,9 +1159,13 @@ struct HomeView: View {
         do {
             let result = try await AnalysisService.analyze(image, imageData: imageData)
             guard requestID == flowID else { return }
+            let plan = await preprocessReference(image, analysis: result)
+            guard requestID == flowID else { return }
             analysis = result
             startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
                                                    faceDistanceMeters: result.faceDistanceMeters)
+            if let plan { startingSetup.apply(plan, preserving: result.shotSpec) }
+            referencePlan = plan
             selectedRecipe = result.recipe
         } catch {
             guard requestID == flowID else { return }
@@ -1258,13 +1269,16 @@ struct HomeView: View {
         do {
             let result = try await AnalysisService.analyze(image, imageData: matchingImageData(for: id))
             guard requestID == flowID else { return }
+            let plan = await preprocessReference(image, analysis: result)
+            guard requestID == flowID else { return }
             referenceImage = image
             analysis = result
-            geminiReferenceNote = nil
+            referencePlan = plan
             geminiShotFeedback = nil
             geminiMessage = nil
             startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
                                                    faceDistanceMeters: result.faceDistanceMeters)
+            if let plan { startingSetup.apply(plan, preserving: result.shotSpec) }
             selectedRecipe = result.recipe
             capturedImage = nil
             showLiveCamera = true
@@ -1380,19 +1394,10 @@ struct HomeView: View {
         comparisonNote = "Not enough matching arm and leg joints were visible to score this pose. Try a clearer full-body shot."
     }
 
-    private func describeReference(_ image: UIImage) async {
-        guard !isDescribingReference else { return }
-        isDescribingReference = true
-        geminiMessage = nil
-        defer { isDescribingReference = false }
-        do {
-            let note = try await GeminiImageCoach.describeReference(image, hasMeasuredPose: analysis?.poseSkeleton != nil)
-            guard referenceImage === image else { return }
-            geminiReferenceNote = note
-        } catch {
-            guard referenceImage === image else { return }
-            geminiMessage = error.localizedDescription
-        }
+    private func preprocessReference(_ image: UIImage, analysis: PhotoAnalysis) async -> GeminiReferencePlan? {
+        guard GeminiImageCoach.isConfigured else { return nil }
+        return try? await GeminiImageCoach.planReference(image, visionHasPerson: analysis.hasPerson,
+                                                        hasMeasuredPose: analysis.poseSkeleton != nil)
     }
 
     private func generateFeedback(reference: UIImage, shot: UIImage) async {
@@ -1423,7 +1428,7 @@ struct HomeView: View {
         isSceneScan = false
         comparisonNote = nil
         poseScore = nil
-        geminiReferenceNote = nil
+        referencePlan = nil
         geminiShotFeedback = nil
         geminiMessage = nil
         scannedScene = nil

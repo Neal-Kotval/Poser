@@ -383,6 +383,24 @@ final class MatchingTests: XCTestCase {
         XCTAssertGreaterThan(diagram[.leftWrist]!.y, 0)
     }
 
+    func testSemanticIllustrationFillsOnlyMissingJoints() {
+        let detected = PoseSkeleton(points: [
+            .leftShoulder: CGPoint(x: 0.38, y: 0.28),
+            .rightShoulder: CGPoint(x: 0.62, y: 0.28),
+            .leftHip: CGPoint(x: 0.43, y: 0.55),
+            .rightHip: CGPoint(x: 0.57, y: 0.55),
+            .leftKnee: CGPoint(x: 0.42, y: 0.74),
+            .leftAnkle: CGPoint(x: 0.40, y: 0.94)
+        ])
+        var illustrativePoints = PoseSkeleton.example(for: ShotRecipe.presets[1]).points
+        illustrativePoints[.rightAnkle] = CGPoint(x: 0.72, y: 0.94)
+        let diagram = detected.displayingMissingJoints(fallback: PoseSkeleton(points: illustrativePoints))
+
+        XCTAssertEqual(diagram[.leftAnkle], detected[.leftAnkle])
+        XCTAssertEqual(diagram[.rightAnkle], illustrativePoints[.rightAnkle])
+        XCTAssertNil(detected[.rightAnkle])
+    }
+
     @MainActor
     func testCompletedShotPersistsWithPhotoAndReference() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
