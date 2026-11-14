@@ -35,6 +35,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nealkotval.Poser
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Poser/Poser.entitlements
   PoserTests:
     type: bundle.unit-test
     platform: iOS

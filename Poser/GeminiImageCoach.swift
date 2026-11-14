@@ -38,7 +38,7 @@ enum GeminiImageCoach {
     private static func generate(_ images: UIImage..., prompt: String) async throws -> String {
         guard isConfigured else { throw GeminiCoachError.notConfigured }
         let model = FirebaseAI.firebaseAI(backend: .googleAI())
-            .generativeModel(modelName: "gemini-3.8-flash")
+            .generativeModel(modelName: "gemini-3.5-flash-lite")
         let response: GenerateContentResponse
         switch images.count {
         case 1: response = try await model.generateContent(prepared(images[0]), prompt)

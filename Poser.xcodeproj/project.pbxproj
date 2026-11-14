@@ -22,6 +22,7 @@
 		9087FDC71C52E1ED6E817C47 /* ShotAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C0BDBE904DBAEA8A0C850F /* ShotAnalysis.swift */; };
 		934758836B26E53568726AB7 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DAC834AB4513408C49B1400 /* HomeView.swift */; };
 		97E9A3BF780BAF0A78277ECA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 76BBB6E7618692362776FC5B /* Assets.xcassets */; };
+		6BF73E9C07F7430388D94E10 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 6BF73E9C07F7430388D94E11 /* GoogleService-Info.plist */; };
 		A17D91B2C3D4E5F60718293A /* PinterestLibrary in Resources */ = {isa = PBXBuildFile; fileRef = B28EA2C3D4E5F60718293A4B /* PinterestLibrary */; };
 		CBB6B0E22B69BE40E1C4464C /* ShootStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27A4ED2C0016F1A86C4B3C25 /* ShootStore.swift */; };
 		E3E530D35DAFFB8A7960731A /* PoseMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2A125C99445696F76111D3 /* PoseMatcher.swift */; };
@@ -63,6 +64,7 @@
 		72858BE94E55ADBAB75C548B /* PoserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoserApp.swift; sourceTree = "<group>"; };
 		74C0BDBE904DBAEA8A0C850F /* ShotAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotAnalysis.swift; sourceTree = "<group>"; };
 		76BBB6E7618692362776FC5B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6BF73E9C07F7430388D94E11 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		B28EA2C3D4E5F60718293A4B /* PinterestLibrary */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PinterestLibrary; sourceTree = "<group>"; };
 		8C2FDB549430228924D4D029 /* ShotGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotGeometry.swift; sourceTree = "<group>"; };
 		8CFBB70FB62CEEB43C5F311C /* PoseTutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseTutorial.swift; sourceTree = "<group>"; };
@@ -133,6 +135,7 @@
 			isa = PBXGroup;
 			children = (
 				76BBB6E7618692362776FC5B /* Assets.xcassets */,
+				6BF73E9C07F7430388D94E11 /* GoogleService-Info.plist */,
 				5A0C1E7B2D4F6A8B9C0D1E19 /* Secrets */,
 				B28EA2C3D4E5F60718293A4B /* PinterestLibrary */,
 				00E9C851F5E46FCB3464F117 /* Camera.swift */,
@@ -251,6 +254,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				97E9A3BF780BAF0A78277ECA /* Assets.xcassets in Resources */,
+				6BF73E9C07F7430388D94E10 /* GoogleService-Info.plist in Resources */,
 				A17D91B2C3D4E5F60718293A /* PinterestLibrary in Resources */,
 				5A0C1E7B2D4F6A8B9C0D1E1A /* Secrets in Resources */,
 			);
@@ -462,6 +466,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = Poser/Poser.entitlements;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = GN2A6926JU;
