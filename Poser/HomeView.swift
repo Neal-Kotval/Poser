@@ -32,6 +32,7 @@ struct HomeView: View {
     @State private var flowID = UUID()
     @State private var showLiveCamera = true
     @State private var showShotDetails = false
+    @State private var selectedReferenceTag: ReferenceTag?
 
     var body: some View {
         NavigationStack {
@@ -371,16 +372,57 @@ struct HomeView: View {
                 Text("For you")
                     .font(.system(size: 21, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
+                Spacer()
+                Text("\(ReferenceCatalog.items(matching: selectedReferenceTag).count) photos")
+                    .font(PoserType.caption)
+                    .foregroundStyle(Palette.secondaryText)
             }
 
+            referenceTagBar
+                .padding(.top, -12)
+
             LazyVStack(alignment: .leading, spacing: 28) {
-                ForEach(ReferenceCatalog.items) { asset in
+                ForEach(ReferenceCatalog.items(matching: selectedReferenceTag)) { asset in
                     if let image = asset.preview {
                         feedCard(asset, image: image)
                     }
                 }
             }
         }
+    }
+
+    private var referenceTagBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: PoserSpace.small) {
+                referenceTagButton(nil)
+                ForEach(ReferenceCatalog.tags) { tag in
+                    referenceTagButton(tag)
+                }
+            }
+        }
+        .accessibilityIdentifier("referenceTagBar")
+    }
+
+    private func referenceTagButton(_ tag: ReferenceTag?) -> some View {
+        let isSelected = selectedReferenceTag == tag
+        return Button {
+            selectedReferenceTag = tag
+        } label: {
+            Text(tag?.title ?? "All")
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, PoserSpace.regular)
+                .frame(minHeight: 44)
+                .foregroundStyle(isSelected ? Palette.background : Palette.primaryText)
+                .background(isSelected ? Palette.primaryText : Palette.surface,
+                            in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                .overlay {
+                    RoundedRectangle(cornerRadius: PoserRadius.control)
+                        .stroke(isSelected ? Palette.primaryText : Palette.border, lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(tag == nil ? "Show all reference photos" : "Filter reference photos by \(tag!.title)")
     }
 
     private func feedAction(symbol: String, title: String) -> some View {

@@ -3,6 +3,26 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    func testReferenceTagsFilterBySettingAndPose() {
+        XCTAssertFalse(ReferenceCatalog.tags.isEmpty)
+        XCTAssertEqual(Set(ReferenceCatalog.tags.map(\.id)).count, ReferenceCatalog.tags.count)
+        for tag in ReferenceCatalog.tags {
+            let matches = ReferenceCatalog.items(matching: tag)
+            XCTAssertFalse(matches.isEmpty, "Empty tag: \(tag.id)")
+            let expected = ReferenceCatalog.items.filter {
+                tag.kind == .setting ? $0.setting == tag.value : $0.pose == tag.value
+            }
+            XCTAssertEqual(matches.map(\.id), expected.map(\.id))
+            XCTAssertLessThan(matches.count, ReferenceCatalog.items.count)
+        }
+    }
+
+    func testAllReferenceTagRestoresOriginalFeedOrder() {
+        _ = ReferenceCatalog.items(matching: ReferenceTag(kind: .setting, value: "street"))
+        XCTAssertEqual(ReferenceCatalog.items(matching: nil).map(\.id), ReferenceCatalog.items.map(\.id))
+        XCTAssertTrue(ReferenceCatalog.items(matching: ReferenceTag(kind: .pose, value: "missing")).isEmpty)
+    }
+
     func testSceneMatcherPrefersSameSceneOverContrastingColor() async {
         let scene = solidImage(.systemGreen)
         let matchingID = UUID()

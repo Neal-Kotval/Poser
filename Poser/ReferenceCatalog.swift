@@ -8,6 +8,8 @@ struct ReferenceAsset: Identifiable {
     let credit: String
     let license: String
     let source: URL?
+    var setting: String? = nil
+    var pose: String? = nil
 
     var image: UIImage? { loadImage(in: "images") }
     var preview: UIImage? { loadImage(in: "previews") }
@@ -27,6 +29,22 @@ struct ReferenceAsset: Identifiable {
     }
 }
 
+struct ReferenceTag: Hashable, Identifiable {
+    enum Kind: String { case setting, pose }
+
+    let kind: Kind
+    let value: String
+    var id: String { "\(kind.rawValue):\(value)" }
+    var title: String { value == "cafe" ? "Café" : value.capitalized }
+
+    func matches(_ asset: ReferenceAsset) -> Bool {
+        switch kind {
+        case .setting: asset.setting == value
+        case .pose: asset.pose == value
+        }
+    }
+}
+
 enum ReferenceCatalog {
     private struct Library: Decodable {
         let references: [Entry]
@@ -37,6 +55,8 @@ enum ReferenceCatalog {
         let pinID: String
         let title: String
         let pinURL: URL
+        let setting: String?
+        let pose: String?
     }
 
     static let items: [ReferenceAsset] = {
@@ -50,8 +70,22 @@ enum ReferenceCatalog {
                 assetName: entry.pinID,
                 credit: "Creator unverified",
                 license: "Rights unverified",
-                source: entry.pinURL
+                source: entry.pinURL,
+                setting: entry.setting,
+                pose: entry.pose
             )
         }
     }()
+
+    static let tags: [ReferenceTag] = {
+        let settings = Set(items.compactMap(\.setting)).sorted()
+        let poses = Set(items.compactMap(\.pose)).sorted()
+        return settings.map { ReferenceTag(kind: .setting, value: $0) }
+            + poses.map { ReferenceTag(kind: .pose, value: $0) }
+    }()
+
+    static func items(matching tag: ReferenceTag?) -> [ReferenceAsset] {
+        guard let tag else { return items }
+        return items.filter { tag.matches($0) }
+    }
 }
