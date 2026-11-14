@@ -12,8 +12,22 @@ private struct SavedInspirationFrameKey: PreferenceKey {
 }
 
 enum HomePaging {
-    static func allowsSwipe(start: CGPoint, translation: CGSize, excluding frame: CGRect) -> Bool {
-        !frame.contains(start) && abs(translation.width) > abs(translation.height)
+    static func allowsSwipe(start: CGPoint, translation: CGSize, excluding frame: CGRect,
+                            viewportWidth: CGFloat? = nil) -> Bool {
+        guard (frame.isNull || !frame.insetBy(dx: -16, dy: -16).contains(start)),
+              abs(translation.width) > abs(translation.height) * 2 else { return false }
+        guard let width = viewportWidth else { return true }
+        // Only an inward drag from an outside edge can navigate. Interior
+        // horizontal scrolling never competes with page navigation.
+        if start.x <= 28 { return translation.width > 0 }
+        if start.x >= width - 28 { return translation.width < 0 }
+        return false
+    }
+
+    static func pageStep(translation: CGSize, viewportWidth: CGFloat) -> Int? {
+        guard abs(translation.width) >= max(96, viewportWidth * 0.28),
+              abs(translation.width) > abs(translation.height) * 2 else { return nil }
+        return translation.width < 0 ? 1 : -1
     }
 }
 
@@ -21,6 +35,9 @@ struct HomeView: View {
     private enum Tab: Int, CaseIterable { case home, camera, profile }
 
     @State private var activeTab: Tab = .camera
+    @State private var homePageID = UUID()
+    @State private var cameraPageID = UUID()
+    @State private var profilePageID = UUID()
     @StateObject private var inspirationStore = InspirationStore()
     @StateObject private var shootStore = ShootStore()
     @StateObject private var profileStore = UserProfileStore()
@@ -208,24 +225,24 @@ struct HomeView: View {
     private var pagePager: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
-                homePage.frame(width: geometry.size.width)
-                cameraPage.frame(width: geometry.size.width)
-                profilePage.frame(width: geometry.size.width)
+                homePage.id(homePageID).frame(width: geometry.size.width)
+                cameraPage.id(cameraPageID).frame(width: geometry.size.width)
+                profilePage.id(profilePageID).frame(width: geometry.size.width)
             }
             .offset(x: -CGFloat(activeTab.rawValue) * geometry.size.width + pageDragOffset)
             .frame(width: geometry.size.width, alignment: .leading)
             .clipped()
             .contentShape(Rectangle())
-            .animation(.easeOut(duration: 0.25), value: activeTab)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: activeTab)
             .simultaneousGesture(
-                DragGesture(minimumDistance: 20, coordinateSpace: .named("homePager"))
+                DragGesture(minimumDistance: 32, coordinateSpace: .named("homePager"))
                     .updating($pageDragOffset) { value, offset, _ in
                         guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
-                        guard activeTab != .home || !savedInspirationFrame.contains(value.startLocation) else { return }
+                        guard activeTab != .home || !savedInspirationFrame.insetBy(dx: -16, dy: -16).contains(value.startLocation) else { return }
                         let excludedFrame = activeTab == .home ? referenceTagFrame : .null
                         guard HomePaging.allowsSwipe(start: value.startLocation,
                                                      translation: value.translation,
-                                                     excluding: excludedFrame) else { return }
+                                                     excluding: excludedFrame, viewportWidth: geometry.size.width) else { return }
                         let translation = value.translation.width
                         guard !(activeTab == .home && translation > 0),
                               !(activeTab == .profile && translation < 0) else { return }
@@ -233,15 +250,15 @@ struct HomeView: View {
                     }
                     .onEnded { value in
                         guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
-                        guard activeTab != .home || !savedInspirationFrame.contains(value.startLocation) else { return }
+                        guard activeTab != .home || !savedInspirationFrame.insetBy(dx: -16, dy: -16).contains(value.startLocation) else { return }
                         let excludedFrame = activeTab == .home ? referenceTagFrame : .null
                         guard HomePaging.allowsSwipe(start: value.startLocation,
                                                      translation: value.translation,
-                                                     excluding: excludedFrame),
-                              abs(value.translation.width) > 50 else { return }
-                        let step = value.translation.width < 0 ? 1 : -1
+                                                     excluding: excludedFrame, viewportWidth: geometry.size.width),
+                              let step = HomePaging.pageStep(translation: value.translation,
+                                                             viewportWidth: geometry.size.width) else { return }
                         if let next = Tab(rawValue: activeTab.rawValue + step) {
-                            activeTab = next
+                            navigate(to: next)
                         }
                     }
             )
@@ -411,7 +428,7 @@ struct HomeView: View {
     private func navigationItem(_ tab: Tab, title: String, symbol: String, selectedSymbol: String) -> some View {
         let selected = activeTab == tab
         return Button {
-            withAnimation(.easeOut(duration: 0.32)) { activeTab = tab }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.32)) { navigate(to: tab) }
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: selected ? selectedSymbol : symbol)
@@ -428,6 +445,40 @@ struct HomeView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
+    private func navigate(to tab: Tab) {
+        let previous = activeTab
+        guard previous != tab else { return }
+        // Invalidate work on exit, but reset the destination before it enters
+        // view so the outgoing page does not visibly snap during its swipe.
+        // Opening a reference bypasses this to retain its prepared shoot.
+        if previous == .camera { flowID = UUID() }
+        if tab == .camera {
+            reset()
+            cameraPageID = UUID()
+        }
+        if tab == .home {
+            closeReferenceSearch()
+            selectedReferenceTag = nil
+            referenceQuery = ""
+            isEditingInspiration = false
+            selectedInspiration = []
+            pendingReferenceDeletion = []
+            selectedPhotos = []
+            importLoadID = UUID()
+            isLoadingImports = false
+            importReviewBatch = nil
+            confirmedImports = []
+            homePageID = UUID()
+        }
+        if tab == .profile {
+            selectedCompletedShot = nil
+            profilePageID = UUID()
+        }
+        errorMessage = nil
+        savedMessage = nil
+        activeTab = tab
     }
 
     private var header: some View {

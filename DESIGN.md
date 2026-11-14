@@ -45,3 +45,9 @@ The pre-shot pose guide uses a white line figure on a dark surface. It animates 
 - Constrain cropped image hit areas to their visible tiles. Gestures that start inside the search bubble stay there; page swipes start elsewhere. Expansion respects Reduce Motion.
 - Support Dynamic Type without truncating instructions. Avoid relying on color alone to signal a successful alignment or error.
 - Keep motion tied to a user action; respect Reduced Motion if animations are added later.
+
+## Page navigation
+
+Manual tab changes reset transient page state: Home search, filters, editing selection, and scroll position; the unsaved camera setup; and Profile presentation state. Saved references, completed shots, and profile data persist. Opening a reference is a separate programmatic transition that retains its shoot setup.
+
+Page gestures begin within 28 points of an outside edge and move inward with clear horizontal intent. They must travel at least 28% of the page width (96-point minimum). Search and saved-photo controls include protected margins, and their horizontal scrolling never triggers a page turn. Bottom navigation remains available for direct switching.

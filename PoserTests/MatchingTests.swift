@@ -3,6 +3,37 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    func testInteriorHorizontalScrollingCannotTurnPagesEvenWithALongDrag() {
+        for x in [CGFloat(50), 196, 340] {
+            XCTAssertFalse(HomePaging.allowsSwipe(start: CGPoint(x: x, y: 300),
+                                                 translation: CGSize(width: -250, height: 0),
+                                                 excluding: .null, viewportWidth: 393))
+        }
+    }
+
+    func testPageNavigationRequiresInwardEdgeDragAndDeliberateDistance() {
+        XCTAssertTrue(HomePaging.allowsSwipe(start: CGPoint(x: 385, y: 400),
+                                            translation: CGSize(width: -140, height: 12),
+                                            excluding: .null, viewportWidth: 393))
+        XCTAssertTrue(HomePaging.allowsSwipe(start: CGPoint(x: 8, y: 400),
+                                            translation: CGSize(width: 140, height: 12),
+                                            excluding: .null, viewportWidth: 393))
+        XCTAssertFalse(HomePaging.allowsSwipe(start: CGPoint(x: 8, y: 400),
+                                             translation: CGSize(width: -140, height: 0),
+                                             excluding: .null, viewportWidth: 393))
+        XCTAssertNil(HomePaging.pageStep(translation: CGSize(width: -55, height: 0), viewportWidth: 393))
+        XCTAssertNil(HomePaging.pageStep(translation: CGSize(width: -140, height: 100), viewportWidth: 393))
+        XCTAssertEqual(HomePaging.pageStep(translation: CGSize(width: -140, height: 12), viewportWidth: 393), 1)
+        XCTAssertEqual(HomePaging.pageStep(translation: CGSize(width: 140, height: 12), viewportWidth: 393), -1)
+    }
+
+    func testHorizontalControlHasProtectedMarginsEvenInsidePageSwipeEdge() {
+        let control = CGRect(x: 24, y: 200, width: 345, height: 150)
+        XCTAssertFalse(HomePaging.allowsSwipe(start: CGPoint(x: 382, y: 195),
+                                             translation: CGSize(width: -200, height: 0),
+                                             excluding: control, viewportWidth: 393))
+    }
+
     func testReferenceSearchMatchesMultipleWordsRegardlessOfCaseAndSpacing() {
         let results = ReferenceCatalog.items(matching: nil, query: "  STREET   walking ")
         let expected = ReferenceCatalog.items.filter { $0.setting == "street" && $0.pose == "walking" }
