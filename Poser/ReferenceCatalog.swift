@@ -1,6 +1,26 @@
 import Foundation
 import UIKit
 
+@MainActor
+final class ReferenceLikeStore: ObservableObject {
+    @Published private(set) var likedIDs: Set<String>
+    private let defaults: UserDefaults
+    private let key = "poser.referenceLikes.v1"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        likedIDs = Set(defaults.stringArray(forKey: key) ?? [])
+    }
+
+    func isLiked(_ referenceID: String) -> Bool { likedIDs.contains(referenceID) }
+
+    func toggle(_ referenceID: String) {
+        if likedIDs.contains(referenceID) { likedIDs.remove(referenceID) }
+        else { likedIDs.insert(referenceID) }
+        defaults.set(likedIDs.sorted(), forKey: key)
+    }
+}
+
 private enum ReferencePreviewCache {
     static let images: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()

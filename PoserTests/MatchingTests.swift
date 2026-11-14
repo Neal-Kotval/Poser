@@ -3,6 +3,25 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    @MainActor
+    func testReferenceLikesPersistWithoutChangingOtherPostsAndCanBeUndone() throws {
+        let suite = "poser-likes-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ReferenceLikeStore(defaults: defaults)
+        XCTAssertFalse(store.isLiked("pin-a"))
+
+        store.toggle("pin-a")
+        let reloaded = ReferenceLikeStore(defaults: defaults)
+        XCTAssertTrue(reloaded.isLiked("pin-a"))
+        XCTAssertFalse(reloaded.isLiked("pin-b"))
+
+        reloaded.toggle("pin-a")
+        XCTAssertFalse(ReferenceLikeStore(defaults: defaults).isLiked("pin-a"))
+        reloaded.toggle("pin-b")
+        XCTAssertEqual(ReferenceLikeStore(defaults: defaults).likedIDs, ["pin-b"])
+    }
+
     func testFeedImagesUseOriginalResolutionInsteadOfSmallThumbnails() throws {
         for reference in [ReferenceCatalog.items[0], ReferenceCatalog.items[407], ReferenceCatalog.items[815]] {
             let feed = try XCTUnwrap(reference.feedImage)

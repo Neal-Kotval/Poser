@@ -47,6 +47,7 @@ struct HomeView: View {
     @StateObject private var inspirationStore = InspirationStore()
     @StateObject private var shootStore = ShootStore()
     @StateObject private var profileStore = UserProfileStore()
+    @StateObject private var referenceLikes = ReferenceLikeStore()
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var importReviewBatch: ImportReviewBatch?
     @State private var confirmedImports: [PendingImport] = []
@@ -662,67 +663,65 @@ struct HomeView: View {
             asset.pose.map { ReferenceTag(kind: .pose, value: $0) }
         ].compactMap { $0 }
         let shape = RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous)
-        return Button {
-            if let data = asset.imageData, let fullImage = UIImage(data: data) {
-                Task { await analyze(fullImage, scene: false, imageData: data) }
-            }
-        } label: {
-            GeometryReader { tile in
-                ReferenceFeedPhoto(asset: asset, placeholder: image)
-                    .frame(width: tile.size.width, height: tile.size.height)
-                    .clipped()
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .overlay(alignment: .topLeading) {
-                HStack(spacing: 4) {
-                    Text(post.initials)
-                        .font(.system(size: 8, weight: .semibold))
-                        .frame(width: 18, height: 18)
-                        .background(.white.opacity(0.14), in: Circle())
-                    Text(post.accountName)
-                        .font(.system(size: 11, weight: .medium))
-                        .lineLimit(1)
+        return ZStack(alignment: .bottomTrailing) {
+            Button {
+                if let data = asset.imageData, let fullImage = UIImage(data: data) {
+                    Task { await analyze(fullImage, scene: false, imageData: data) }
                 }
-                .foregroundStyle(.white)
-                .padding(.leading, 3)
-                .padding(.trailing, 8)
-                .padding(.vertical, 3)
-                .background(.regularMaterial, in: Capsule())
-                .padding(12)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-            .overlay(alignment: .bottomLeading) {
-                HStack(spacing: 4) {
-                    ForEach(tags) { tag in
-                        Text(tag.title)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(.regularMaterial, in: Capsule())
-                    }
-                    Spacer(minLength: 8)
+            } label: {
+                GeometryReader { tile in
+                    ReferenceFeedPhoto(asset: asset, placeholder: image)
+                        .frame(width: tile.size.width, height: tile.size.height)
+                        .clipped()
+                }
+                .aspectRatio(1, contentMode: .fit)
+                .overlay(alignment: .topLeading) {
                     HStack(spacing: 4) {
-                        Image(systemName: "heart")
-                        Text(post.likeCount.formatted(.number.notation(.compactName)))
+                        Text(post.initials)
+                            .font(.system(size: 8, weight: .semibold))
+                            .frame(width: 18, height: 18)
+                            .background(.white.opacity(0.14), in: Circle())
+                        Text(post.accountName)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
                     }
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
+                    .foregroundStyle(.white)
+                    .padding(.leading, 3)
+                    .padding(.trailing, 8)
+                    .padding(.vertical, 3)
                     .background(.regularMaterial, in: Capsule())
+                    .padding(12)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
-                .padding(12)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+                .overlay(alignment: .bottomLeading) {
+                    HStack(spacing: 4) {
+                        ForEach(tags) { tag in
+                            Text(tag.title)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(.regularMaterial, in: Capsule())
+                        }
+                    }
+                    .padding(12)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+                .clipShape(shape)
+                // Bound the photo's tap area to its visible rounded card.
+                .contentShape(shape)
             }
-            .clipShape(shape)
-            // Bound the photo's tap area to its visible rounded card.
-            .contentShape(shape)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(asset.title) inspiration. Demo account \(post.accountName).")
+
+            ReferenceLikeButton(isLiked: referenceLikes.isLiked(asset.assetName),
+                                count: post.likeCount + (referenceLikes.isLiked(asset.assetName) ? 1 : 0)) {
+                referenceLikes.toggle(asset.assetName)
+            }
+            .padding(12)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Open \(asset.title) inspiration. Demo account \(post.accountName), \(post.likeCount) mock likes.")
     }
 
     private var savedInspiration: some View {
@@ -1490,6 +1489,40 @@ struct HomeView: View {
         isAnalyzing = false
         showShotDetails = false
         startingSetup = ReferenceStartingSetup()
+    }
+}
+
+private struct ReferenceLikeButton: View {
+    let isLiked: Bool
+    let count: Int
+    let onToggle: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 4) {
+                Image(systemName: isLiked ? "heart.fill" : "heart")
+                    .foregroundStyle(isLiked ? Color.pink : .white.opacity(0.9))
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: isLiked)
+                    .symbolEffectsRemoved(reduceMotion)
+                Text(count.formatted())
+                    .foregroundStyle(.white.opacity(0.9))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(count)))
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(.regularMaterial, in: Capsule())
+            .frame(minWidth: 44, minHeight: 44, alignment: .bottomTrailing)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 0.7), value: isLiked)
+        .accessibilityLabel(isLiked ? "Unlike reference" : "Like reference")
+        .accessibilityValue("\(count) likes, including mock engagement")
+        .accessibilityAddTraits(isLiked ? [.isSelected] : [])
     }
 }
 
