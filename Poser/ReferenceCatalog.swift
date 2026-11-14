@@ -22,6 +22,19 @@ struct ReferenceAsset: Identifiable {
 
     var image: UIImage? { loadImage(in: "images") }
     var preview: UIImage? { loadImage(in: "previews") }
+    /// Feed cards use the original bundled image, decoded off the main thread.
+    /// Small previews remain available for scene matching and placeholders.
+    var feedImage: UIImage? {
+        guard let url = Bundle.main.url(forResource: assetName, withExtension: "jpg",
+                                        subdirectory: "PinterestLibrary/images") else { return nil }
+        let key = url.path as NSString
+        if let cached = ReferencePreviewCache.images.object(forKey: key) { return cached }
+        guard let original = UIImage(contentsOfFile: url.path) else { return nil }
+        let decoded = original.preparingForDisplay() ?? original
+        let cost = decoded.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        ReferencePreviewCache.images.setObject(decoded, forKey: key, cost: cost)
+        return decoded
+    }
     var imageData: Data? {
         guard let url = Bundle.main.url(forResource: assetName, withExtension: "jpg",
                                         subdirectory: "PinterestLibrary/images") else { return nil }

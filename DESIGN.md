@@ -18,7 +18,7 @@ The compatibility names `ink`, `panel`, `raised`, `cyan`, `cream`, and `muted` r
 
 `PoserType` contains the wordmark, display, title, body, action, supporting, and caption roles. Use semantic SwiftUI font styles for content so Dynamic Type can scale. Keep the wordmark as the only strongly styled text treatment. Use SF Symbols for simple controls and avoid adding ornament to photo surfaces.
 
-`PoserSpace` follows a 4-point rhythm: 4, 8, 12, 16, 24, and 32 points. `PoserRadius` uses 22-point controls, 28-point grouped surfaces, and 24-point photo corners. Category chips and floating navigation use capsule shapes. Feed and selection tiles use a 1:1 crop. For you images fill rounded, borderless cards with separate setting and pose pills overlaid at the bottom-left; no outer frame or caption is shown. The live camera remains edge-to-edge.
+`PoserSpace` follows a 4-point rhythm: 4, 8, 12, 16, 24, and 32 points. `PoserRadius` uses 22-point controls, 28-point grouped surfaces, and 24-point photo corners. Category chips and floating navigation use capsule shapes. Feed and selection tiles use a 1:1 crop. For you images fill rounded, borderless cards with separate setting and pose pills overlaid at the bottom-left; no outer frame or caption is shown. Pills use 12-point type, 9-point horizontal and 5-point vertical padding, and a 4-point gap. Feed cards asynchronously load the original bundled image at its available resolution, using small thumbnails only as placeholders and for scene matching. The live camera remains edge-to-edge.
 
 ## Components
 

@@ -3,6 +3,18 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    func testFeedImagesUseOriginalResolutionInsteadOfSmallThumbnails() throws {
+        for reference in [ReferenceCatalog.items[0], ReferenceCatalog.items[407], ReferenceCatalog.items[815]] {
+            let feed = try XCTUnwrap(reference.feedImage)
+            let original = try XCTUnwrap(reference.image)
+            let thumbnail = try XCTUnwrap(reference.preview)
+            XCTAssertEqual(feed.size.width * feed.scale, original.size.width * original.scale)
+            XCTAssertEqual(feed.size.height * feed.scale, original.size.height * original.scale)
+            XCTAssertGreaterThan(max(feed.size.width, feed.size.height) * feed.scale,
+                                 max(thumbnail.size.width, thumbnail.size.height) * thumbnail.scale)
+        }
+    }
+
     func testInteriorHorizontalScrollingCannotTurnPagesEvenWithALongDrag() {
         for x in [CGFloat(50), 196, 340] {
             XCTAssertFalse(HomePaging.allowsSwipe(start: CGPoint(x: x, y: 300),

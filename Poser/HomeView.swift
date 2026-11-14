@@ -667,25 +667,23 @@ struct HomeView: View {
             }
         } label: {
             GeometryReader { tile in
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
+                ReferenceFeedPhoto(asset: asset, placeholder: image)
                     .frame(width: tile.size.width, height: tile.size.height)
                     .clipped()
             }
             .aspectRatio(1, contentMode: .fit)
             .overlay(alignment: .bottomLeading) {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     ForEach(tags) { tag in
                         Text(tag.title)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
                             .background(.regularMaterial, in: Capsule())
                     }
                 }
-                .padding(16)
+                .padding(12)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
@@ -1462,6 +1460,28 @@ struct HomeView: View {
         isAnalyzing = false
         showShotDetails = false
         startingSetup = ReferenceStartingSetup()
+    }
+}
+
+private struct ReferenceFeedPhoto: View {
+    let asset: ReferenceAsset
+    let placeholder: UIImage
+    @State private var fullImage: UIImage?
+
+    var body: some View {
+        Image(uiImage: fullImage ?? placeholder)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFill()
+            .task(id: asset.id) {
+                let reference = asset
+                let loaded = await Task.detached(priority: .userInitiated) {
+                    reference.feedImage
+                }.value
+                guard !Task.isCancelled else { return }
+                fullImage = loaded
+            }
+            .onDisappear { fullImage = nil }
     }
 }
 
