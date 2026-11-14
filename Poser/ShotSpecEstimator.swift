@@ -167,6 +167,9 @@ enum Pose3DReader {
 }
 
 enum Pose2DReader {
+    /// Nose-to-ankle span as a fraction of standing height.
+    static let noseToAnkleFraction = 0.885
+
     private static let joints: [(PoseJoint, VNHumanBodyPoseObservation.JointName)] = [
         (.nose, .nose), (.neck, .neck),
         (.leftShoulder, .leftShoulder), (.rightShoulder, .rightShoulder),
@@ -210,7 +213,6 @@ enum Pose2DReader {
 enum ShotSpecEstimator {
     static let defaultSubjectHeight = 1.7
     private static let headToAnkleFraction = 1 - Double(BodyFrameGeometry.ankleHeightRatio)
-    private static let noseToAnkleFraction = 0.885
 
     static func estimate(image: UIImage, imageData: Data? = nil,
                          subjectHeightMeters: Double = defaultSubjectHeight) async -> (spec: ShotSpec, diagnostics: ShotSpecDiagnostics) {
@@ -276,7 +278,7 @@ enum ShotSpecEstimator {
             let spec = ShotSpec(source: .pose3D, cameraHeightRatio: placement.heightRatio, distanceMeters: distance,
                                 distanceIsApproximate: approximate, pitchDegrees: placement.pitchDegrees,
                                 subjectYawDegrees: placement.subjectYawDegrees, horizonDegrees: horizonDegrees,
-                                subjectBox: projected?.box ?? Pose2DReader.box(points2D), silhouette: silhouette,
+                                subjectBox: Pose2DReader.box(points2D) ?? projected?.box, silhouette: silhouette,
                                 subjectHeightMeters: subjectHeightMeters, focalSource: focalSource, imageAspect: aspect)
             return (spec, log)
         }
@@ -284,7 +286,7 @@ enum ShotSpecEstimator {
         if let span = Pose2DReader.noseToAnkle(points2D) {
             let distance = BodyFrameGeometry.pinholeDistance(
                 focalPixels: focalPixels, subjectHeightMeters: subjectHeightMeters,
-                visibleFraction: noseToAnkleFraction, spanPixels: Double(span * size.height))
+                visibleFraction: Pose2DReader.noseToAnkleFraction, spanPixels: Double(span * size.height))
             log.add("2D fallback distance \(distance.map(fmt) ?? "-") m")
             let spec = ShotSpec(source: .pose2D, distanceMeters: distance, horizonDegrees: horizonDegrees,
                                 subjectBox: Pose2DReader.box(points2D), silhouette: silhouette,
