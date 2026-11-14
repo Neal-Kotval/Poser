@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 
 struct HomeView: View {
-    private enum Tab: Hashable { case camera, home, profile }
+    private enum Tab: Hashable { case home, camera, profile }
 
     @State private var activeTab: Tab = .camera
     @StateObject private var inspirationStore = InspirationStore()
@@ -13,7 +13,6 @@ struct HomeView: View {
     @State private var analysis: PhotoAnalysis?
     @State private var selectedRecipe: ShotRecipe?
     @State private var capturedImage: UIImage?
-    @State private var showingLink = false
     @State private var showingScan = false
     @State private var showingPoseTutorial = false
     @State private var isAnalyzing = false
@@ -37,10 +36,10 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             TabView(selection: $activeTab) {
-                cameraPage
-                    .tag(Tab.camera)
                 homePage
                     .tag(Tab.home)
+                cameraPage
+                    .tag(Tab.camera)
                 profilePage
                     .tag(Tab.profile)
             }
@@ -78,13 +77,6 @@ struct HomeView: View {
                     if requestID == flowID { errorMessage = error.localizedDescription }
                 }
             }
-        }
-        .sheet(isPresented: $showingLink) {
-            LinkEntryView { image in
-                showingLink = false
-                Task { await importInspiration(image, source: .link) }
-            }
-            .presentationDetents([.medium])
         }
         .fullScreenCover(isPresented: $showingScan) {
             CameraScreen(mode: .scan, recipe: nil, targetX: 0.5) { image in
@@ -232,53 +224,59 @@ struct HomeView: View {
                 .opacity(selectedMatches.isEmpty ? 0.4 : 1)
                 .padding(.horizontal, PoserSpace.large)
                 .padding(.top, 10)
+                .padding(.bottom, 8)
             }
             HStack(spacing: 0) {
-            Button { withAnimation(.easeOut(duration: 0.32)) { activeTab = .home } } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: activeTab == .home ? "house.fill" : "house")
-                        .font(.system(size: 20))
-                    Text("Home")
-                        .font(.system(size: 11, weight: .medium))
+                dockTab(.home, title: "Home", symbol: "house", selectedSymbol: "house.fill")
+                Button {
+                    withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
+                } label: {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(Palette.background)
+                        .frame(width: 50, height: 50)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .frame(maxWidth: .infinity, minHeight: 62)
+                        .contentShape(Rectangle())
                 }
-                .foregroundStyle(activeTab == .home ? .white : .white.opacity(0.55))
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Camera")
+                .accessibilityAddTraits(activeTab == .camera ? .isSelected : [])
+                dockTab(.profile, title: "Profile", symbol: "person.crop.circle", selectedSymbol: "person.crop.circle.fill")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Home")
-            Button {
-                withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
-            } label: {
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(width: 52, height: 52)
-                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                    .overlay(RoundedRectangle(cornerRadius: PoserRadius.control).stroke(.white.opacity(activeTab == .camera ? 0.8 : 0), lineWidth: 2).padding(-5))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Camera")
-            Button { withAnimation(.easeOut(duration: 0.32)) { activeTab = .profile } } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: activeTab == .profile ? "person.crop.circle.fill" : "person.crop.circle")
-                        .font(.system(size: 21))
-                    Text("Profile")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(activeTab == .profile ? .white : .white.opacity(0.55))
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Profile")
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 70)
+            .padding(.horizontal, 7)
+            .frame(maxWidth: 460)
+            .background(Palette.surface.opacity(0.97), in: RoundedRectangle(cornerRadius: PoserRadius.dock, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: PoserRadius.dock, style: .continuous)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
         }
         .background {
-            Palette.background.opacity(0.92)
+            Palette.background.opacity(0.78)
                 .ignoresSafeArea(edges: .bottom)
         }
+    }
+
+    private func dockTab(_ tab: Tab, title: String, symbol: String, selectedSymbol: String) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.32)) { activeTab = tab }
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: activeTab == tab ? selectedSymbol : symbol)
+                    .font(.system(size: 19, weight: .medium))
+                    .frame(height: 23)
+                Text(title)
+                    .font(.system(size: 11, weight: activeTab == tab ? .semibold : .medium))
+            }
+            .foregroundStyle(activeTab == tab ? .white : Palette.secondaryText)
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(activeTab == tab ? .isSelected : [])
     }
 
     private var header: some View {
@@ -312,9 +310,6 @@ struct HomeView: View {
                 }
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     feedAction(symbol: "plus", title: "Add photo")
-                }
-                Button { showingLink = true } label: {
-                    feedAction(symbol: "link", title: "Paste link")
                 }
             }
             .buttonStyle(.plain)
@@ -555,9 +550,21 @@ struct HomeView: View {
                     .aspectRatio(1, contentMode: .fit)
             }
             VStack(spacing: 0) {
-                instruction(symbol: "iphone", title: "Camera", body: analysis?.geometry.distanceLabel ?? recipe.camera)
+                instruction(symbol: "arrow.left.and.right", title: "Distance", body: analysis?.geometry.distanceLabel ?? recipe.camera)
+                rowDivider
+                instruction(symbol: "iphone", title: "Phone height", body: analysis?.geometry.adjustmentLabel ?? "Analyzing reference")
+                rowDivider
+                instruction(symbol: "angle", title: "Camera tilt", body: analysis.map {
+                    $0.shotSpec.pitchDegrees == nil ? "Not estimated from this reference" : $0.geometry.angleLabel
+                } ?? "Analyzing reference")
                 rowDivider
                 instruction(symbol: "figure.stand", title: "Pose", body: analysis.map { $0.poseSkeleton?.shortCue ?? "Pose not measured; use the photo as your guide." } ?? recipe.pose)
+            }
+            if let analysis, analysis.shotSpec.source != .pose3D {
+                Text("Height and tilt could not be estimated from this photo. A clear full-body reference may help.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Button {
                 openPoseGuide()
@@ -931,8 +938,15 @@ struct HomeView: View {
     private func compare(_ image: UIImage) async {
         guard let result = try? await AnalysisService.analyze(image) else { return }
         guard capturedImage === image else { return }
-        if let reference = analysis,
-           let match = PoseMatcher.compare(reference: reference.poseSkeleton, live: result.poseSkeleton,
+        guard let reference = analysis, reference.poseSkeleton != nil else {
+            comparisonNote = "No measurable person pose was found in the reference photo. Choose a clearer reference to get a pose score."
+            return
+        }
+        guard result.poseSkeleton != nil else {
+            comparisonNote = "No measurable person pose was found in your photo. Keep your arms and legs in view, then try again."
+            return
+        }
+        if let match = PoseMatcher.compare(reference: reference.poseSkeleton, live: result.poseSkeleton,
                                            referenceOutline: reference.shotSpec.silhouette,
                                            liveOutline: result.shotSpec.silhouette) {
             poseScore = match.score
@@ -954,16 +968,7 @@ struct HomeView: View {
                 : match.cue
             return
         }
-        guard let referencePoint = analysis?.subjectPoint,
-              let capturedPoint = result.subjectPoint else { return }
-        let offset = capturedPoint.x - referencePoint.x
-        if abs(offset) < 0.08 {
-            comparisonNote = "Your subject is close to the reference position. Check the light and background next."
-        } else if offset < 0 {
-            comparisonNote = "Your subject sits farther left than in the reference. Shift the frame a little right."
-        } else {
-            comparisonNote = "Your subject sits farther right than in the reference. Shift the frame a little left."
-        }
+        comparisonNote = "Not enough matching arm and leg joints were visible to score this pose. Try a clearer full-body shot."
     }
 
     private func reset() {
@@ -988,60 +993,5 @@ struct HomeView: View {
         showingPoseTutorial = false
         isAnalyzing = false
         showShotDetails = false
-    }
-}
-
-struct LinkEntryView: View {
-    let onImage: (UIImage) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var link = ""
-    @State private var loading = false
-    @State private var errorMessage: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text("Paste a link")
-                    .font(.system(size: 25, weight: .bold, design: .rounded))
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }
-            }
-            Text("Use a public Pinterest or Instagram post, or a direct image URL.")
-                .font(.system(size: 14))
-                .foregroundStyle(.white.opacity(0.56))
-            TextField("https://…", text: $link)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .autocorrectionDisabled()
-                .padding(15)
-                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: PoserRadius.control))
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            Button {
-                loading = true
-                errorMessage = nil
-                Task {
-                    do { onImage(try await LinkImageLoader.image(from: link)) }
-                    catch { errorMessage = error.localizedDescription }
-                    loading = false
-                }
-            } label: {
-                Text(loading ? "Loading preview…" : "Use this photo")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
-                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-            }
-            .buttonStyle(.plain)
-            .disabled(loading || link.isEmpty)
-            Spacer()
-        }
-        .padding(24)
-        .background(Palette.background.ignoresSafeArea())
-        .foregroundStyle(.white)
     }
 }

@@ -99,7 +99,7 @@ final class MatchingTests: XCTestCase {
         XCTAssertNil(PoseMatcher.compare(reference: noLeg, live: noLeg))
     }
 
-    func testOutlineDominatesPoseScore() {
+    func testOutlineContributesToPoseScore() {
         let pose = fiveJointPose(rightWristY: 0.3)
         let full = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.9, y: 0.1),
                     CGPoint(x: 0.9, y: 0.9), CGPoint(x: 0.1, y: 0.9)]
@@ -109,10 +109,21 @@ final class MatchingTests: XCTestCase {
         let score = PoseMatcher.compare(reference: pose, live: pose,
                                         referenceOutline: full, liveOutline: narrow)
         XCTAssertNotNil(score)
-        XCTAssertLessThan(score!.score, 80, "Matching joints should not hide a mismatched outline")
+        XCTAssertLessThan(score!.score, 85, "Matching joints should not hide a mismatched outline")
         XCTAssertEqual(PoseMatcher.compare(reference: pose, live: pose,
                                            referenceOutline: full, liveOutline: full)?.score, 100)
         XCTAssertEqual(score?.cue, "Match your outline to the guide")
+    }
+
+    func testMatchingOutlineCannotHideWrongArm() {
+        let reference = fiveJointPose(rightWristY: 0.3)
+        let live = fiveJointPose(rightWristY: 0.75)
+        let outline = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.9, y: 0.1),
+                       CGPoint(x: 0.9, y: 0.9), CGPoint(x: 0.1, y: 0.9)]
+        let result = PoseMatcher.compare(reference: reference, live: live,
+                                         referenceOutline: outline, liveOutline: outline)
+        XCTAssertLessThan(result!.score, 85)
+        XCTAssertEqual(result?.cue, "Raise your right arm")
     }
 
     func testOutlineRejectsInvalidOrTinyContours() {
@@ -125,15 +136,28 @@ final class MatchingTests: XCTestCase {
         XCTAssertNil(SilhouetteMatcher.score(reference: full, live: invalid))
     }
 
-    func testOutlineOnlyMatchAndFrameOverlapStayDistinct() {
+    func testOutlineWithoutJointsCannotProducePoseScore() {
         let reference = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.4, y: 0.1),
                          CGPoint(x: 0.4, y: 0.8), CGPoint(x: 0.1, y: 0.8)]
         let shifted = reference.map { CGPoint(x: $0.x + 0.4, y: $0.y) }
 
-        XCTAssertEqual(PoseMatcher.compare(reference: nil, live: nil,
-                                           referenceOutline: reference, liveOutline: shifted)?.score, 100)
+        XCTAssertNil(PoseMatcher.compare(reference: nil, live: nil,
+                                         referenceOutline: reference, liveOutline: shifted))
         XCTAssertEqual(SilhouetteMatcher.frameOverlap(reference: reference, live: shifted), 0)
         XCTAssertEqual(SilhouetteMatcher.frameOverlap(reference: reference, live: reference), 100)
+    }
+
+    func testLiveScoreUsesPoseShapeRatherThanFramePosition() {
+        let reference = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.4, y: 0.1),
+                         CGPoint(x: 0.4, y: 0.8), CGPoint(x: 0.1, y: 0.8)]
+        let shifted = reference.map { CGPoint(x: $0.x + 0.4, y: $0.y) }
+        let result = CameraModel.scoreLivePose(referencePose: nil, livePose: nil,
+                                               referenceOutline: reference, liveOutline: shifted,
+                                               referenceAspect: 0.75, liveAspect: 0.75,
+                                               focalRatio: 1)
+
+        XCTAssertNil(result.pose)
+        XCTAssertEqual(result.frameOverlap, 0)
     }
 
     @MainActor

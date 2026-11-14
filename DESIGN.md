@@ -1,6 +1,6 @@
 # Poser design system
 
-Poser is a camera-first photography tool. The live image or a reference photo is the visual focus; controls stay quiet until they help someone take the next shot. The interface uses black chrome, white type, restrained gray structure, square photo tiles, and crisp edges.
+Poser is a camera-first photography tool. The live image or a reference photo is the visual focus; controls stay quiet until they help someone take the next shot. The interface uses black chrome, white type, restrained gray structure, softly rounded photo tiles, and rounded controls.
 
 ## Foundations
 
@@ -18,7 +18,7 @@ The compatibility names `ink`, `panel`, `raised`, `cyan`, `cream`, and `muted` r
 
 `PoserType` contains the wordmark, display, title, body, action, supporting, and caption roles. Use semantic SwiftUI font styles for content so Dynamic Type can scale. Keep the wordmark as the only strongly styled text treatment. Use SF Symbols for simple controls and avoid adding ornament to photo surfaces.
 
-`PoserSpace` follows a 4-point rhythm: 4, 8, 12, 16, 24, and 32 points. `PoserRadius` keeps controls and grouped surfaces at 4 points and photo corners square. Feed and selection tiles use a 1:1 crop. The live camera remains edge-to-edge.
+`PoserSpace` follows a 4-point rhythm: 4, 8, 12, 16, 24, and 32 points. `PoserRadius` uses 14-point control corners, 18-point grouped surfaces, 12-point photo corners, and a 26-point navigation dock. Feed and selection tiles use a 1:1 crop. The live camera remains edge-to-edge.
 
 ## Components
 
@@ -27,7 +27,7 @@ The compatibility names `ink`, `panel`, `raised`, `cyan`, `cream`, and `muted` r
 - `SectionLabel`: quiet supporting label for grouping content.
 - `PoserSurface`: a grouped dark surface with a subtle border.
 
-The bottom navigation contains Home and a prominent camera control. The camera opens first. Home is the inspiration feed; the Camera tab holds active shot plans and captured-image review. On the camera screen, the shutter is the strongest control and live guidance appears only when a recipe exists.
+The bottom navigation is a compact rounded dock with Home, a prominent camera control, and Profile. The camera opens first. Home is the inspiration feed; the Camera tab holds active shot plans and captured-image review. On the camera screen, the shutter is the strongest control and live guidance appears only when a recipe exists.
 
 The pre-shot pose guide uses a white line figure on a dark surface. It animates between a neutral stance and detected body landmarks when available; the example pose is labeled when detection is unavailable. Keep its camera distance and subject instructions readable before the user opens the live camera.
 
