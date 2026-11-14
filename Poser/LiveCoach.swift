@@ -249,9 +249,9 @@ final class LiveCoach {
             focalRatio = 1
         }
         referenceFocalRatio = focalRatio
-        targetBox = (FrameMapping.boundingBox(of: spec.silhouette) ?? spec.subjectBox).map {
-            FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: liveAspect, focalRatio: focalRatio)
-        }
+        targetBox = FrameMapping.mapTarget(silhouette: spec.silhouette, fallback: spec.subjectBox,
+                                           fromAspect: spec.imageAspect, intoAspect: liveAspect,
+                                           focalRatio: focalRatio)
     }
 
     /// Call on every motion update. Pass `reading` only when a new Vision result is available.
@@ -297,10 +297,8 @@ final class LiveCoach {
         if spec.silhouette.count >= 3 && smoothed.silhouette.count < 3 { return .checkSetup }
         if spec.silhouette.count >= 3 {
             let aspect = smoothed.frameAspect ?? 3.0 / 4.0
-            let mapped = spec.silhouette.map {
-                FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: aspect,
-                                 focalRatio: referenceFocalRatio)
-            }
+            let mapped = FrameMapping.mapOutline(spec.silhouette, fromAspect: spec.imageAspect,
+                                                 intoAspect: aspect, focalRatio: referenceFocalRatio)
             if let overlap = SilhouetteMatcher.frameOverlap(reference: mapped, live: smoothed.silhouette),
                overlap < 65 {
                 return .adjustPose("Align your outline with the guide")
@@ -356,10 +354,9 @@ final class LiveCoach {
 
     private func absorb(_ reading: LiveReading) {
         if let aspect = reading.frameAspect, aspect.isFinite, aspect > 0 {
-            targetBox = (FrameMapping.boundingBox(of: spec.silhouette) ?? spec.subjectBox).map {
-                FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: aspect,
-                                 focalRatio: referenceFocalRatio)
-            }
+            targetBox = FrameMapping.mapTarget(silhouette: spec.silhouette, fallback: spec.subjectBox,
+                                               fromAspect: spec.imageAspect, intoAspect: aspect,
+                                               focalRatio: referenceFocalRatio)
         }
         guard let box = reading.subjectBox else {
             smoothed = LiveReading()
@@ -433,6 +430,51 @@ enum FrameMapping {
         return CGRect(x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y)
     }
 
+    /// The part of a live frame that a tall phone preview actually shows. Aspect fill crops
+    /// the sides of a 3:4 frame to roughly the middle 60%.
+    static let visibleRegion = CGRect(x: 0.2, y: 0.04, width: 0.6, height: 0.92)
+
+    /// Maps a reference outline into the live frame, then keeps it inside `visibleRegion`.
+    /// A landscape or wide-lens reference with an off-center subject otherwise maps past the
+    /// edge of a portrait preview, leaving a guide nobody can line up with.
+    static func mapOutline(_ points: [CGPoint], fromAspect: CGFloat, intoAspect: CGFloat,
+                           focalRatio: CGFloat = 1) -> [CGPoint] {
+        let mapped = points.map { map($0, fromAspect: fromAspect, intoAspect: intoAspect, focalRatio: focalRatio) }
+        guard let box = boundingBox(of: mapped) else { return mapped }
+        let fit = fitting(box)
+        return mapped.map(fit)
+    }
+
+    /// The live-frame target box, placed exactly where `mapOutline` draws the guide.
+    static func mapTarget(silhouette: [CGPoint], fallback: CGRect?, fromAspect: CGFloat,
+                          intoAspect: CGFloat, focalRatio: CGFloat = 1) -> CGRect? {
+        if let box = boundingBox(of: mapOutline(silhouette, fromAspect: fromAspect,
+                                                intoAspect: intoAspect, focalRatio: focalRatio)) {
+            return box
+        }
+        guard let fallback else { return nil }
+        let mapped = map(fallback, fromAspect: fromAspect, intoAspect: intoAspect, focalRatio: focalRatio)
+        let fit = fitting(mapped)
+        let topLeft = fit(CGPoint(x: mapped.minX, y: mapped.minY))
+        let bottomRight = fit(CGPoint(x: mapped.maxX, y: mapped.maxY))
+        return CGRect(x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y)
+    }
+
+    /// Shrinks a box only if it is larger than the visible region, then slides it inside.
+    private static func fitting(_ box: CGRect) -> (CGPoint) -> CGPoint {
+        let region = visibleRegion
+        guard box.width > 0, box.height > 0 else { return { $0 } }
+        let scale = min(1, region.width / box.width, region.height / box.height)
+        let halfWidth = box.width * scale / 2
+        let halfHeight = box.height * scale / 2
+        let centerX = min(max(box.midX, region.minX + halfWidth), region.maxX - halfWidth)
+        let centerY = min(max(box.midY, region.minY + halfHeight), region.maxY - halfHeight)
+        return { point in
+            CGPoint(x: centerX + (point.x - box.midX) * scale,
+                    y: centerY + (point.y - box.midY) * scale)
+        }
+    }
+
     /// Where a normalized live-frame point appears in a preview that shows the frame with aspect fill.
     static func viewPoint(_ point: CGPoint, frameAspect: CGFloat, viewSize: CGSize) -> CGPoint {
         let scale = max(viewSize.width / frameAspect, viewSize.height)
@@ -450,11 +492,9 @@ enum FrameMapping {
         default:
             focalRatio = 1
         }
-        return spec.silhouette.map {
-            viewPoint(map($0, fromAspect: spec.imageAspect, intoAspect: frameAspect,
-                          focalRatio: focalRatio),
-                      frameAspect: frameAspect, viewSize: viewSize)
-        }
+        return mapOutline(spec.silhouette, fromAspect: spec.imageAspect, intoAspect: frameAspect,
+                          focalRatio: focalRatio)
+            .map { viewPoint($0, frameAspect: frameAspect, viewSize: viewSize) }
     }
 
     private static func diagonal(_ size: CGSize) -> CGFloat { hypot(size.width, size.height) }

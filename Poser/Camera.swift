@@ -207,11 +207,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             let outline = referenceOutlineSnapshot
             let poseMatch = PoseMatcher.compare(reference: targetPose, live: reading.pose,
                                                 referenceOutline: outline.points, liveOutline: reading.silhouette)
-            let mappedOutline = outline.points.map {
-                FrameMapping.map($0, fromAspect: outline.aspect,
-                                 intoAspect: reading.frameAspect ?? 3.0 / 4.0,
-                                 focalRatio: outline.focalRatio)
-            }
+            let mappedOutline = FrameMapping.mapOutline(outline.points, fromAspect: outline.aspect,
+                                                        intoAspect: reading.frameAspect ?? 3.0 / 4.0,
+                                                        focalRatio: outline.focalRatio)
             let frameOverlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
                                                                live: reading.silhouette)
             DispatchQueue.main.async {

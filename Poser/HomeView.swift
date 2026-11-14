@@ -943,10 +943,10 @@ struct HomeView: View {
             default:
                 focalRatio = 1
             }
-            let mappedOutline = reference.shotSpec.silhouette.map {
-                FrameMapping.map($0, fromAspect: reference.shotSpec.imageAspect,
-                                 intoAspect: result.shotSpec.imageAspect, focalRatio: focalRatio)
-            }
+            let mappedOutline = FrameMapping.mapOutline(reference.shotSpec.silhouette,
+                                                        fromAspect: reference.shotSpec.imageAspect,
+                                                        intoAspect: result.shotSpec.imageAspect,
+                                                        focalRatio: focalRatio)
             let overlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
                                                          live: result.shotSpec.silhouette)
             comparisonNote = match.score >= 85 && (overlap ?? 100) < 70
