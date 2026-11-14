@@ -8,7 +8,7 @@ struct PoseMatch {
 }
 
 enum PoseMatcher {
-    static func compare(reference: PoseSkeleton, live: PoseSkeleton,
+    static func compare(reference: PoseSkeleton?, live: PoseSkeleton?,
                         referenceOutline: [CGPoint] = [], liveOutline: [CGPoint] = []) -> PoseMatch? {
         let priority: [PoseJoint] = [
             .nose, .leftShoulder, .rightShoulder,
@@ -17,13 +17,17 @@ enum PoseMatcher {
             .leftAnkle, .rightAnkle
         ]
         let differences = priority.compactMap { joint -> (PoseJoint, CGFloat, CGFloat, CGFloat)? in
-            guard let target = reference[joint], let current = live[joint] else { return nil }
+            guard let target = reference?[joint], let current = live?[joint] else { return nil }
             let dx = current.x - target.x
             let dy = current.y - target.y
             return (joint, hypot(dx, dy), dx, dy)
         }
         let outlineScore = SilhouetteMatcher.score(reference: referenceOutline, live: liveOutline)
-        guard differences.count >= 5 || outlineScore != nil else { return nil }
+        let compared = Set(differences.map(\.0))
+        let hasArm = !compared.isDisjoint(with: [.leftElbow, .rightElbow, .leftWrist, .rightWrist])
+        let hasLeg = !compared.isDisjoint(with: [.leftKnee, .rightKnee, .leftAnkle, .rightAnkle])
+        let jointEvidence = differences.count >= 5 && hasArm && hasLeg
+        guard jointEvidence || outlineScore != nil else { return nil }
 
         // Body-box normalized coordinates make this independent of camera distance.
         // Give arm and leg endpoints extra weight because they carry the pose.
@@ -39,11 +43,14 @@ enum PoseMatcher {
         let jointScore = 100 * max(0, min(1, 1 - meanError / 0.30))
         // The visible shape is the primary objective. Joints are most useful for
         // explaining which limb to move when the shape differs.
-        let score = outlineScore.map { differences.count >= 5
+        let score = outlineScore.map { jointEvidence
             ? Int((0.75 * Double($0) + 0.25 * jointScore).rounded()) : $0 }
             ?? Int(jointScore.rounded())
         if score >= 85 {
             return PoseMatch(score: score, cue: "Pose is close to the reference", comparedJoints: differences.count)
+        }
+        if let outlineScore, outlineScore < 85, (!jointEvidence || jointScore >= 85) {
+            return PoseMatch(score: score, cue: "Match your outline to the guide", comparedJoints: differences.count)
         }
         if let worst = differences.max(by: { $0.1 < $1.1 }) {
             return PoseMatch(score: score, cue: cue(for: worst.0, dx: worst.2, dy: worst.3), comparedJoints: differences.count)
@@ -77,32 +84,104 @@ enum SilhouetteMatcher {
     /// Shape overlap after normalizing each person to its own bounding box.
     /// This leaves framing and camera distance to the separate setup checks.
     static func score(reference: [CGPoint], live: [CGPoint]) -> Int? {
-        guard reference.count >= 3, live.count >= 3 else { return nil }
-        func path(_ points: [CGPoint]) -> CGPath? {
-            let bounds = points.reduce(CGRect.null) { $0.union(CGRect(origin: $1, size: .zero)) }
-            guard bounds.width > 0.03, bounds.height > 0.03 else { return nil }
-            let polygon = CGMutablePath()
-            for (index, point) in points.enumerated() {
-                let normalized = CGPoint(x: (point.x - bounds.minX) / bounds.width,
-                                         y: (point.y - bounds.minY) / bounds.height)
-                if index == 0 { polygon.move(to: normalized) } else { polygon.addLine(to: normalized) }
-            }
-            polygon.closeSubpath()
-            return polygon
+        guard let target = raster(reference, normalizeBox: true),
+              let current = raster(live, normalizeBox: true) else { return nil }
+        let overlap = intersectionOverUnion(target.pixels, current.pixels)
+        let boundary = boundaryAgreement(target.pixels, current.pixels)
+        return Int((100 * (0.65 * overlap + 0.35 * boundary)).rounded())
+    }
+
+    /// Screen-space overlap for outlines already mapped into the same frame.
+    /// Unlike `score`, this penalizes position and scale differences.
+    static func frameOverlap(reference: [CGPoint], live: [CGPoint]) -> Int? {
+        guard let target = raster(reference, normalizeBox: false),
+              let current = raster(live, normalizeBox: false) else { return nil }
+        return Int((100 * intersectionOverUnion(target.pixels, current.pixels)).rounded())
+    }
+
+    private static let grid = 48
+
+    private struct Raster {
+        let pixels: [Bool]
+    }
+
+    private static func raster(_ points: [CGPoint], normalizeBox: Bool) -> Raster? {
+        guard points.count >= 3, points.allSatisfy({ point in
+            point.x.isFinite && point.y.isFinite &&
+            (-0.05...1.05).contains(point.x) && (-0.05...1.05).contains(point.y)
+        }) else { return nil }
+        let bounds = points.reduce(CGRect.null) { $0.union(CGRect(origin: $1, size: .zero)) }
+        guard bounds.width > 0.03, bounds.height > 0.03 else { return nil }
+        let polygon = CGMutablePath()
+        for (index, point) in points.enumerated() {
+            let mapped = normalizeBox
+                ? CGPoint(x: (point.x - bounds.minX) / bounds.width,
+                          y: (point.y - bounds.minY) / bounds.height) : point
+            if index == 0 { polygon.move(to: mapped) } else { polygon.addLine(to: mapped) }
         }
-        guard let target = path(reference), let current = path(live) else { return nil }
+        polygon.closeSubpath()
+        var pixels = [Bool]()
+        pixels.reserveCapacity(grid * grid)
+        for y in 0..<grid {
+            for x in 0..<grid {
+                pixels.append(polygon.contains(CGPoint(x: (CGFloat(x) + 0.5) / CGFloat(grid),
+                                                      y: (CGFloat(y) + 0.5) / CGFloat(grid))))
+            }
+        }
+        guard pixels.filter({ $0 }).count >= 4 else { return nil }
+        return Raster(pixels: pixels)
+    }
+
+    private static func intersectionOverUnion(_ a: [Bool], _ b: [Bool]) -> Double {
         var intersection = 0
         var union = 0
-        for y in 0..<40 {
-            for x in 0..<40 {
-                let sample = CGPoint(x: (CGFloat(x) + 0.5) / 40, y: (CGFloat(y) + 0.5) / 40)
-                let a = target.contains(sample)
-                let b = current.contains(sample)
-                if a && b { intersection += 1 }
-                if a || b { union += 1 }
-            }
+        for index in a.indices {
+            if a[index] && b[index] { intersection += 1 }
+            if a[index] || b[index] { union += 1 }
         }
-        guard union > 0 else { return nil }
-        return Int((100 * Double(intersection) / Double(union)).rounded())
+        return union > 0 ? Double(intersection) / Double(union) : 0
+    }
+
+    private static func boundaryAgreement(_ a: [Bool], _ b: [Bool]) -> Double {
+        func edges(_ pixels: [Bool]) -> [(Int, Int)] {
+            var result: [(Int, Int)] = []
+            for y in 0..<grid {
+                for x in 0..<grid where pixels[y * grid + x] {
+                    if x == 0 || x == grid - 1 || y == 0 || y == grid - 1 ||
+                        !pixels[y * grid + x - 1] || !pixels[y * grid + x + 1] ||
+                        !pixels[(y - 1) * grid + x] || !pixels[(y + 1) * grid + x] {
+                        result.append((x, y))
+                    }
+                }
+            }
+            return result
+        }
+        let first = edges(a)
+        let second = edges(b)
+        guard !first.isEmpty, !second.isEmpty else { return 0 }
+        func matched(_ source: [(Int, Int)], to target: [Bool]) -> Double {
+            let count = source.reduce(0) { count, point in
+                let found = (-2...2).contains { dy in
+                    (-2...2).contains { dx in
+                        let x = point.0 + dx
+                        let y = point.1 + dy
+                        return x >= 0 && x < grid && y >= 0 && y < grid && target[y * grid + x]
+                    }
+                }
+                return count + (found ? 1 : 0)
+            }
+            return Double(count) / Double(source.count)
+        }
+        let aEdges = edgeMap(first)
+        let bEdges = edgeMap(second)
+        let precision = matched(first, to: bEdges)
+        let recall = matched(second, to: aEdges)
+        return precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0
+    }
+
+    private static func edgeMap(_ edges: [(Int, Int)]) -> [Bool] {
+        var map = [Bool](repeating: false, count: grid * grid)
+        for (x, y) in edges { map[y * grid + x] = true }
+        return map
     }
 }

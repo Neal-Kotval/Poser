@@ -34,7 +34,7 @@ struct ShotGeometry {
             let value = rounded.formatted(.number.precision(.fractionLength(1)))
             return "Phone ≈\(value) m high\n(\(bucket.label.lowercased()))"
         }
-        return "Adjust camera height"
+        return "Height not measured"
     }
 
     var angleLabel: String {

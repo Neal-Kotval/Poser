@@ -263,6 +263,17 @@ enum Pose2DReader {
             ankles - nose.y >= 0.3
     }
 
+    /// The 2D detector can return several people while Vision's 3D detector returns one.
+    /// A camera pose must describe the same person whose 2D joints and outline form the guide.
+    static func boxesLikelySamePerson(_ first: CGRect, _ second: CGRect) -> Bool {
+        guard first.width > 0, first.height > 0, second.width > 0, second.height > 0 else { return false }
+        let overlap = first.intersection(second)
+        guard !overlap.isNull else { return false }
+        let area = overlap.width * overlap.height
+        let smaller = min(first.width * first.height, second.width * second.height)
+        return area / smaller >= 0.4
+    }
+
     private static func meanY(_ points: [PoseJoint: CGPoint], _ left: PoseJoint, _ right: PoseJoint) -> CGFloat? {
         guard let leftPoint = points[left], let rightPoint = points[right] else { return nil }
         return (leftPoint.y + rightPoint.y) / 2
@@ -314,7 +325,10 @@ enum ShotSpecEstimator {
 
         let points2D = pose2D.results?.first.map(Pose2DReader.points) ?? [:]
         let horizonDegrees = horizon.results?.first.map { Double($0.angle) * 180 / .pi }
-        let silhouette = segmentation.results?.first.map { silhouettePoints(mask: $0.pixelBuffer) } ?? []
+        let personBox = Pose2DReader.box(points2D)
+        let silhouette = segmentation.results?.first.map {
+            silhouettePoints(mask: $0.pixelBuffer, personBox: personBox)
+        } ?? []
         log.add("horizon \(horizonDegrees.map(fmt) ?? "none"), silhouette \(silhouette.count) points, 2D joints \(points2D.count)")
         let aspect = size.width / max(size.height, 1)
 
@@ -326,6 +340,8 @@ enum ShotSpecEstimator {
         let uprightEvidence = Pose2DReader.hasUprightBodyEvidence(points2D)
         if !fullBodyEvidence { log.add("full-body 2D evidence unavailable; camera geometry will be withheld") }
         if let body = pose3D.results?.first, fullBodyEvidence,
+           let personBox, let projected = Pose3DReader.subjectBox(body),
+           Pose2DReader.boxesLikelySamePerson(personBox, projected.box),
            Pose3DReader.isUsable(body), let placement = Pose3DReader.placement(body),
            BodyFrameGeometry.isPlausible(placement),
            let scale = BodyFrameGeometry.scale(
@@ -334,7 +350,6 @@ enum ShotSpecEstimator {
             let measuredHeight = body.heightEstimation == .measured
             let resolvedHeight = Double(body.bodyHeight) * scale
             let distance = placement.horizontalDistance * scale
-            let projected = Pose3DReader.subjectBox(body)
             let pinhole = (uprightEvidence ? Pose2DReader.noseToAnkle(points2D) : nil).flatMap {
                 BodyFrameGeometry.pinholeDistance(focalPixels: focalPixels, subjectHeightMeters: resolvedHeight,
                                                   visibleFraction: Pose2DReader.noseToAnkleFraction,
@@ -350,7 +365,7 @@ enum ShotSpecEstimator {
                                 distanceIsApproximate: !measuredHeight || exifMM == nil,
                                 pitchDegrees: placement.pitchDegrees,
                                 subjectYawDegrees: placement.subjectYawDegrees, horizonDegrees: horizonDegrees,
-                                subjectBox: Pose2DReader.box(points2D) ?? projected?.box, silhouette: silhouette,
+                                subjectBox: personBox, silhouette: silhouette,
                                 subjectHeightMeters: resolvedHeight, focalSource: focalSource, imageAspect: aspect)
                 return (spec, log)
             }
@@ -365,28 +380,67 @@ enum ShotSpecEstimator {
                 visibleFraction: Pose2DReader.noseToAnkleFraction, spanPixels: Double(span * size.height))
             log.add("2D fallback distance \(distance.map(fmt) ?? "-") m")
             let spec = ShotSpec(source: .pose2D, distanceMeters: distance, horizonDegrees: horizonDegrees,
-                                subjectBox: Pose2DReader.box(points2D), silhouette: silhouette,
+                                subjectBox: personBox, silhouette: silhouette,
                                 subjectHeightMeters: subjectHeightMeters, focalSource: focalSource, imageAspect: aspect)
             return (spec, log)
         }
 
         log.add("no full body found; using fallback")
-        let spec = ShotSpec(source: .fallback, horizonDegrees: horizonDegrees, subjectBox: Pose2DReader.box(points2D),
+        let spec = ShotSpec(source: .fallback, horizonDegrees: horizonDegrees, subjectBox: personBox,
                             silhouette: silhouette, subjectHeightMeters: subjectHeightMeters,
                             focalSource: focalSource, imageAspect: aspect)
         return (spec, log)
     }
 
-    static func silhouettePoints(mask: CVPixelBuffer) -> [CGPoint] {
+    static func silhouettePoints(mask: CVPixelBuffer, personBox: CGRect? = nil) -> [CGPoint] {
         let request = VNDetectContoursRequest()
         request.detectsDarkOnLight = false
         request.maximumImageDimension = 256
         let handler = VNImageRequestHandler(cvPixelBuffer: mask, options: [:])
         guard (try? handler.perform([request])) != nil,
-              let observation = request.results?.first,
-              let largest = observation.topLevelContours.max(by: { $0.pointCount < $1.pointCount }),
-              let simplified = try? largest.polygonApproximation(epsilon: 0.003) else { return [] }
-        return simplified.normalizedPoints.map { CGPoint(x: CGFloat($0.x), y: 1 - CGFloat($0.y)) }
+              let observation = request.results?.first else { return [] }
+        let contours = observation.topLevelContours.compactMap { contour -> [CGPoint]? in
+            guard let simplified = try? contour.polygonApproximation(epsilon: 0.003) else { return nil }
+            return simplified.normalizedPoints.map { CGPoint(x: CGFloat($0.x), y: 1 - CGFloat($0.y)) }
+        }
+        return selectSilhouette(contours: contours, personBox: personBox)
+    }
+
+    /// A segmentation mask can contain several people. Match its contour to the pose used for
+    /// the reference guide, instead of choosing whichever outline has the most vertices.
+    static func selectSilhouette(contours: [[CGPoint]], personBox: CGRect?) -> [CGPoint] {
+        let candidates = contours.compactMap { points -> (points: [CGPoint], bounds: CGRect, area: CGFloat)? in
+            guard points.count >= 3, points.allSatisfy({
+                $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y)
+            }) else { return nil }
+            let bounds = points.reduce(CGRect.null) { $0.union(CGRect(origin: $1, size: .zero)) }
+            guard bounds.width >= 0.03, bounds.height >= 0.08 else { return nil }
+            let doubleArea = zip(points, points.dropFirst() + points.prefix(1)).reduce(CGFloat.zero) {
+                $0 + $1.0.x * $1.1.y - $1.1.x * $1.0.y
+            }
+            let area = abs(doubleArea) / 2
+            guard area >= 0.005 else { return nil }
+            return (points, bounds, area)
+        }
+        guard !candidates.isEmpty else { return [] }
+        guard let personBox else {
+            let ranked = candidates.sorted { $0.area > $1.area }
+            return ranked.count == 1 || ranked[0].area >= 2 * ranked[1].area ? ranked[0].points : []
+        }
+        guard personBox.width > 0.01, personBox.height > 0.03 else { return [] }
+        let ranked = candidates.compactMap { candidate -> (points: [CGPoint], score: CGFloat)? in
+            let overlap = candidate.bounds.intersection(personBox)
+            guard !overlap.isNull, overlap.width > 0, overlap.height > 0 else { return nil }
+            let overlapArea = overlap.width * overlap.height
+            let poseCoverage = overlapArea / (personBox.width * personBox.height)
+            let contourCoverage = overlapArea / (candidate.bounds.width * candidate.bounds.height)
+            guard poseCoverage >= 0.5, contourCoverage >= 0.08,
+                  candidate.bounds.contains(CGPoint(x: personBox.midX, y: personBox.midY)) else { return nil }
+            return (candidate.points, poseCoverage * 0.7 + contourCoverage * 0.3)
+        }.sorted { $0.score > $1.score }
+        guard let best = ranked.first,
+              ranked.count == 1 || best.score >= ranked[1].score * 1.25 else { return [] }
+        return best.points
     }
 
     private static func logRaw(_ body: VNHumanBodyPose3DObservation, into log: inout ShotSpecDiagnostics) {

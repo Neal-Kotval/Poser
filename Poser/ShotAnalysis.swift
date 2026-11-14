@@ -144,7 +144,10 @@ enum AnalysisService {
         guard let cgImage = image.cgImage else { throw AnalysisError.invalidImage }
         let orientation = CGImagePropertyOrientation(image.imageOrientation)
         return await Task.detached(priority: .userInitiated) {
-            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation)
+            // Decode the same original photo used by ShotSpecEstimator when available, so the
+            // displayed skeleton and measured setup refer to the same oriented image.
+            let handler = imageData.map { VNImageRequestHandler(data: $0, orientation: orientation) }
+                ?? VNImageRequestHandler(cgImage: cgImage, orientation: orientation)
             let classify = VNClassifyImageRequest()
             let person = VNDetectHumanBodyPoseRequest()
             let salient = VNGenerateAttentionBasedSaliencyImageRequest()

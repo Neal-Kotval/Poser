@@ -87,6 +87,34 @@ final class ShotSpecTests: XCTestCase {
         XCTAssertNotEqual(estimate.spec.source, .pose3D, estimate.diagnostics.text)
     }
 
+    func testSilhouetteSelectsPersonMatchedByPoseInsteadOfLongestContour() {
+        let target = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.35, y: 0.1),
+                      CGPoint(x: 0.35, y: 0.85), CGPoint(x: 0.1, y: 0.85)]
+        let other = [CGPoint(x: 0.55, y: 0.1), CGPoint(x: 0.9, y: 0.1),
+                     CGPoint(x: 0.9, y: 0.85), CGPoint(x: 0.75, y: 0.85),
+                     CGPoint(x: 0.55, y: 0.85)]
+        let selected = ShotSpecEstimator.selectSilhouette(
+            contours: [other, target], personBox: CGRect(x: 0.14, y: 0.18, width: 0.16, height: 0.56))
+        XCTAssertEqual(selected, target)
+    }
+
+    func testSilhouetteRejectsUnassociatedOrAmbiguousPeople() {
+        let left = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.35, y: 0.1),
+                    CGPoint(x: 0.35, y: 0.8), CGPoint(x: 0.1, y: 0.8)]
+        let right = left.map { CGPoint(x: $0.x + 0.5, y: $0.y) }
+        XCTAssertTrue(ShotSpecEstimator.selectSilhouette(contours: [left, right], personBox: nil).isEmpty)
+        XCTAssertTrue(ShotSpecEstimator.selectSilhouette(
+            contours: [left, right], personBox: CGRect(x: 0.38, y: 0.2, width: 0.12, height: 0.4)).isEmpty)
+    }
+
+    func test2DAnd3DGeometryMustDescribeSamePerson() {
+        let body = CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.75)
+        XCTAssertTrue(Pose2DReader.boxesLikelySamePerson(body,
+            CGRect(x: 0.08, y: 0.08, width: 0.25, height: 0.8)))
+        XCTAssertFalse(Pose2DReader.boxesLikelySamePerson(body,
+            CGRect(x: 0.65, y: 0.1, width: 0.2, height: 0.75)))
+    }
+
     func testContradictoryDistanceEstimatesAreRejected() {
         XCTAssertTrue(BodyFrameGeometry.distancesAgree(vision: 2, pinhole: 2.2))
         XCTAssertFalse(BodyFrameGeometry.distancesAgree(vision: 2, pinhole: 5))
@@ -128,8 +156,9 @@ final class ShotSpecTests: XCTestCase {
         let fallback = ShotGeometryEstimator.fallback(for: ShotRecipe.presets[0])
         let geometry = spec.shotGeometry(fallback: fallback)
         XCTAssertEqual(geometry.distanceLabel, "Stand ≈2 m (7 ft) away")
-        XCTAssertEqual(geometry.adjustmentLabel, "Adjust camera height")
+        XCTAssertEqual(geometry.adjustmentLabel, "Height not measured")
         XCTAssertEqual(geometry.angleLabel, "Match background lines")
+        XCTAssertEqual(geometry.heightLabel, "Camera height unknown")
         XCTAssertNotNil(geometry.spec)
     }
 

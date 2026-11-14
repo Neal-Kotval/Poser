@@ -70,10 +70,14 @@ final class LiveFrameAnalyzer {
         if observation2D != nil {
             let segmentation = VNGeneratePersonSegmentationRequest()
             segmentation.qualityLevel = .balanced
+            segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
             try? handler.perform([segmentation])
             reading.silhouette = segmentation.results?.first.map {
-                ShotSpecEstimator.silhouettePoints(mask: $0.pixelBuffer)
+                ShotSpecEstimator.silhouettePoints(mask: $0.pixelBuffer, personBox: reading.subjectBox)
             } ?? []
+            // Both framing boxes now describe the visible outline when it is available.
+            // Joint boxes omit hair, clothes, and hands outside the detected skeleton.
+            reading.subjectBox = FrameMapping.boundingBox(of: reading.silhouette) ?? reading.subjectBox
         }
         if let span = Pose2DReader.noseToAnkle(points) {
             reading.distanceMeters = BodyFrameGeometry.pinholeDistance(
@@ -82,6 +86,9 @@ final class LiveFrameAnalyzer {
         }
 
         if let body = pose3D.results?.first, Pose2DReader.hasFullBodyEvidence(points),
+           let personBox = Pose2DReader.box(points),
+           let projected = Pose3DReader.subjectBox(body),
+           Pose2DReader.boxesLikelySamePerson(personBox, projected.box),
            Pose3DReader.isUsable(body), let placement = Pose3DReader.placement(body),
            BodyFrameGeometry.isPlausible(placement),
            let scale = BodyFrameGeometry.scale(bodyHeight: Double(body.bodyHeight),
@@ -98,7 +105,6 @@ final class LiveFrameAnalyzer {
                 reading.subjectYawDegrees = placement.subjectYawDegrees
                 reading.visionPitchDegrees = placement.pitchDegrees
                 if measured { reading.measuredSubjectHeight = height }
-                if reading.subjectBox == nil { reading.subjectBox = Pose3DReader.subjectBox(body)?.box }
             }
         }
         return reading
@@ -130,6 +136,8 @@ struct CoachInstruction: Equatable {
     static let level = CoachInstruction(.level, "Straighten the phone", symbol: "level")
     static let panLeft = CoachInstruction(.panLeft, "Turn the phone slightly left", symbol: "arrow.left")
     static let panRight = CoachInstruction(.panRight, "Turn the phone slightly right", symbol: "arrow.right")
+    static let aimUp = CoachInstruction(.tiltUp, "Aim the phone slightly up", symbol: "arrow.up")
+    static let aimDown = CoachInstruction(.tiltDown, "Aim the phone slightly down", symbol: "arrow.down")
     static let checkSetup = CoachInstruction(.checkSetup, "Check the reference setup", symbol: "viewfinder")
     static let hold = CoachInstruction(.hold, "Looks right. Take the shot", symbol: "checkmark.circle.fill")
 
@@ -206,8 +214,8 @@ struct CoachTolerances {
     var poseScore = 85
 }
 
-/// Turns live readings into one instruction at a time: distance, height, subject turn, tilt,
-/// level, framing, then pose.
+/// Turns live readings into one instruction at a time, using visible framing and pose
+/// before inferred 3D camera measurements.
 final class LiveCoach {
     let spec: ShotSpec
     let tolerances: CoachTolerances
@@ -224,6 +232,8 @@ final class LiveCoach {
     private var roll: Double?
     private var pendingKind: CoachInstruction.Kind?
     private var pendingCount = 0
+    private var lastReadingAt: Date?
+    private(set) var hasFreshReading = false
 
     init(spec: ShotSpec, referencePose: PoseSkeleton? = nil, liveAspect: CGFloat = 3.0 / 4.0,
          tolerances: CoachTolerances = CoachTolerances(), switchAfter: Int = 3) {
@@ -239,7 +249,7 @@ final class LiveCoach {
             focalRatio = 1
         }
         referenceFocalRatio = focalRatio
-        targetBox = spec.subjectBox.map {
+        targetBox = (FrameMapping.boundingBox(of: spec.silhouette) ?? spec.subjectBox).map {
             FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: liveAspect, focalRatio: focalRatio)
         }
     }
@@ -247,8 +257,17 @@ final class LiveCoach {
     /// Call on every motion update. Pass `reading` only when a new Vision result is available.
     /// Roll is zero when the phone is level. Vision pitch is compared only with Vision pitch.
     @discardableResult
-    func update(reading: LiveReading?, pitchDegrees _: Double, rollDegrees: Double) -> CoachInstruction {
-        if let reading { absorb(reading) }
+    func update(reading: LiveReading?, pitchDegrees _: Double, rollDegrees: Double,
+                now: Date = Date()) -> CoachInstruction {
+        if let reading {
+            absorb(reading)
+            lastReadingAt = now
+            hasFreshReading = true
+        } else if let lastReadingAt, now.timeIntervalSince(lastReadingAt) > 1.5 {
+            smoothed = LiveReading()
+            poseMatch = nil
+            hasFreshReading = false
+        }
         roll = blend(roll, rollDegrees)
         return settle(evaluate())
     }
@@ -257,44 +276,59 @@ final class LiveCoach {
         guard let box = smoothed.subjectBox else { return .findSubject }
         let limits = tolerances
 
-        if let target = spec.distanceMeters, let live = smoothed.distanceMeters, target > 0 {
-            let error = (live - target) / target
-            if error > limits.distanceFraction { return .stepCloser(meters: live - target) }
-            if error < -limits.distanceFraction { return .stepBack(meters: target - live) }
+        if let roll, abs(roll) > limits.rollDegrees { return .level }
+        if let target = targetBox {
+            let offset = box.midX - target.midX
+            if offset < -limits.centerOffset { return .panLeft }
+            if offset > limits.centerOffset { return .panRight }
+            let verticalOffset = box.midY - target.midY
+            if verticalOffset < -limits.centerOffset { return .aimUp }
+            if verticalOffset > limits.centerOffset { return .aimDown }
+            let size = box.height / max(target.height, 0.01)
+            if size > 1 + limits.sizeFraction { return .stepBack(meters: nil) }
+            if size < 1 - limits.sizeFraction { return .stepCloser(meters: nil) }
+        }
+        poseMatch = nil
+        if referencePose != nil || spec.silhouette.count >= 3 {
+            poseMatch = PoseMatcher.compare(reference: referencePose, live: smoothed.pose,
+                                            referenceOutline: spec.silhouette, liveOutline: smoothed.silhouette)
+            if let poseMatch, poseMatch.score < limits.poseScore { return .adjustPose(poseMatch.cue) }
+        }
+        if spec.silhouette.count >= 3 && smoothed.silhouette.count < 3 { return .checkSetup }
+        if spec.silhouette.count >= 3 {
+            let aspect = smoothed.frameAspect ?? 3.0 / 4.0
+            let mapped = spec.silhouette.map {
+                FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: aspect,
+                                 focalRatio: referenceFocalRatio)
+            }
+            if let overlap = SilhouetteMatcher.frameOverlap(reference: mapped, live: smoothed.silhouette),
+               overlap < 65 {
+                return .adjustPose("Align your outline with the guide")
+            }
+        }
+        if let target = spec.subjectYawDegrees, let live = smoothed.subjectYawDegrees {
+            let delta = Self.angleDifference(target, live)
+            if abs(delta) > limits.yawDegrees { return .subjectTurn(degrees: delta) }
         }
         if let target = spec.cameraHeightRatio, let live = smoothed.cameraHeightRatio,
            abs(target - live) > limits.heightRatio {
             return .changeHeight(by: (target - live) * spec.subjectHeightMeters * 100,
                                  to: CameraHeightBucket(ratio: target), from: CameraHeightBucket(ratio: live))
         }
-        if let target = spec.subjectYawDegrees, let live = smoothed.subjectYawDegrees {
-            let delta = Self.angleDifference(target, live)
-            if abs(delta) > limits.yawDegrees { return .subjectTurn(degrees: delta) }
-        }
         if let targetPitch = spec.pitchDegrees, let livePitch = smoothed.visionPitchDegrees {
             let delta = targetPitch - livePitch
             if abs(delta) > limits.pitchDegrees { return .tilt(degrees: delta) }
         }
-        if let roll, abs(roll) > limits.rollDegrees { return .level }
-        if let target = targetBox {
-            let offset = box.midX - target.midX
-            if offset < -limits.centerOffset { return .panLeft }
-            if offset > limits.centerOffset { return .panRight }
-            let size = box.height / max(target.height, 0.01)
-            if size > 1 + limits.sizeFraction { return .stepBack(meters: nil) }
-            if size < 1 - limits.sizeFraction { return .stepCloser(meters: nil) }
-        }
-        poseMatch = nil
-        if let referencePose, let pose = smoothed.pose {
-            poseMatch = PoseMatcher.compare(reference: referencePose, live: pose,
-                                            referenceOutline: spec.silhouette, liveOutline: smoothed.silhouette)
-            if let poseMatch, poseMatch.score < limits.poseScore { return .adjustPose(poseMatch.cue) }
+        if let target = spec.distanceMeters, let live = smoothed.distanceMeters, target > 0 {
+            let error = (live - target) / target
+            if error > limits.distanceFraction { return .stepCloser(meters: live - target) }
+            if error < -limits.distanceFraction { return .stepBack(meters: target - live) }
         }
         if (spec.distanceMeters != nil && smoothed.distanceMeters == nil)
             || (spec.cameraHeightRatio != nil && smoothed.cameraHeightRatio == nil)
             || (spec.subjectYawDegrees != nil && smoothed.subjectYawDegrees == nil)
             || (spec.pitchDegrees != nil && smoothed.visionPitchDegrees == nil)
-            || (referencePose != nil && poseMatch == nil) {
+            || ((referencePose != nil || spec.silhouette.count >= 3) && poseMatch == nil) {
             return .checkSetup
         }
         return .hold
@@ -322,7 +356,7 @@ final class LiveCoach {
 
     private func absorb(_ reading: LiveReading) {
         if let aspect = reading.frameAspect, aspect.isFinite, aspect > 0 {
-            targetBox = spec.subjectBox.map {
+            targetBox = (FrameMapping.boundingBox(of: spec.silhouette) ?? spec.subjectBox).map {
                 FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: aspect,
                                  focalRatio: referenceFocalRatio)
             }
@@ -369,6 +403,16 @@ final class LiveCoach {
 /// Maps reference-image coordinates into the live frame by angular size. The reference is
 /// treated as a centered crop of a 3:4 capture; focalRatio accounts for a different lens.
 enum FrameMapping {
+    static func boundingBox(of points: [CGPoint]) -> CGRect? {
+        guard points.count >= 3, points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return nil }
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        guard let minX = xs.min(), let maxX = xs.max(),
+              let minY = ys.min(), let maxY = ys.max(),
+              maxX - minX > 0.03, maxY - minY > 0.03 else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
     static func map(_ point: CGPoint, fromAspect: CGFloat, intoAspect: CGFloat,
                     focalRatio: CGFloat = 1) -> CGPoint {
         let source = CGSize(width: fromAspect, height: 1)

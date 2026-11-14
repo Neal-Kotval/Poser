@@ -15,6 +15,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     private let targetLock = NSLock()
     private var storedTargetX: CGFloat = 0.5
     private var storedTargetPose: PoseSkeleton?
+    private var storedTargetOutline: [CGPoint] = []
+    private var storedReferenceAspect: CGFloat = 3.0 / 4.0
+    private var storedReferenceFocalRatio: CGFloat = 1
     private var storedCoachEnabled = false
     private let analyzer = LiveFrameAnalyzer(minimumInterval: 0.3)
     private var coach: LiveCoach?
@@ -31,6 +34,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published var message: String?
     @Published var subjectHint = "Place the subject inside the guide"
     @Published var poseScore: Int?
+    @Published var scoreUsesOutline = false
     @Published var poseHint = "Looking for the reference pose"
     @Published var coachInstruction: CoachInstruction?
     @Published var liveFrameAspect: CGFloat = 3.0 / 4.0
@@ -41,9 +45,21 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     /// Set on the main thread. A measured reference turns on step-by-step coaching.
     var shotSpec: ShotSpec? {
         didSet {
+            targetLock.lock()
+            storedTargetOutline = shotSpec?.silhouette ?? []
+            storedReferenceAspect = shotSpec?.imageAspect ?? 3.0 / 4.0
+            if let source = shotSpec?.focalSource,
+               case .exif(let millimeters) = source, millimeters > 0 {
+                storedReferenceFocalRatio = CGFloat(LensModel.phoneMainEquivalentMM / millimeters)
+            } else {
+                storedReferenceFocalRatio = 1
+            }
+            targetLock.unlock()
             coach = shotSpec.map { LiveCoach(spec: $0, referencePose: targetPose) }
             pendingReading = nil
             coachInstruction = nil
+            poseScore = nil
+            scoreUsesOutline = false
             coachEnabled = coach != nil
         }
     }
@@ -54,6 +70,11 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     var targetPose: PoseSkeleton? {
         get { targetLock.lock(); defer { targetLock.unlock() }; return storedTargetPose }
         set { targetLock.lock(); storedTargetPose = newValue; targetLock.unlock() }
+    }
+    private var referenceOutlineSnapshot: (points: [CGPoint], aspect: CGFloat, focalRatio: CGFloat) {
+        targetLock.lock()
+        defer { targetLock.unlock() }
+        return (storedTargetOutline, storedReferenceAspect, storedReferenceFocalRatio)
     }
     var onPhoto: ((UIImage) -> Void)?
 
@@ -118,6 +139,11 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                     self.coachInstruction = coach.update(reading: self.pendingReading,
                                                          pitchDegrees: self.pitch, rollDegrees: self.roll)
                     self.pendingReading = nil
+                    if !coach.hasFreshReading {
+                        self.poseScore = nil
+                        self.scoreUsesOutline = false
+                        self.poseHint = "Looking for the reference pose"
+                    }
                 }
             }
         }
@@ -178,15 +204,25 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         if coachEnabled {
             guard let reading = analyzer.analyze(sampleBuffer) else { return }
-            let poseMatch = targetPose.flatMap { target in
-                reading.pose.flatMap { PoseMatcher.compare(reference: target, live: $0,
-                    referenceOutline: self.shotSpec?.silhouette ?? [], liveOutline: reading.silhouette) }
+            let outline = referenceOutlineSnapshot
+            let poseMatch = PoseMatcher.compare(reference: targetPose, live: reading.pose,
+                                                referenceOutline: outline.points, liveOutline: reading.silhouette)
+            let mappedOutline = outline.points.map {
+                FrameMapping.map($0, fromAspect: outline.aspect,
+                                 intoAspect: reading.frameAspect ?? 3.0 / 4.0,
+                                 focalRatio: outline.focalRatio)
             }
+            let frameOverlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
+                                                               live: reading.silhouette)
             DispatchQueue.main.async {
                 self.pendingReading = reading
                 if let aspect = reading.frameAspect { self.liveFrameAspect = aspect }
-                self.poseScore = poseMatch?.score
-                self.poseHint = poseMatch?.cue ?? (reading.pose == nil ? "Looking for the reference pose" : "Move into view to match the pose")
+                self.poseScore = frameOverlap ?? poseMatch?.score
+                self.scoreUsesOutline = frameOverlap != nil
+                self.poseHint = frameOverlap.map { $0 < 65 && (poseMatch?.score ?? 0) >= 85
+                    ? "Align your outline with the guide" : poseMatch?.cue ?? "Match the outline" }
+                    ?? poseMatch?.cue
+                    ?? (reading.pose == nil ? "Looking for the reference pose" : "Move into view to match the pose")
             }
             return
         }
@@ -330,7 +366,8 @@ struct CameraScreen: View {
                 if showPose && mode == .guide && !isGuideOverlayVisible,
                    let shotSpec, shotSpec.silhouette.count > 2 {
                     GeometryReader { geometry in
-                        let aligned = camera.coachInstruction?.kind == .hold
+                        let aligned = camera.coachInstruction?.kind == .hold &&
+                            camera.scoreUsesOutline && (camera.poseScore ?? 0) >= 65
                         Path { path in
                             path.addLines(FrameMapping.cutout(for: shotSpec,
                                                               frameAspect: camera.liveFrameAspect,
@@ -466,10 +503,18 @@ struct CameraScreen: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 0)
-                        if let score = camera.poseScore, targetPose != nil {
-                            Text("\(score)%")
-                                .font(.system(size: 15, weight: .bold))
-                                .monospacedDigit()
+                        if let score = camera.poseScore,
+                           targetPose != nil || (shotSpec?.silhouette.count ?? 0) >= 3 {
+                            VStack(spacing: 1) {
+                                Text(camera.scoreUsesOutline ? "OUTLINE" : "POSE")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .tracking(0.5)
+                                Text("\(score)%")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .monospacedDigit()
+                            }
+                            .accessibilityLabel(camera.scoreUsesOutline
+                                ? "Outline overlap \(score) percent" : "Pose match \(score) percent")
                         }
                         Button { showPose.toggle() } label: {
                             Image(systemName: showPose ? "eye.slash" : "eye")

@@ -20,10 +20,10 @@ final class LiveCoachTests: XCTestCase {
         XCTAssertEqual(instruction(for: reading()).kind, .hold)
     }
 
-    func testDistanceComesBeforeHeight() {
+    func testHeightComesBeforeApproximateDistance() {
         let result = instruction(for: reading(height: 0.8, distance: 3.0))
-        XCTAssertEqual(result.kind, .stepCloser)
-        XCTAssertEqual(result.text, "Step ≈1 m closer")
+        XCTAssertEqual(result.kind, .lowerPhone)
+        XCTAssertEqual(result.text, "Lower the phone to knee height")
     }
 
     func testLowerPhoneToTargetBucket() {
@@ -96,11 +96,83 @@ final class LiveCoachTests: XCTestCase {
         XCTAssertEqual(instruction(for: reading(box: shifted)).kind, .panLeft)
     }
 
+    func testVerticalOffsetDoesNotClaimMatch() {
+        let shifted = CGRect(x: 0.35, y: 0.2, width: 0.3, height: 0.8)
+        let result = instruction(for: reading(box: shifted))
+        XCTAssertEqual(result.kind, .tiltDown)
+        XCTAssertEqual(result.text, "Aim the phone slightly down")
+    }
+
     func testFineFramingStepsBackWhenSubjectLooksTooBig() {
         let bigger = CGRect(x: 0.3, y: 0.02, width: 0.4, height: 0.96)
         let result = instruction(for: reading(box: bigger))
         XCTAssertEqual(result.kind, .stepBack)
         XCTAssertEqual(result.text, "Step back a little")
+    }
+
+    func testFramingComesBeforeApproximateDistance() {
+        let shifted = CGRect(x: 0.2, y: 0.1, width: 0.3, height: 0.8)
+        let result = instruction(for: reading(distance: 3, box: shifted))
+        XCTAssertEqual(result.kind, .panLeft)
+    }
+
+    func testMismatchedOutlineComesBeforeApproximateHeight() {
+        let pose = PoseSkeleton(points: [
+            .nose: CGPoint(x: 0.5, y: 0.1),
+            .leftShoulder: CGPoint(x: 0.4, y: 0.25), .rightShoulder: CGPoint(x: 0.6, y: 0.25),
+            .leftHip: CGPoint(x: 0.45, y: 0.6), .rightHip: CGPoint(x: 0.55, y: 0.6)
+        ])
+        let wide = [CGPoint(x: 0.35, y: 0.1), CGPoint(x: 0.65, y: 0.1),
+                    CGPoint(x: 0.65, y: 0.9), CGPoint(x: 0.35, y: 0.9)]
+        let narrow = [CGPoint(x: 0.35, y: 0.1), CGPoint(x: 0.65, y: 0.1),
+                      CGPoint(x: 0.38, y: 0.9), CGPoint(x: 0.35, y: 0.9)]
+        let reference = ShotSpec(source: .pose3D, cameraHeightRatio: 0.3,
+                                 subjectBox: box, silhouette: wide, imageAspect: 0.75)
+        let coach = LiveCoach(spec: reference, referencePose: pose)
+        var live = LiveReading(cameraHeightRatio: 0.7, subjectBox: box, pose: pose)
+        live.silhouette = narrow
+        XCTAssertEqual(coach.update(reading: live, pitchDegrees: 0, rollDegrees: 0).kind, .adjustPose)
+    }
+
+    func testOldReadingCannotKeepClaimingMatch() {
+        let coach = LiveCoach(spec: spec, switchAfter: 1)
+        let start = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(coach.update(reading: reading(), pitchDegrees: 10, rollDegrees: 0, now: start).kind, .hold)
+        XCTAssertEqual(coach.update(reading: nil, pitchDegrees: 10, rollDegrees: 0,
+                                    now: start.addingTimeInterval(2)).kind, .findSubject)
+    }
+
+    func testMissingLiveOutlineCannotClaimMatch() {
+        let outline = [CGPoint(x: 0.35, y: 0.1), CGPoint(x: 0.65, y: 0.1),
+                       CGPoint(x: 0.65, y: 0.9), CGPoint(x: 0.35, y: 0.9)]
+        let reference = ShotSpec(source: .pose2D, subjectBox: box, silhouette: outline)
+        let coach = LiveCoach(spec: reference)
+        XCTAssertEqual(coach.update(reading: LiveReading(subjectBox: box),
+                                    pitchDegrees: 0, rollDegrees: 0).kind, .checkSetup)
+    }
+
+    func testLowOverlayOverlapCannotClaimMatchWhenBoxesAreClose() {
+        let referenceOutline = [CGPoint(x: 0.35, y: 0.1), CGPoint(x: 0.65, y: 0.1),
+                                CGPoint(x: 0.65, y: 0.9), CGPoint(x: 0.35, y: 0.9)]
+        let liveOutline = referenceOutline.map { CGPoint(x: $0.x + 0.07, y: $0.y) }
+        let reference = ShotSpec(source: .pose2D, subjectBox: box,
+                                 silhouette: referenceOutline, imageAspect: 0.75)
+        let coach = LiveCoach(spec: reference)
+        var live = LiveReading(frameAspect: 0.75, subjectBox: CGRect(x: 0.42, y: 0.1, width: 0.3, height: 0.8))
+        live.silhouette = liveOutline
+        let result = coach.update(reading: live, pitchDegrees: 0, rollDegrees: 0)
+        XCTAssertEqual(result.kind, .adjustPose)
+        XCTAssertEqual(result.text, "Align your outline with the guide")
+    }
+
+    func testReferenceFramingUsesVisibleOutlineBounds() {
+        let outline = [CGPoint(x: 0.2, y: 0.15), CGPoint(x: 0.8, y: 0.15),
+                       CGPoint(x: 0.8, y: 0.85), CGPoint(x: 0.2, y: 0.85)]
+        let reference = ShotSpec(source: .pose2D, subjectBox: box, silhouette: outline,
+                                 imageAspect: 0.75)
+        let coach = LiveCoach(spec: reference)
+        XCTAssertEqual(coach.targetBox?.minX ?? -1, 0.2, accuracy: 0.001)
+        XCTAssertEqual(coach.targetBox?.width ?? -1, 0.6, accuracy: 0.001)
     }
 
     func testInstructionNeedsSeveralFramesToChange() {

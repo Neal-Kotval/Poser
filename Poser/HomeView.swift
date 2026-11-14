@@ -200,6 +200,7 @@ struct HomeView: View {
             .padding(.bottom, PoserSpace.xLarge)
             .frame(maxWidth: .infinity)
         }
+        .id(capturedImage == nil ? "shot-plan" : "shot-review")
         .background(Palette.background)
     }
 
@@ -588,9 +589,9 @@ struct HomeView: View {
                 GeometryReader { tile in
                     Image(uiImage: referenceImage)
                         .resizable()
-                        .scaledToFill()
+                        .scaledToFit()
                         .frame(width: tile.size.width, height: tile.size.height)
-                        .clipped()
+                        .background(Palette.surface)
                         .overlay(alignment: .topLeading) {
                             imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
                         }
@@ -736,13 +737,21 @@ struct HomeView: View {
     }
 
     private func compareImage(_ image: UIImage, label: String, width: CGFloat, height: CGFloat) -> some View {
-        Image(uiImage: image)
-            .resizable()
-            .scaledToFill()
-            .frame(width: width, height: height)
-            .clipped()
-            .overlay(alignment: .topLeading) { imageLabel(label) }
-            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+        VStack(alignment: .leading, spacing: 0) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .frame(height: 27)
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(width: width, height: max(1, height - 27))
+        }
+        .frame(width: width, height: height)
+        .background(Palette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
     }
 
     private func imageLabel(_ label: String) -> some View {
@@ -966,11 +975,27 @@ struct HomeView: View {
     private func compare(_ image: UIImage) async {
         guard let result = try? await AnalysisService.analyze(image) else { return }
         guard capturedImage === image else { return }
-        if let referencePose = analysis?.poseSkeleton,
-           let capturedPose = result.poseSkeleton,
-           let match = PoseMatcher.compare(reference: referencePose, live: capturedPose) {
+        if let reference = analysis,
+           let match = PoseMatcher.compare(reference: reference.poseSkeleton, live: result.poseSkeleton,
+                                           referenceOutline: reference.shotSpec.silhouette,
+                                           liveOutline: result.shotSpec.silhouette) {
             poseScore = match.score
-            comparisonNote = match.cue
+            let focalRatio: CGFloat
+            switch reference.shotSpec.focalSource {
+            case .exif(let millimeters) where millimeters > 0:
+                focalRatio = CGFloat(LensModel.phoneMainEquivalentMM / millimeters)
+            default:
+                focalRatio = 1
+            }
+            let mappedOutline = reference.shotSpec.silhouette.map {
+                FrameMapping.map($0, fromAspect: reference.shotSpec.imageAspect,
+                                 intoAspect: result.shotSpec.imageAspect, focalRatio: focalRatio)
+            }
+            let overlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
+                                                         live: result.shotSpec.silhouette)
+            comparisonNote = match.score >= 85 && (overlap ?? 100) < 70
+                ? "Your pose shape is close. Move or reframe until your outline sits on the guide."
+                : match.cue
             return
         }
         guard let referencePoint = analysis?.subjectPoint,

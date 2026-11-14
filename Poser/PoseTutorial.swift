@@ -51,6 +51,23 @@ struct PoseTutorialView: View {
                                     .font(.system(.body, design: .rounded, weight: .semibold))
                                     .multilineTextAlignment(.center)
                             }
+
+                            if let detected = analysis?.poseSkeleton,
+                               [PoseJoint.leftElbow, .leftWrist, .rightElbow, .rightWrist,
+                                .leftKnee, .leftAnkle, .rightKnee, .rightAnkle]
+                                .contains(where: { detected[$0] == nil }) {
+                                Text("Faint limbs were not visible in the photo and are illustrative.")
+                                    .font(PoserType.supporting)
+                                    .foregroundStyle(Palette.secondaryText)
+                                    .multilineTextAlignment(.center)
+                            }
+
+                            if let turn = shotGeometry.spec?.subjectTurnDegrees {
+                                Text("Subject turns ≈\(abs(turn))° to their \(turn > 0 ? "right" : "left")")
+                                    .font(PoserType.supporting)
+                                    .foregroundStyle(Palette.secondaryText)
+                                    .multilineTextAlignment(.center)
+                            }
                         }
                         .frame(maxWidth: 620)
                         .frame(maxWidth: .infinity)
@@ -108,14 +125,16 @@ private struct PoseDiagramView: View {
                     path.move(to: layout.phonePoint)
                     path.addLine(to: layout.aimPoint)
                 }
-                .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
+                .stroke(.white.opacity(geometry.spec?.pitchDegrees == nil ? 0.35 : 0.8),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
                     let x = max(16, layout.photographerX - layout.figureWidth * 0.55)
                     path.move(to: CGPoint(x: x, y: layout.floor))
                     path.addLine(to: CGPoint(x: x, y: layout.phonePoint.y))
                 }
-                .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
+                .stroke(.white.opacity(geometry.spec?.cameraHeightRatio == nil ? 0.35 : 0.8),
+                        style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 BubblePoseFigure(target: photographer, progress: 1)
                     .frame(width: layout.figureWidth, height: layout.figureHeight)
@@ -226,6 +245,7 @@ struct MiniPoseGuide: View {
     }
 
     private var phoneOffset: CGFloat {
+        guard geometry.spec?.cameraHeightRatio != nil else { return 0 }
         let subjectHeight = max(1.2, geometry.spec?.subjectHeightMeters ?? ShotSpecEstimator.defaultSubjectHeight)
         return CGFloat(0.6 - geometry.cameraHeightMeters / subjectHeight) * 35
     }
@@ -308,8 +328,10 @@ struct BubblePoseFigure: View, Animatable {
                 path.move(to: a)
                 path.addLine(to: b)
                 path.addLine(to: c)
-                context.stroke(path, with: white,
-                               style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
+                let observed = target[start] != nil && target[bend] != nil && target[end] != nil
+                context.stroke(path, with: .color(.white.opacity(observed ? 1 : 0.35)),
+                               style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round,
+                                                  dash: observed ? [] : [4, 5]))
             }
 
             let thickness = max(3, size.width * 0.072)
@@ -329,7 +351,9 @@ struct BubblePoseFigure: View, Animatable {
                 torso.addQuadCurve(to: lh,
                                    control: CGPoint(x: (lh.x + rh.x) / 2, y: max(lh.y, rh.y) + shoulderCurve * 0.3))
                 torso.closeSubpath()
-                context.fill(torso, with: white)
+                let observedTorso = [.leftShoulder, .rightShoulder, .leftHip, .rightHip]
+                    .allSatisfy { target[$0] != nil }
+                context.fill(torso, with: .color(.white.opacity(observedTorso ? 1 : 0.35)))
             }
             limb(.leftShoulder, .leftElbow, .leftWrist, width: thickness)
             limb(.rightShoulder, .rightElbow, .rightWrist, width: thickness)
@@ -339,7 +363,8 @@ struct BubblePoseFigure: View, Animatable {
                 let neck = point(.neck) ?? head
                 let center = CGPoint(x: (head.x + neck.x) / 2, y: (head.y + neck.y) / 2)
                 context.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius,
-                                                    width: radius * 2, height: radius * 2)), with: white)
+                                                    width: radius * 2, height: radius * 2)),
+                             with: target[.nose] == nil ? .color(.white.opacity(0.35)) : white)
             }
         }
     }
