@@ -162,6 +162,17 @@ final class ShotSpecTests: XCTestCase {
         XCTAssertNotNil(geometry.spec)
     }
 
+    func testFallbackShotSpecKeepsOutlineWithoutInventingMeasurements() {
+        let outline = [CGPoint(x: 0.3, y: 0.2), CGPoint(x: 0.7, y: 0.2),
+                       CGPoint(x: 0.7, y: 0.8), CGPoint(x: 0.3, y: 0.8)]
+        let spec = ShotSpec(source: .fallback, silhouette: outline)
+        let geometry = spec.shotGeometry(fallback: ShotGeometryEstimator.fallback(for: ShotRecipe.presets[0]))
+        XCTAssertEqual(geometry.spec?.silhouette, outline)
+        XCTAssertNil(geometry.spec?.cameraHeightMeters)
+        XCTAssertNil(geometry.spec?.distanceMeters)
+        XCTAssertEqual(geometry.adjustmentLabel, "Height not measured")
+    }
+
     func testSubjectTurnIgnoresSmallYaw() {
         XCTAssertNil(ShotSpec(source: .pose3D, subjectYawDegrees: 10).subjectTurnDegrees)
         XCTAssertEqual(ShotSpec(source: .pose3D, subjectYawDegrees: 32).subjectTurnDegrees, 30)

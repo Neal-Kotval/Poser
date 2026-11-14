@@ -116,7 +116,7 @@ struct HomeView: View {
             targetX: analysis?.subjectPoint?.x ?? 0.5,
             targetPose: analysis?.poseSkeleton,
             shotGeometry: analysis?.geometry,
-            shotSpec: analysis?.geometry.spec,
+            shotSpec: analysis?.shotSpec,
             referenceImage: selectedRecipe == nil ? nil : referenceImage,
             referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
             queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
