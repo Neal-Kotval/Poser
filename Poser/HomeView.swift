@@ -656,35 +656,45 @@ struct HomeView: View {
     }
 
     private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Button {
-                if let data = asset.imageData, let fullImage = UIImage(data: data) {
-                    Task { await analyze(fullImage, scene: false, imageData: data) }
-                }
-            } label: {
-                GeometryReader { tile in
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: tile.size.width, height: tile.size.height)
-                        .clipped()
-                }
-                .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                // Cropping the image does not constrain its hit-testing area.
-                // Keep the photo button inside its visible tile, away from the filters.
-                .contentShape(Rectangle())
+        let tags = [
+            asset.setting.map { ReferenceTag(kind: .setting, value: $0) },
+            asset.pose.map { ReferenceTag(kind: .pose, value: $0) }
+        ].compactMap { $0 }
+        let shape = RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous)
+        return Button {
+            if let data = asset.imageData, let fullImage = UIImage(data: data) {
+                Task { await analyze(fullImage, scene: false, imageData: data) }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open \(asset.title) inspiration")
-
-            Text(asset.title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-            .padding(.horizontal, 4)
+        } label: {
+            GeometryReader { tile in
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: tile.size.width, height: tile.size.height)
+                    .clipped()
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .overlay(alignment: .bottomLeading) {
+                HStack(spacing: 8) {
+                    ForEach(tags) { tag in
+                        Text(tag.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.regularMaterial, in: Capsule())
+                    }
+                }
+                .padding(16)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            .clipShape(shape)
+            // Bound the photo's tap area to its visible rounded card.
+            .contentShape(shape)
         }
-        .padding(12)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface, style: .continuous))
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open \(asset.title) inspiration")
     }
 
     private var savedInspiration: some View {
