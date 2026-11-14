@@ -223,4 +223,23 @@ final class LiveCoachTests: XCTestCase {
         XCTAssertEqual(corner.x, -121.5, accuracy: 0.01)
         XCTAssertEqual(corner.y, 0, accuracy: 0.01)
     }
+
+    /// A landscape reference with the subject sitting far left must still map to an on-screen guide.
+    func testOffCenterLandscapeOutlineStaysInsideVisiblePreview() {
+        let outline = [CGPoint(x: 0.04, y: 0.45), CGPoint(x: 0.22, y: 0.45),
+                       CGPoint(x: 0.22, y: 0.95), CGPoint(x: 0.04, y: 0.95)]
+        for focalRatio in [CGFloat(1), 2] {
+            let mapped = FrameMapping.mapOutline(outline, fromAspect: 4.0 / 3.0, intoAspect: 0.75,
+                                                 focalRatio: focalRatio)
+            for point in mapped {
+                XCTAssertTrue(FrameMapping.visibleRegion.insetBy(dx: -0.001, dy: -0.001).contains(point),
+                              "\(point) is outside the visible preview at focal ratio \(focalRatio)")
+            }
+        }
+        let viewSize = CGSize(width: 393, height: 852)
+        let spec = ShotSpec(source: .pose2D, silhouette: outline, imageAspect: 4.0 / 3.0)
+        for point in FrameMapping.cutout(for: spec, viewSize: viewSize) {
+            XCTAssertTrue((0...viewSize.width).contains(point.x), "drawn x \(point.x) is off screen")
+        }
+    }
 }
