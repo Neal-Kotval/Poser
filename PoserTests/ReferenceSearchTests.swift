@@ -2,9 +2,8 @@ import XCTest
 @testable import Poser
 
 final class ReferenceSearchTests: XCTestCase {
-    func testLocalTextFallbackFindsBeachWithoutTypesense() async {
-        // With no Secrets/Typesense.plist, search stays on the local catalog.
-        XCTAssertFalse(TypesenseConfig.isConfigured)
+    func testBeachTextSearchReturnsMatches() async {
+        // Uses Typesense when Secrets/Typesense.plist is present; otherwise local catalog fallback.
         let results = await ReferenceSearch.text("beach", tag: nil)
         XCTAssertFalse(results.isEmpty)
         XCTAssertTrue(results.contains { asset in

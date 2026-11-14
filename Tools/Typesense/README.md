@@ -1,49 +1,35 @@
 # Typesense reference index
 
-Indexes the bundled Pinterest library into Typesense for:
+Powers the For You search bar (`beach picture`, etc.).
 
-- For You text search (`beach picture`)
-- Scan-place image similarity
+## Current setup (free tier)
 
-## 1. Create a cluster
+The free 0.5 GB cluster cannot load CLIP (`Memory required to load the model exceeds free memory available.`).
 
-Use [Typesense Cloud](https://cloud.typesense.org) (easiest) or a local Docker node with ML models enabled.
+So Poser indexes **text metadata** (title, setting, pose, tags) for keyword search. Scan-place image matching stays on-device via `SceneMatcher` until the cluster is upgraded enough for CLIP.
 
-Create a **search-only** API key for the iOS app and keep the admin key on this machine only.
+Cluster host pattern: `<id>-1.a2.typesense.net`
 
-## 2. Configure the app
+## App config
 
 ```bash
 cp Poser/Secrets/Typesense.plist.example Poser/Secrets/Typesense.plist
 ```
 
-Fill in Host / SearchAPIKey. `Typesense.plist` is gitignored.
+Fill Host + **search-only** API key. `Typesense.plist` is gitignored.
 
-## 3. Index references
+## Re-index metadata (optional)
+
+If you change the catalog:
 
 ```bash
+# Prefer Typesense Cloud MCP from Cursor, or:
 cd Tools/Typesense
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-export TYPESENSE_HOST=xxx.a1.typesense.net
-export TYPESENSE_PORT=443
-export TYPESENSE_PROTOCOL=https
-export TYPESENSE_API_KEY=ADMIN_KEY_HERE
-
-python index_references.py \
-  --catalog ../../Poser/PinterestLibrary/catalog.json \
-  --images ../../Poser/PinterestLibrary/previews \
-  --limit 0
+python3 - <<'PY'
+# build JSONL from Poser/PinterestLibrary/catalog.json and import with a temporary import key
+PY
 ```
 
-`--limit 50` is useful for a smoke test. Re-running recreates the `references` collection.
+## CLIP image search (later)
 
-## 4. Verify
-
-```bash
-curl "https://$TYPESENSE_HOST/multi_search" \
-  -H "X-TYPESENSE-API-KEY: $TYPESENSE_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"searches":[{"collection":"references","q":"beach","query_by":"embedding","per_page":5}]}'
-```
+Needs a larger Typesense Cloud memory plan so `ts/clip-vit-b-p32` can load. Then recreate `references` with an `image` + `embedding` field and re-import previews.

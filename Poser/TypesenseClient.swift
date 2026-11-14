@@ -38,15 +38,16 @@ actor TypesenseClient {
         self.session = session
     }
 
-    /// Text → image search via CLIP (`query_by: embedding`).
+    /// Text search over titles/tags. Free-tier clusters use keyword search; CLIP image
+    /// embeddings need a larger Typesense plan (the model does not fit in 0.5 GB RAM).
     func searchText(_ query: String, setting: String? = nil, pose: String? = nil, limit: Int = 40) async throws -> [TypesenseHit] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
         var search: [String: Any] = [
             "collection": TypesenseConfig.collection,
             "q": trimmed,
-            "query_by": "embedding",
-            "exclude_fields": "embedding,image",
+            "query_by": "search_text,title,tags,setting,pose",
+            "query_by_weights": "4,3,2,2,2",
             "per_page": limit
         ]
         if let filter = filterBy(setting: setting, pose: pose) {
@@ -55,7 +56,8 @@ actor TypesenseClient {
         return try await multiSearch(search)
     }
 
-    /// Image → image similarity for a camera scan.
+    /// Image → image similarity when a CLIP embedding field exists on the collection.
+    /// On free tier this will fail; callers should fall back to on-device SceneMatcher.
     func searchSimilar(image: UIImage, setting: String? = nil, pose: String? = nil, limit: Int = 24) async throws -> [TypesenseHit] {
         let base64 = try jpegBase64(image, maxDimension: 512)
         var search: [String: Any] = [
