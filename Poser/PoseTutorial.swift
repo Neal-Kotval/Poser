@@ -12,81 +12,66 @@ struct PoseTutorialView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Button { onClose() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 18, weight: .medium))
-                        .frame(width: 44, height: 44, alignment: .leading)
-                }
-                Spacer()
-                Text("Pose guide")
-                    .font(PoserType.wordmark)
-                Spacer()
+        GeometryReader { screen in
+            ZStack {
                 if let referenceImage {
                     Image(uiImage: referenceImage)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 44, height: 44)
+                        .frame(width: screen.size.width, height: screen.size.height)
                         .clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                        .ignoresSafeArea()
                 } else {
-                    Color.clear.frame(width: 44, height: 44)
+                    Palette.background.ignoresSafeArea()
                 }
+                LinearGradient(colors: [.black.opacity(0.6), .black.opacity(0.35), .black.opacity(0.68)],
+                               startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    HStack {
+                        Button { onClose() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 18, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                                .background(.black.opacity(0.42), in: Circle())
+                        }
+                        Spacer()
+                        Text("poser")
+                            .font(PoserType.wordmark)
+                        Spacer()
+                        Color.clear.frame(width: 44, height: 44)
+                    }
+                    .padding(.top, 12)
+
+                    Spacer(minLength: 30)
+                    Text("MATCH THIS SHOT")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .tracking(2)
+                        .shadow(color: .black.opacity(0.5), radius: 8)
+                    PoseDiagramView(skeleton: skeleton, geometry: analysis?.geometry ?? ShotGeometryEstimator.fallback(for: recipe))
+                        .frame(height: min(380, screen.size.height * 0.48))
+                        .padding(.top, 14)
+                    Spacer(minLength: 24)
+
+                    Button(action: onContinue) {
+                        HStack(spacing: 9) {
+                            Text("Open camera")
+                            Image(systemName: "arrow.right")
+                        }
+                        .font(PoserType.action)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity, minHeight: 56)
+                        .background(.white, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 22)
+                }
+                .padding(.horizontal, PoserSpace.large)
+                .foregroundStyle(.white)
             }
-            .padding(.top, 12)
-
-            Text("Match the pose")
-                .font(.system(size: 31, weight: .bold))
-                .padding(.top, 28)
-            Text(analysis?.poseSkeleton == nil ? "Example stance for this shot" : "Built from the person in your reference")
-                .font(PoserType.supporting)
-                .foregroundStyle(Palette.secondaryText)
-                .padding(.top, 6)
-
-            PoseDiagramView(skeleton: skeleton, geometry: analysis?.geometry ?? ShotGeometryEstimator.fallback(for: recipe))
-                .frame(height: 310)
-                .padding(.top, 24)
-
-            VStack(alignment: .leading, spacing: 17) {
-                guideLine(symbol: "figure.stand", title: "Subject", detail: recipe.pose)
-                Rectangle().fill(Palette.border).frame(height: 1)
-                guideLine(symbol: "iphone", title: "Camera", detail: recipe.camera)
-            }
-            .padding(.top, 25)
-
-            Spacer(minLength: 20)
-            Button {
-                onContinue()
-            } label: {
-                Text("Open camera")
-                    .font(PoserType.action)
-                    .foregroundStyle(Palette.background)
-                    .frame(maxWidth: .infinity, minHeight: 56)
-                    .background(Palette.primaryText, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, 22)
         }
-        .padding(.horizontal, PoserSpace.large)
-        .foregroundStyle(Palette.primaryText)
         .background(Palette.background.ignoresSafeArea())
-    }
-
-    private func guideLine(symbol: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 19))
-                .frame(width: 27)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 14, weight: .semibold))
-                Text(detail)
-                    .font(.system(size: 14))
-                    .foregroundStyle(Palette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
     }
 }
 
@@ -101,13 +86,10 @@ private struct PoseDiagramView: View {
             let floor = canvas.size.height * 0.8
             let photographerX = canvas.size.width * 0.23
             let subjectX = canvas.size.width * 0.78
-            let phonePoint = CGPoint(x: photographerX + 34, y: floor - 107)
+            let crouched = self.geometry.cameraHeightMeters < 1.1
+            let phonePoint = CGPoint(x: photographerX + 34, y: floor - (crouched ? 72 : 107))
             let subjectPoint = CGPoint(x: subjectX - 20, y: floor - 120)
             ZStack {
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Palette.surface)
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(.white.opacity(0.08), lineWidth: 1)
                 Path { path in
                     path.move(to: CGPoint(x: 20, y: floor))
                     path.addLine(to: CGPoint(x: canvas.size.width - 20, y: floor))
@@ -127,12 +109,12 @@ private struct PoseDiagramView: View {
                 .stroke(.white.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 5]))
 
                 Path { path in
-                    path.move(to: CGPoint(x: photographerX + 48, y: floor - 158))
+                    path.move(to: CGPoint(x: photographerX + 48, y: floor - (crouched ? 116 : 158)))
                     path.addLine(to: CGPoint(x: photographerX + 48, y: phonePoint.y))
                 }
                 .stroke(.white.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 5]))
 
-                PhotographerFigureShape()
+                PhotographerFigureShape(crouched: crouched)
                     .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
                     .frame(width: 112, height: 177)
                     .position(x: photographerX, y: floor - 90)
@@ -177,27 +159,47 @@ private struct PoseDiagramView: View {
 }
 
 private struct PhotographerFigureShape: Shape {
+    let crouched: Bool
+
     func path(in rect: CGRect) -> Path {
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y)
         }
         var path = Path()
-        path.addEllipse(in: CGRect(x: p(0.31, 0.06).x, y: p(0, 0.06).y,
+        let headY: CGFloat = crouched ? 0.25 : 0.06
+        path.addEllipse(in: CGRect(x: p(0.31, headY).x, y: p(0, headY).y,
                                 width: rect.width * 0.24, height: rect.height * 0.15))
-        path.move(to: p(0.43, 0.21))
-        path.addLine(to: p(0.43, 0.55))
-        path.move(to: p(0.43, 0.28))
-        path.addLine(to: p(0.55, 0.34))
-        path.addLine(to: p(0.69, 0.39))
-        path.move(to: p(0.43, 0.28))
-        path.addLine(to: p(0.49, 0.43))
-        path.addLine(to: p(0.69, 0.41))
-        path.move(to: p(0.43, 0.55))
-        path.addLine(to: p(0.29, 0.77))
-        path.addLine(to: p(0.23, 0.98))
-        path.move(to: p(0.43, 0.55))
-        path.addLine(to: p(0.57, 0.77))
-        path.addLine(to: p(0.64, 0.98))
+        if crouched {
+            path.move(to: p(0.43, 0.40))
+            path.addLine(to: p(0.52, 0.68))
+            path.move(to: p(0.45, 0.47))
+            path.addLine(to: p(0.58, 0.50))
+            path.addLine(to: p(0.69, 0.60))
+            path.move(to: p(0.45, 0.47))
+            path.addLine(to: p(0.53, 0.62))
+            path.addLine(to: p(0.69, 0.62))
+            path.move(to: p(0.52, 0.68))
+            path.addLine(to: p(0.29, 0.75))
+            path.addLine(to: p(0.19, 0.98))
+            path.move(to: p(0.52, 0.68))
+            path.addLine(to: p(0.69, 0.83))
+            path.addLine(to: p(0.62, 0.98))
+        } else {
+            path.move(to: p(0.43, 0.21))
+            path.addLine(to: p(0.43, 0.55))
+            path.move(to: p(0.43, 0.28))
+            path.addLine(to: p(0.55, 0.34))
+            path.addLine(to: p(0.69, 0.39))
+            path.move(to: p(0.43, 0.28))
+            path.addLine(to: p(0.49, 0.43))
+            path.addLine(to: p(0.69, 0.41))
+            path.move(to: p(0.43, 0.55))
+            path.addLine(to: p(0.29, 0.77))
+            path.addLine(to: p(0.23, 0.98))
+            path.move(to: p(0.43, 0.55))
+            path.addLine(to: p(0.57, 0.77))
+            path.addLine(to: p(0.64, 0.98))
+        }
         return path
     }
 }
