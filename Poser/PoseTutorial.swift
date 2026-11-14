@@ -54,6 +54,12 @@ struct PoseTutorialView: View {
                                 .font(PoserType.supporting)
                                 .foregroundStyle(Palette.secondaryText)
                                 .multilineTextAlignment(.center)
+                            if let turn = shotGeometry.spec?.subjectTurnDegrees {
+                                Text("Subject turns ≈\(abs(turn))° to their \(turn > 0 ? "right" : "left")")
+                                    .font(PoserType.supporting)
+                                    .foregroundStyle(Palette.secondaryText)
+                                    .multilineTextAlignment(.center)
+                            }
                         }
                         .frame(maxWidth: 620)
                         .frame(maxWidth: .infinity)

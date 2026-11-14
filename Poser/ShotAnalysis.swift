@@ -30,6 +30,7 @@ struct PhotoAnalysis {
     let hasPerson: Bool
     let poseSkeleton: PoseSkeleton?
     let geometry: ShotGeometry
+    let shotSpec: ShotSpec
     let summary: String
     let recipe: ShotRecipe
 }
@@ -144,7 +145,7 @@ struct PoseSkeleton {
 }
 
 enum AnalysisService {
-    static func analyze(_ image: UIImage) async throws -> PhotoAnalysis {
+    static func analyze(_ image: UIImage, imageData: Data? = nil) async throws -> PhotoAnalysis {
         guard let cgImage = image.cgImage else { throw AnalysisError.invalidImage }
         let orientation = CGImagePropertyOrientation(image.imageOrientation)
         return await Task.detached(priority: .userInitiated) {
@@ -187,9 +188,18 @@ enum AnalysisService {
             } else {
                 summary = "We found a person in the frame. Match their position, then refine your angle and light."
             }
-            let geometry = ShotGeometryEstimator.estimate(observation: pose, recipe: recipe)
+            let estimate = ShotSpecEstimator.estimate(cgImage: cgImage, orientation: orientation, imageData: imageData,
+                                                      subjectHeightMeters: ShotSpecEstimator.defaultSubjectHeight)
+            #if DEBUG
+            print("[ShotSpec] source \(estimate.spec.source.rawValue)\n\(estimate.diagnostics.text)")
+            #endif
+            let poseGeometry = ShotGeometryEstimator.estimate(observation: pose, recipe: recipe)
+            let geometry = estimate.spec.source == .fallback
+                ? poseGeometry
+                : estimate.spec.shotGeometry(fallback: poseGeometry)
             return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil,
-                                 poseSkeleton: poseSkeleton, geometry: geometry, summary: summary, recipe: recipe)
+                                 poseSkeleton: poseSkeleton, geometry: geometry, shotSpec: estimate.spec,
+                                 summary: summary, recipe: recipe)
         }.value
     }
 }

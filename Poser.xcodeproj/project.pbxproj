@@ -21,6 +21,11 @@
 		CBB6B0E22B69BE40E1C4464C /* ShootStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27A4ED2C0016F1A86C4B3C25 /* ShootStore.swift */; };
 		E3E530D35DAFFB8A7960731A /* PoseMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2A125C99445696F76111D3 /* PoseMatcher.swift */; };
 		E6115B34E06C018955B1E0A2 /* ShotGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C2FDB549430228924D4D029 /* ShotGeometry.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E02 /* ShotSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E01 /* ShotSpec.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E04 /* ShotSpecEstimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E03 /* ShotSpecEstimator.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E06 /* ShotSpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E05 /* ShotSpecTests.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E08 /* LiveCoach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E0A /* LiveCoachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -50,6 +55,11 @@
 		EA439CA4C1F6EC46A8193FFE /* Poser.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Poser.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F548E708701ECA3A0885871B /* PoserTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PoserTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FDFC842150A09ED8B7AECD16 /* MatchingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchingTests.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E01 /* ShotSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotSpec.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E03 /* ShotSpecEstimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotSpecEstimator.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E05 /* ShotSpecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotSpecTests.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCoach.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCoachTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -75,6 +85,8 @@
 			isa = PBXGroup;
 			children = (
 				FDFC842150A09ED8B7AECD16 /* MatchingTests.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E05 /* ShotSpecTests.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */,
 			);
 			path = PoserTests;
 			sourceTree = "<group>";
@@ -95,6 +107,9 @@
 				27A4ED2C0016F1A86C4B3C25 /* ShootStore.swift */,
 				74C0BDBE904DBAEA8A0C850F /* ShotAnalysis.swift */,
 				8C2FDB549430228924D4D029 /* ShotGeometry.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E01 /* ShotSpec.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E03 /* ShotSpecEstimator.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */,
 			);
 			path = Poser;
 			sourceTree = "<group>";
@@ -194,6 +209,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				107A817D5BC1B6E99DBB3EC5 /* MatchingTests.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E06 /* ShotSpecTests.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E0A /* LiveCoachTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -213,6 +230,9 @@
 				CBB6B0E22B69BE40E1C4464C /* ShootStore.swift in Sources */,
 				9087FDC71C52E1ED6E817C47 /* ShotAnalysis.swift in Sources */,
 				E6115B34E06C018955B1E0A2 /* ShotGeometry.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E02 /* ShotSpec.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E04 /* ShotSpecEstimator.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E08 /* LiveCoach.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

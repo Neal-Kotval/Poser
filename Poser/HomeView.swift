@@ -69,7 +69,7 @@ struct HomeView: View {
                     guard let data = try await item.loadTransferable(type: Data.self),
                           let image = UIImage(data: data) else { throw AnalysisError.invalidImage }
                     guard requestID == flowID else { return }
-                    await importInspiration(image, source: .photoLibrary)
+                    await importInspiration(image, source: .photoLibrary, imageData: data)
                     selectedPhoto = nil
                 } catch {
                     if requestID == flowID { errorMessage = error.localizedDescription }
@@ -112,6 +112,7 @@ struct HomeView: View {
             targetX: analysis?.subjectPoint?.x ?? 0.5,
             targetPose: analysis?.poseSkeleton,
             shotGeometry: analysis?.geometry,
+            shotSpec: analysis?.geometry.spec,
             referenceImage: selectedRecipe == nil ? nil : referenceImage,
             referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
             queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
@@ -815,7 +816,7 @@ struct HomeView: View {
             .padding(12)
     }
 
-    private func analyze(_ image: UIImage, scene: Bool) async {
+    private func analyze(_ image: UIImage, scene: Bool, imageData: Data? = nil) async {
         let requestID = UUID()
         flowID = requestID
         activeTab = .home
@@ -831,7 +832,7 @@ struct HomeView: View {
         selectedRecipe = nil
         isAnalyzing = true
         do {
-            let result = try await AnalysisService.analyze(image)
+            let result = try await AnalysisService.analyze(image, imageData: imageData)
             guard requestID == flowID else { return }
             analysis = result
             selectedRecipe = result.recipe
@@ -847,14 +848,14 @@ struct HomeView: View {
         withAnimation(.easeInOut(duration: 0.3)) { showingPoseTutorial = true }
     }
 
-    private func importInspiration(_ image: UIImage, source: InspirationSource) async {
+    private func importInspiration(_ image: UIImage, source: InspirationSource, imageData: Data? = nil) async {
         do {
             try inspirationStore.add(image, source: source)
         } catch {
             errorMessage = error.localizedDescription
             return
         }
-        await analyze(image, scene: false)
+        await analyze(image, scene: false, imageData: imageData)
     }
 
     private func scanScene(_ image: UIImage) async {
