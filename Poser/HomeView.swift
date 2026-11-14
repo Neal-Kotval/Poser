@@ -46,6 +46,7 @@ struct HomeView: View {
     @State private var selectedReferenceTag: ReferenceTag?
     @State private var referenceQuery = ""
     @State private var isReferenceSearchExpanded = false
+    @State private var isSearchKeyboardVisible = false
     @FocusState private var isReferenceSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var referenceTagFrame: CGRect = .null
@@ -59,13 +60,26 @@ struct HomeView: View {
                 // the home indicator. Navigation keeps the normal safe area.
                 pagePager
                     .ignoresSafeArea(.container, edges: .bottom)
-                if !showingPoseTutorial { bottomBar }
+                if !showingPoseTutorial && !isReferenceSearchFocused && !isSearchKeyboardVisible {
+                    bottomBar
+                        .transition(.opacity)
+                }
             }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),
+                       value: isReferenceSearchFocused || isSearchKeyboardVisible)
             .background(Palette.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
         }
         .tint(.white)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            if isReferenceSearchFocused { isSearchKeyboardVisible = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+            // Wait until dismissal completes so navigation never rises above
+            // a keyboard that is still moving off screen.
+            isSearchKeyboardVisible = false
+        }
         .overlay {
             if showingPoseTutorial, let selectedRecipe {
                 PoseTutorialView(analysis: analysis, recipe: selectedRecipe) {
@@ -136,6 +150,7 @@ struct HomeView: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 20, coordinateSpace: .named("homePager"))
                     .updating($pageDragOffset) { value, offset, _ in
+                        guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
                         let excludedFrame = activeTab == .home ? referenceTagFrame : .null
                         guard HomePaging.allowsSwipe(start: value.startLocation,
                                                      translation: value.translation,
@@ -146,6 +161,7 @@ struct HomeView: View {
                         offset = translation
                     }
                     .onEnded { value in
+                        guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
                         let excludedFrame = activeTab == .home ? referenceTagFrame : .null
                         guard HomePaging.allowsSwipe(start: value.startLocation,
                                                      translation: value.translation,
@@ -216,6 +232,7 @@ struct HomeView: View {
             .padding(.bottom, 86)
             .frame(maxWidth: .infinity)
         }
+        .scrollDismissesKeyboard(.interactively)
         .background(Palette.background)
     }
 

@@ -29,7 +29,7 @@ The compatibility names `ink`, `panel`, `raised`, `cyan`, `cream`, and `muted` r
 - `SectionLabel`: quiet supporting label for grouping content.
 - `PoserSurface`: a grouped dark surface with a subtle border.
 
-The bottom navigation is a floating glass capsule with Home, Camera, and Profile in swipe order. A rounded selection background identifies the current page. The camera opens first. Home is the inspiration feed; the Camera tab holds active shot plans and captured-image review. On the camera screen, the shutter is the strongest control and live guidance appears only when a recipe exists.
+The bottom navigation is a floating glass capsule with Home, Camera, and Profile in swipe order. A rounded selection background identifies the current page. While typing in Home search, navigation fades out and page swipes pause. Navigation returns after keyboard dismissal completes; queries and categories stay selected. Category suggestions can remain open with the keyboard dismissed. The camera opens first. Home is the inspiration feed; the Camera tab holds active shot plans and captured-image review. On the camera screen, the shutter is the strongest control and live guidance appears only when a recipe exists.
 
 The pre-shot pose guide uses a white line figure on a dark surface. It animates between a neutral stance and detected body landmarks when available; the example pose is labeled when detection is unavailable. Keep its camera distance and subject instructions readable before the user opens the live camera.
 
