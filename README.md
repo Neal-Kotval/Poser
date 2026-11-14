@@ -11,8 +11,8 @@ Open `Poser.xcodeproj` in Xcode and run the Poser target on iOS 26 or later. For
 1. Select a reference from Photos. Imported images are saved in an on-device inspiration library.
 2. Scan the surroundings to rank the featured photo and saved references by scene structure, color, and light.
 3. Poser analyzes image labels, saliency, and body landmarks on device where available.
-4. Review a shot recipe with distance, phone height, tilt, framing, subject position, and light guidance. Full-body references can provide 3D setup estimates. For cropped portraits, face size provides a rough distance and the pose guide offers adjustable starting height and tilt.
-5. Preview an animated stick figure pose guide, then open the camera.
+4. Review a shot recipe with distance, phone height, tilt, framing, subject position, and light guidance. Full-body references can provide 3D setup estimates. For cropped portraits, face size provides a rough distance and the pose guide marks unavailable height and tilt as unmeasured.
+5. Preview a full-screen animated pictogram pose guide, then open the camera.
 6. Use the thirds grid, motion based level, pose overlay, and live pose cue, then capture.
 7. Compare the captured shot with the reference and save it to Photos. A pose score appears when Vision detects enough body joints in both photos.
 
@@ -20,7 +20,7 @@ Scene matching searches the local inspiration library and the bundled examples. 
 
 ## Optional Gemini image guidance
 
-When a user chooses a reference photo, Poser sends it to Gemini during preparation. Gemini returns a short shot summary and visible pose, framing, lighting, and qualitative camera cues. The app maps clear camera cues to editable starting suggestions and uses pose style only to illustrate joints that Vision could not see. These suggestions are not measurements of the original camera; Vision remains the source of measured geometry and the live pose score. On the shot review screen, **Get photo tips** optionally sends the reference and captured photo to Gemini for qualitative feedback.
+When a user chooses a reference photo, Poser sends it to Gemini during preparation. Gemini returns a short shot summary and visible pose, framing, lighting, and qualitative camera cues. The app maps clear camera cues to starting suggestions and uses pose style only to illustrate joints that Vision could not see. These suggestions are not measurements of the original camera; Vision remains the source of measured geometry and the live pose score. On the shot review screen, **Get photo tips** optionally sends the reference and captured photo to Gemini for qualitative feedback.
 
 The iOS client uses [Firebase AI Logic](https://firebase.google.com/docs/ai-logic) so a Gemini API key is not embedded in the app. To enable it:
 

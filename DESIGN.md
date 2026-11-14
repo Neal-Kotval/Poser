@@ -33,7 +33,7 @@ The bottom navigation is a floating glass capsule with Home, Camera, and Profile
 
 Saved inspiration supports long-press context menus for individual deletion. The section header’s Edit action enters selection mode with checkmarks, Select All, and a bulk Delete action. Deletion requires confirmation; Cancel preserves the selection, and Done exits selection mode. Horizontal scrolling within saved inspiration never changes pages.
 
-The pre-shot pose guide uses solid white pedestrian-sign pictograms on a dark surface, with circular heads, thick capsule limbs, and softly rounded torsos. It animates between a neutral stance and detected body landmarks when available; the example pose is labeled when detection is unavailable. Keep its camera distance and subject instructions readable before the user opens the live camera.
+The full-screen pre-shot pose guide has a minimal black canvas, one camera action, and no adjustable setup panel. Dotted measurement guides flow gently toward their targets; the ground stays still, and Reduce Motion stops the flow. It shows available geometry estimates with approximate labels; unavailable height and tilt remain explicitly unmeasured. Face-based distance is labeled as a face estimate. The guide uses solid white pedestrian-sign pictograms on a dark surface, with circular heads, thick capsule limbs, and softly rounded torsos. It animates between a neutral stance and detected body landmarks when available; the example pose is labeled when detection is unavailable. Keep its camera distance and subject instructions readable before the user opens the live camera.
 
 ## Accessibility
 
