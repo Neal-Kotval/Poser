@@ -29,6 +29,7 @@ struct PhotoAnalysis {
     let subjectPoint: CGPoint?
     let hasPerson: Bool
     let poseSkeleton: PoseSkeleton?
+    let geometry: ShotGeometry
     let summary: String
     let recipe: ShotRecipe
 }
@@ -143,7 +144,9 @@ enum AnalysisService {
             } else {
                 summary = "We found a person in the frame. Match their position, then refine your angle and light."
             }
-            return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil, poseSkeleton: poseSkeleton, summary: summary, recipe: recipe)
+            let geometry = ShotGeometryEstimator.estimate(observation: pose, recipe: recipe)
+            return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil,
+                                 poseSkeleton: poseSkeleton, geometry: geometry, summary: summary, recipe: recipe)
         }.value
     }
 }

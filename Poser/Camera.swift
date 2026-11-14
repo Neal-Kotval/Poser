@@ -78,12 +78,16 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     }
 
     func stop() {
+        #if targetEnvironment(simulator)
+        isReady = false
+        #else
         motion.stopDeviceMotionUpdates()
         queue.async {
             self.wantsToRun = false
             if self.session.isRunning { self.session.stopRunning() }
             DispatchQueue.main.async { self.isReady = false }
         }
+        #endif
     }
 
     func capture() {
@@ -209,21 +213,33 @@ struct CameraScreen: View {
     let recipe: ShotRecipe?
     let targetX: CGFloat
     let targetPose: PoseSkeleton?
+    let shotGeometry: ShotGeometry?
+    let referenceImage: UIImage?
+    let referenceTitle: String?
+    let queueProgress: (current: Int, total: Int)?
     let embedded: Bool
+    let isActive: Bool
     let onCapture: (UIImage) -> Void
+    let onPoseGuide: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @StateObject private var camera = CameraModel()
     @State private var showGrid = false
     @State private var showPose = true
     @State private var tutorialStep = 0
 
-    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, embedded: Bool = false, onCapture: @escaping (UIImage) -> Void) {
+    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil) {
         self.mode = mode
         self.recipe = recipe
         self.targetX = targetX
         self.targetPose = targetPose
+        self.shotGeometry = shotGeometry
+        self.referenceImage = referenceImage
+        self.referenceTitle = referenceTitle
+        self.queueProgress = queueProgress
         self.embedded = embedded
+        self.isActive = isActive
         self.onCapture = onCapture
+        self.onPoseGuide = onPoseGuide
     }
 
     var body: some View {
@@ -301,6 +317,37 @@ struct CameraScreen: View {
                         .padding(.horizontal, 18)
                 }
 
+                if mode == .guide, let recipe, let referenceImage {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(uiImage: referenceImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 78, height: 110)
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.control))
+                            .accessibilityLabel("Current reference photo")
+                        VStack(alignment: .leading, spacing: 5) {
+                            if let queueProgress {
+                                Text("SHOT \(queueProgress.current) OF \(queueProgress.total)")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .tracking(1)
+                            }
+                            Text(referenceTitle ?? recipe.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .lineLimit(2)
+                        }
+                        .padding(.top, 8)
+                        Spacer(minLength: 0)
+                        Button { onPoseGuide?() } label: {
+                            MiniPoseGuide(skeleton: targetPose ?? .example(for: recipe),
+                                          geometry: shotGeometry ?? ShotGeometryEstimator.fallback(for: recipe))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open pose and camera setup")
+                    }
+                    .padding(.horizontal, 18)
+                }
+
                 if mode == .guide, let recipe {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "sparkle.viewfinder")
@@ -356,6 +403,17 @@ struct CameraScreen: View {
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .padding(14)
                         .background(Palette.background.opacity(0.85), in: Capsule())
+                } else if mode == .guide, recipe == nil {
+                    VStack(spacing: 4) {
+                        Text("Looking for inspo?")
+                            .font(.system(size: 17, weight: .semibold))
+                        Text("Take a photo of this place to find a shot")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Palette.secondaryText)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(Palette.background.opacity(0.82), in: Capsule())
                 }
                 Button { camera.capture() } label: {
                     Circle()
@@ -376,7 +434,15 @@ struct CameraScreen: View {
             }
             camera.targetX = targetX
             camera.targetPose = targetPose
-            camera.start()
+            if isActive { camera.start() }
+        }
+        .onChange(of: isActive) { _, active in
+            if active { camera.start() } else { camera.stop() }
+        }
+        .onChange(of: queueProgress?.current) { _, _ in
+            camera.targetPose = targetPose
+            camera.targetX = targetX
+            camera.poseScore = nil
         }
         .onDisappear { camera.stop() }
         .alert("Camera issue", isPresented: Binding(

@@ -2,11 +2,11 @@ import SwiftUI
 import PhotosUI
 
 struct HomeView: View {
-    private enum Tab { case camera, home }
-    private let featuredID = UUID(uuidString: "D9355526-A2BC-4941-9EB4-E3F60E85859D")!
+    private enum Tab: Hashable { case camera, home, profile }
 
     @State private var activeTab: Tab = .camera
     @StateObject private var inspirationStore = InspirationStore()
+    @StateObject private var shootStore = ShootStore()
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var referenceImage: UIImage?
     @State private var analysis: PhotoAnalysis?
@@ -23,55 +23,49 @@ struct HomeView: View {
     @State private var poseScore: Int?
     @State private var scannedScene: UIImage?
     @State private var sceneMatches: [SceneMatch] = []
+    @State private var selectedMatches: Set<UUID> = []
+    @State private var shootQueue: [UUID] = []
+    @State private var currentShotIndex = 0
+    @State private var isPreparingReference = false
+    @State private var completionPreview: UIImage?
+    @State private var completedShotNumber = 0
+    @State private var completedShotTotal = 0
+    @State private var selectedCompletedShot: CompletedShot?
 
     var body: some View {
         NavigationStack {
-            Group {
-                if activeTab == .camera {
-                    CameraScreen(
-                        mode: .guide,
-                        recipe: selectedRecipe,
-                        targetX: analysis?.subjectPoint?.x ?? 0.5,
-                        targetPose: analysis?.poseSkeleton,
-                        embedded: true
-                    ) { image in
-                        capturedImage = image
-                        comparisonNote = nil
-                        poseScore = nil
-                        activeTab = .home
-                        Task { await compare(image) }
-                    }
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 32) {
-                            header
-                            if let capturedImage {
-                                comparison(capturedImage)
-                            } else if !sceneMatches.isEmpty {
-                                sceneMatchResults
-                            } else if let selectedRecipe {
-                                recipeDetail(selectedRecipe)
-                            } else if isAnalyzing {
-                                analyzingView
-                            } else {
-                                landing
-                            }
-                        }
-                        .frame(maxWidth: 620)
-                        .padding(.horizontal, PoserSpace.large)
-                        .padding(.top, PoserSpace.large)
-                        .padding(.bottom, PoserSpace.xLarge)
-                        .frame(maxWidth: .infinity)
-                    }
-                    .background(Palette.background)
-                }
+            TabView(selection: $activeTab) {
+                cameraPage
+                    .tag(Tab.camera)
+                homePage
+                    .tag(Tab.home)
+                profilePage
+                    .tag(Tab.profile)
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
             .background(Palette.background.ignoresSafeArea())
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .toolbar(.hidden, for: .navigationBar)
         }
         .tint(.white)
         .preferredColorScheme(.dark)
+        .overlay {
+            if let completionPreview {
+                completionOverlay(completionPreview)
+                    .transition(.opacity)
+            }
+        }
+        .overlay {
+            if showingPoseTutorial, let selectedRecipe {
+                PoseTutorialView(referenceImage: referenceImage, analysis: analysis, recipe: selectedRecipe) {
+                    withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
+                } onClose: {
+                    withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
+                }
+                .transition(.opacity)
+                .zIndex(1)
+            }
+        }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
             Task {
@@ -95,13 +89,8 @@ struct HomeView: View {
                 Task { await scanScene(image) }
             }
         }
-        .fullScreenCover(isPresented: $showingPoseTutorial) {
-            if let selectedRecipe {
-                PoseTutorialView(referenceImage: referenceImage, analysis: analysis, recipe: selectedRecipe) {
-                    showingPoseTutorial = false
-                    activeTab = .camera
-                }
-            }
+        .sheet(item: $selectedCompletedShot) { shot in
+            completedShotDetail(shot)
         }
         .alert("Could not continue", isPresented: Binding(
             get: { errorMessage != nil },
@@ -117,9 +106,152 @@ struct HomeView: View {
         } message: { Text(savedMessage ?? "") }
     }
 
+    private var cameraPage: some View {
+        CameraScreen(
+            mode: .guide,
+            recipe: selectedRecipe,
+            targetX: analysis?.subjectPoint?.x ?? 0.5,
+            targetPose: analysis?.poseSkeleton,
+            shotGeometry: analysis?.geometry,
+            referenceImage: selectedRecipe == nil ? nil : referenceImage,
+            referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
+            queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
+            embedded: true,
+            isActive: activeTab == .camera && !showingPoseTutorial && completionPreview == nil
+        ) { image in
+            if !shootQueue.isEmpty {
+                Task { await completeCurrentShot(image) }
+            } else if selectedRecipe != nil, referenceImage != nil {
+                capturedImage = image
+                comparisonNote = nil
+                poseScore = nil
+                withAnimation(.easeOut(duration: 0.32)) { activeTab = .home }
+                Task { await compare(image) }
+            } else {
+                Task { await scanScene(image) }
+            }
+        } onPoseGuide: {
+            showingPoseTutorial = true
+        }
+    }
+
+    private var homePage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
+                header
+                if let capturedImage {
+                    comparison(capturedImage)
+                } else if !sceneMatches.isEmpty {
+                    sceneMatchResults
+                } else if let selectedRecipe {
+                    recipeDetail(selectedRecipe)
+                } else if isAnalyzing {
+                    analyzingView
+                } else {
+                    landing
+                }
+            }
+            .frame(maxWidth: 620)
+            .padding(.horizontal, PoserSpace.large)
+            .padding(.top, PoserSpace.large)
+            .padding(.bottom, PoserSpace.xLarge)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Palette.background)
+    }
+
+    private var profilePage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack {
+                    Text("poser")
+                        .font(PoserType.wordmark)
+                    Spacer()
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 24, weight: .ultraLight))
+                }
+                .padding(.top, PoserSpace.large)
+
+                HStack(spacing: 18) {
+                    Circle()
+                        .fill(Palette.elevated)
+                        .frame(width: 74, height: 74)
+                        .overlay(Image(systemName: "person.fill").font(.system(size: 29)).foregroundStyle(.white))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("My shots")
+                            .font(.system(size: 24, weight: .bold))
+                        Text("\(shootStore.shots.count) completed")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Palette.secondaryText)
+                    }
+                }
+
+                Rectangle().fill(Palette.border).frame(height: 1)
+                if shootStore.shots.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Image(systemName: "square.stack.3d.up")
+                            .font(.system(size: 28, weight: .ultraLight))
+                        Text("Your shoots will live here")
+                            .font(.system(size: 19, weight: .semibold))
+                        Text("Scan a place, choose inspiration, and finish your first shot.")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Palette.secondaryText)
+                        Button("Open camera") {
+                            withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(.top, 8)
+                    }
+                    .padding(.top, 36)
+                } else {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 3), spacing: 3) {
+                        ForEach(shootStore.shots) { shot in
+                            if let photo = shootStore.photo(for: shot) {
+                                Button { selectedCompletedShot = shot } label: {
+                                    GeometryReader { tile in
+                                        Image(uiImage: photo)
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(width: tile.size.width, height: tile.size.height)
+                                            .clipped()
+                                    }
+                                    .aspectRatio(1, contentMode: .fit)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Completed shot from \(shot.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                            }
+                        }
+                    }
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: 620)
+            .padding(.horizontal, PoserSpace.large)
+            .padding(.bottom, PoserSpace.xLarge)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Palette.background)
+    }
+
     private var bottomBar: some View {
-        HStack(spacing: 0) {
-            Button { activeTab = .home } label: {
+        VStack(spacing: 0) {
+            if activeTab == .home, !sceneMatches.isEmpty {
+                Button { Task { await startSelectedShoot() } } label: {
+                    Text(isPreparingReference ? "Preparing your shots…" : "Continue with \(selectedMatches.count) \(selectedMatches.count == 1 ? "shot" : "shots")")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(.white, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedMatches.isEmpty || isPreparingReference)
+                .opacity(selectedMatches.isEmpty ? 0.4 : 1)
+                .padding(.horizontal, PoserSpace.large)
+                .padding(.top, 10)
+            }
+            HStack(spacing: 0) {
+            Button { withAnimation(.easeOut(duration: 0.32)) { activeTab = .home } } label: {
                 VStack(spacing: 4) {
                     Image(systemName: activeTab == .home ? "house.fill" : "house")
                         .font(.system(size: 20))
@@ -132,10 +264,10 @@ struct HomeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Home")
             Button {
-                if activeTab == .home, selectedRecipe != nil, capturedImage == nil {
+                if activeTab == .home, selectedRecipe != nil, capturedImage == nil, shootQueue.isEmpty {
                     showingPoseTutorial = true
                 } else {
-                    activeTab = .camera
+                    withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
                 }
             } label: {
                 Image(systemName: "camera.fill")
@@ -148,10 +280,22 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Camera")
-            Color.clear.frame(maxWidth: .infinity)
+            Button { withAnimation(.easeOut(duration: 0.32)) { activeTab = .profile } } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: activeTab == .profile ? "person.crop.circle.fill" : "person.crop.circle")
+                        .font(.system(size: 21))
+                    Text("Profile")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(activeTab == .profile ? .white : .white.opacity(0.55))
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Profile")
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 70)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 70)
         .background {
             Palette.background.opacity(0.92)
                 .ignoresSafeArea(edges: .bottom)
@@ -285,57 +429,97 @@ struct HomeView: View {
 
     private var sceneMatchResults: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Ideas for this place")
+            HStack {
+                Text("Choose your shots")
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(.white)
-            Text("These saved shots look closest to what your camera saw. Choose one to get a pose and framing plan.")
+                Spacer()
+                Text("\(selectedMatches.count) selected")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Palette.secondaryText)
+            }
+            Text("Pick one or more references for this place. Best scene matches appear first.")
                 .font(.system(size: 14))
                 .foregroundStyle(Palette.secondaryText)
             if let scannedScene {
                 Image(uiImage: scannedScene)
                     .resizable()
                     .scaledToFill()
-                    .frame(height: 180)
+                    .frame(height: 138)
                     .frame(maxWidth: .infinity)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
                     .overlay(alignment: .topLeading) { imageLabel("YOUR SCENE") }
             }
-            ForEach(sceneMatches) { match in
-                if let image = matchingImage(for: match.id) {
-                    Button {
-                        Task { await analyze(image, scene: false) }
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 78, height: 94)
-                                .clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: 9))
-                            VStack(alignment: .leading, spacing: 6) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 18) {
+                ForEach(sceneMatches) { match in
+                    if let image = matchingImage(for: match.id) {
+                        Button {
+                            if selectedMatches.contains(match.id) { selectedMatches.remove(match.id) }
+                            else { selectedMatches.insert(match.id) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 7) {
+                                GeometryReader { tile in
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: tile.size.width, height: tile.size.height)
+                                        .clipped()
+                                }
+                                    .frame(height: 190)
+                                    .overlay(alignment: .topTrailing) {
+                                        Image(systemName: selectedMatches.contains(match.id) ? "checkmark.circle.fill" : "circle")
+                                            .font(.system(size: 24, weight: .medium))
+                                            .shadow(radius: 3)
+                                            .padding(10)
+                                    }
+                                    .overlay(alignment: .bottomLeading) {
+                                        Text("\(Int(min(max(match.score, 0), 1) * 100))% match")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .padding(.horizontal, 9)
+                                            .padding(.vertical, 6)
+                                            .background(.black.opacity(0.75), in: Capsule())
+                                            .padding(9)
+                                    }
+                                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
                                 Text(matchingTitle(for: match.id))
-                                    .font(.system(size: 16, weight: .semibold))
+                                    .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(.white)
-                                Text(match.explanation)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Palette.secondaryText)
-                                    .multilineTextAlignment(.leading)
-                                Text("\(Int(min(max(match.score, 0), 1) * 100))% scene match")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                if let source = ReferenceCatalog.items.first(where: { $0.id == match.id }) {
+                                    Text("\(source.credit) · \(source.license)")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(Palette.secondaryText)
+                                        .lineLimit(1)
+                                }
                             }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Palette.secondaryText)
                         }
-                        .padding(11)
-                        .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.image))
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(matchingTitle(for: match.id)), \(Int(match.score * 100)) percent match, \(selectedMatches.contains(match.id) ? "selected" : "not selected")")
                     }
-                    .buttonStyle(.plain)
                 }
             }
+            DisclosureGroup("Photo credits") {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(ReferenceCatalog.items) { asset in
+                        if let source = asset.source {
+                            Link(destination: source) {
+                                HStack {
+                                    Text("\(asset.title) · \(asset.credit) · \(asset.license)")
+                                    Spacer()
+                                    Image(systemName: "arrow.up.right")
+                                }
+                                .font(.system(size: 12))
+                                .foregroundStyle(Palette.secondaryText)
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 12)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Palette.secondaryText)
+            .padding(.vertical, 12)
         }
     }
 
@@ -554,6 +738,8 @@ struct HomeView: View {
 
     private func analyze(_ image: UIImage, scene: Bool) async {
         activeTab = .home
+        shootQueue = []
+        selectedMatches = []
         referenceImage = image
         isSceneScan = scene
         scannedScene = nil
@@ -585,15 +771,17 @@ struct HomeView: View {
         activeTab = .home
         scannedScene = image
         sceneMatches = []
+        selectedMatches = []
+        shootQueue = []
         capturedImage = nil
         selectedRecipe = nil
         referenceImage = nil
         analysis = nil
         isAnalyzing = true
 
-        var candidates: [SceneCandidate] = []
-        if let featured = UIImage(named: "InspirationPortrait") {
-            candidates.append(SceneCandidate(id: featuredID, image: featured))
+        var candidates = ReferenceCatalog.items.compactMap { reference -> SceneCandidate? in
+            guard let image = reference.image else { return nil }
+            return SceneCandidate(id: reference.id, image: image)
         }
         for item in inspirationStore.items {
             if let inspiration = inspirationStore.image(for: item) {
@@ -610,14 +798,143 @@ struct HomeView: View {
     }
 
     private func matchingImage(for id: UUID) -> UIImage? {
-        if id == featuredID { return UIImage(named: "InspirationPortrait") }
+        if let reference = ReferenceCatalog.items.first(where: { $0.id == id }) {
+            return reference.image
+        }
         guard let item = inspirationStore.items.first(where: { $0.id == id }) else { return nil }
         return inspirationStore.image(for: item)
     }
 
     private func matchingTitle(for id: UUID) -> String {
-        if id == featuredID { return "Street portrait" }
+        if let reference = ReferenceCatalog.items.first(where: { $0.id == id }) {
+            return reference.title
+        }
         return inspirationStore.items.first(where: { $0.id == id })?.title ?? "Saved inspiration"
+    }
+
+    private func startSelectedShoot() async {
+        guard !selectedMatches.isEmpty else { return }
+        isPreparingReference = true
+        shootQueue = sceneMatches.map(\.id).filter { selectedMatches.contains($0) }
+        currentShotIndex = 0
+        await prepareReference(shootQueue[0])
+        isPreparingReference = false
+    }
+
+    private func prepareReference(_ id: UUID) async {
+        guard let image = matchingImage(for: id) else {
+            errorMessage = "This reference is no longer available. Choose another shot."
+            shootQueue = []
+            return
+        }
+        do {
+            let result = try await AnalysisService.analyze(image)
+            referenceImage = image
+            analysis = result
+            selectedRecipe = result.recipe
+            capturedImage = nil
+            withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
+            withAnimation(.easeInOut(duration: 0.3)) { showingPoseTutorial = true }
+        } catch {
+            errorMessage = error.localizedDescription
+            shootQueue = []
+        }
+    }
+
+    private func completeCurrentShot(_ image: UIImage) async {
+        guard let referenceImage, !shootQueue.isEmpty else { return }
+        do {
+            try shootStore.add(photo: image, reference: referenceImage)
+        } catch {
+            errorMessage = "The shot could not be saved to your profile. Try again."
+            return
+        }
+        completedShotNumber = currentShotIndex + 1
+        completedShotTotal = shootQueue.count
+        withAnimation(.easeInOut(duration: 0.22)) { completionPreview = image }
+        try? await Task.sleep(nanoseconds: 1_350_000_000)
+        if currentShotIndex + 1 < shootQueue.count {
+            currentShotIndex += 1
+            await prepareReference(shootQueue[currentShotIndex])
+        } else {
+            shootQueue = []
+            sceneMatches = []
+            selectedMatches = []
+            selectedRecipe = nil
+            analysis = nil
+            self.referenceImage = nil
+            withAnimation(.easeOut(duration: 0.32)) { activeTab = .profile }
+        }
+        withAnimation(.easeInOut(duration: 0.22)) { completionPreview = nil }
+    }
+
+    private func completionOverlay(_ image: UIImage) -> some View {
+        ZStack {
+            Palette.background.opacity(0.94).ignoresSafeArea()
+            VStack(spacing: 20) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 190, height: 240)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 45))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.black, .white)
+                            .padding(12)
+                    }
+                Text("Shot complete")
+                    .font(.system(size: 27, weight: .bold))
+                Text(completedShotNumber < completedShotTotal
+                     ? "Next reference \(completedShotNumber + 1) of \(completedShotTotal)"
+                     : "Saved to your profile")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.secondaryText)
+            }
+            .foregroundStyle(.white)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func completedShotDetail(_ shot: CompletedShot) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Completed shot")
+                    .font(.system(size: 28, weight: .bold))
+                Text(shot.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondaryText)
+                if let photo = shootStore.photo(for: shot) {
+                    Image(uiImage: photo)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                    Button("Save to Photos") {
+                        PhotoLibrarySaver.save(photo) { success in
+                            savedMessage = success ? "Your shot is in Photos." : "Allow Photos access in Settings to save this shot."
+                        }
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 17)
+                    .background(.white, in: Capsule())
+                }
+                if let reference = shootStore.reference(for: shot) {
+                    Text("Reference")
+                        .font(.system(size: 17, weight: .semibold))
+                    Image(uiImage: reference)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                }
+            }
+            .padding(PoserSpace.large)
+            .foregroundStyle(.white)
+        }
+        .background(Palette.background.ignoresSafeArea())
     }
 
     private func compare(_ image: UIImage) async {
@@ -652,6 +969,8 @@ struct HomeView: View {
         poseScore = nil
         scannedScene = nil
         sceneMatches = []
+        selectedMatches = []
+        shootQueue = []
     }
 }
 

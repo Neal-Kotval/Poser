@@ -86,6 +86,35 @@ final class MatchingTests: XCTestCase {
         XCTAssertNotNil(reopened.image(for: saved))
     }
 
+    func testGeometryEstimatorUsesVisibleBodyForDistanceAndHeight() {
+        let points: [PoseJoint: CGPoint] = [
+            .nose: CGPoint(x: 0.5, y: 0.1),
+            .leftShoulder: CGPoint(x: 0.4, y: 0.24), .rightShoulder: CGPoint(x: 0.6, y: 0.24),
+            .leftHip: CGPoint(x: 0.44, y: 0.55), .rightHip: CGPoint(x: 0.56, y: 0.55),
+            .leftAnkle: CGPoint(x: 0.44, y: 0.9), .rightAnkle: CGPoint(x: 0.56, y: 0.9)
+        ]
+        let estimate = ShotGeometryEstimator.estimate(points: points, recipe: ShotRecipe.presets[0])
+
+        XCTAssertTrue(estimate.inferredFromPose)
+        XCTAssertGreaterThan(estimate.distanceMeters, 1)
+        XCTAssertLessThan(estimate.distanceMeters, 3)
+        XCTAssertEqual(estimate.heightLabel, "Waist height")
+    }
+
+    @MainActor
+    func testCompletedShotPersistsWithPhotoAndReference() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let store = ShootStore(folder: folder)
+        let shot = try store.add(photo: solidImage(.systemGreen), reference: solidImage(.systemPink))
+        let reopened = ShootStore(folder: folder)
+
+        XCTAssertEqual(reopened.shots, [shot])
+        XCTAssertNotNil(reopened.photo(for: shot))
+        XCTAssertNotNil(reopened.reference(for: shot))
+    }
+
     private func solidImage(_ color: UIColor) -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 120, height: 120)).image { context in
             color.setFill()
