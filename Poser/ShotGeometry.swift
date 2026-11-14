@@ -42,6 +42,48 @@ struct ShotGeometry {
     }
 }
 
+/// A compact side view of the measured setup. The available screen width limits
+/// the drawing, so distance uses a monotonic scale while the label keeps the
+/// measured value. Heights and pitch use the same vertical screen coordinates.
+struct ShotDiagramLayout {
+    let floor: CGFloat
+    let figureWidth: CGFloat
+    let figureHeight: CGFloat
+    let photographerX: CGFloat
+    let subjectX: CGFloat
+    let phonePoint: CGPoint
+    let aimPoint: CGPoint
+
+    static func distanceFraction(_ meters: Double) -> CGFloat {
+        let distance = min(8, max(0.5, meters))
+        return CGFloat((log(1 + distance) - log(1.5)) / (log(9) - log(1.5)))
+    }
+
+    init(size: CGSize, geometry: ShotGeometry) {
+        floor = size.height * 0.79
+        figureWidth = min(128, size.width * 0.30)
+        figureHeight = min(206, size.height * 0.57)
+
+        let maximumSeparation = max(0, min(360, size.width - figureWidth - 20))
+        let minimumSeparation = min(figureWidth * 1.55, maximumSeparation)
+        let fraction = Self.distanceFraction(geometry.distanceMeters)
+        let separation = minimumSeparation + (maximumSeparation - minimumSeparation) * fraction
+        photographerX = (size.width - separation) / 2
+        subjectX = (size.width + separation) / 2
+
+        let subjectHeight = max(1.2, geometry.spec?.subjectHeightMeters ?? ShotSpecEstimator.defaultSubjectHeight)
+        let pointsPerMeter = figureHeight * 0.75 / CGFloat(subjectHeight)
+        let phoneY = min(floor - figureHeight * 0.06,
+                         max(floor - figureHeight * 0.9,
+                             floor - CGFloat(geometry.cameraHeightMeters) * pointsPerMeter))
+        phonePoint = CGPoint(x: photographerX + figureWidth * 0.36, y: phoneY)
+        let pitch = CGFloat(geometry.tiltDegrees) * .pi / 180
+        let aimX = subjectX - figureWidth * 0.20
+        aimPoint = CGPoint(x: aimX,
+                           y: phoneY - tan(pitch) * (aimX - phonePoint.x))
+    }
+}
+
 enum ShotGeometryEstimator {
     static func estimate(observation: VNHumanBodyPoseObservation?, recipe: ShotRecipe) -> ShotGeometry {
         guard let observation else { return fallback(for: recipe) }

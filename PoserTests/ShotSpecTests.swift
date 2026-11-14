@@ -94,6 +94,31 @@ final class ShotSpecTests: XCTestCase {
         XCTAssertEqual(ShotSpec(source: .pose3D, subjectYawDegrees: 32).subjectTurnDegrees, 30)
     }
 
+    func testSetupDiagramTracksDistanceCameraHeightAndPitch() {
+        let size = CGSize(width: 354, height: 430)
+        func layout(distance: Double, height: Double, pitch: Int) -> ShotDiagramLayout {
+            ShotDiagramLayout(size: size, geometry: ShotGeometry(
+                cameraHeightMeters: height, distanceMeters: distance,
+                tiltDegrees: pitch, inferredFromPose: true
+            ))
+        }
+
+        let near = layout(distance: 1.5, height: 0.65, pitch: 10)
+        let far = layout(distance: 3, height: 0.65, pitch: 10)
+        XCTAssertGreaterThan(far.subjectX - far.photographerX,
+                             near.subjectX - near.photographerX)
+
+        let eyeLevel = layout(distance: 1.5, height: 1.55, pitch: 10)
+        XCTAssertLessThan(eyeLevel.phonePoint.y, near.phonePoint.y)
+        XCTAssertLessThan(near.aimPoint.y, near.phonePoint.y)
+
+        let tiltDown = layout(distance: 1.5, height: 1.55, pitch: -10)
+        XCTAssertGreaterThan(tiltDown.aimPoint.y, tiltDown.phonePoint.y)
+        let drawnPitch = atan((eyeLevel.phonePoint.y - eyeLevel.aimPoint.y) /
+                              (eyeLevel.aimPoint.x - eyeLevel.phonePoint.x)) * 180 / .pi
+        XCTAssertEqual(drawnPitch, 10, accuracy: 0.001)
+    }
+
     private func placement(camera: SIMD3<Float>, pitch: Float = 0, ankleY: Float = -0.8) -> CameraPlacement {
         BodyFrameGeometry.placement(cameraPose: cameraPose(position: camera, pitch: pitch),
                                     leftHip: leftHip, rightHip: rightHip,

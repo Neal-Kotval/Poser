@@ -95,65 +95,69 @@ private struct PoseDiagramView: View {
 
     var body: some View {
         GeometryReader { canvas in
-            let floor = canvas.size.height * 0.79
-            let photographerX = canvas.size.width * 0.23
-            let subjectX = canvas.size.width * 0.78
-            let crouched = self.geometry.cameraHeightMeters < 1.1
-            let figureWidth = min(128, canvas.size.width * 0.30)
-            let figureHeight = min(206, canvas.size.height * 0.57)
-            let phonePoint = CGPoint(x: photographerX + figureWidth * 0.36,
-                                     y: floor - figureHeight * (crouched ? 0.36 : 0.51))
-            let subjectPoint = CGPoint(x: subjectX - figureWidth * 0.20,
-                                       y: floor - figureHeight * 0.71)
+            let layout = ShotDiagramLayout(size: canvas.size, geometry: geometry)
+            let photographer = PoseSkeleton.photographer(
+                cameraHeightMeters: geometry.cameraHeightMeters,
+                phoneYInFigure: (layout.phonePoint.y - (layout.floor - layout.figureHeight)) / layout.figureHeight
+            )
             ZStack {
                 Path { path in
-                    path.move(to: CGPoint(x: 20, y: floor))
-                    path.addLine(to: CGPoint(x: canvas.size.width - 20, y: floor))
+                    path.move(to: CGPoint(x: 20, y: layout.floor))
+                    path.addLine(to: CGPoint(x: canvas.size.width - 20, y: layout.floor))
                 }
                 .stroke(.white.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
-                    path.move(to: CGPoint(x: photographerX + figureWidth * 0.38, y: floor - 14))
-                    path.addLine(to: CGPoint(x: subjectX - figureWidth * 0.38, y: floor - 14))
+                    path.move(to: CGPoint(x: layout.photographerX + layout.figureWidth * 0.45, y: layout.floor - 14))
+                    path.addLine(to: CGPoint(x: layout.subjectX - layout.figureWidth * 0.45, y: layout.floor - 14))
                 }
                 .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
-                    path.move(to: phonePoint)
-                    path.addLine(to: subjectPoint)
+                    path.move(to: layout.phonePoint)
+                    path.addLine(to: layout.aimPoint)
                 }
                 .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
-                    path.move(to: CGPoint(x: phonePoint.x + 8, y: floor - figureHeight * 0.94))
-                    path.addLine(to: CGPoint(x: phonePoint.x + 8, y: phonePoint.y))
+                    let x = max(16, layout.photographerX - layout.figureWidth * 0.55)
+                    path.move(to: CGPoint(x: x, y: layout.floor))
+                    path.addLine(to: CGPoint(x: x, y: layout.phonePoint.y))
                 }
                 .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
-                BubblePoseFigure(target: .photographer(crouched: crouched), progress: 1)
-                    .frame(width: figureWidth, height: figureHeight)
-                    .position(x: photographerX, y: floor - figureHeight / 2)
+                BubblePoseFigure(target: photographer, progress: 1)
+                    .frame(width: layout.figureWidth, height: layout.figureHeight)
+                    .position(x: layout.photographerX, y: layout.floor - layout.figureHeight / 2)
 
                 Image(systemName: "iphone.gen3")
                     .font(.system(size: 25, weight: .semibold))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(-Double(self.geometry.tiltDegrees)))
-                    .position(phonePoint)
+                    .position(layout.phonePoint)
 
                 AnimatedPoseFigure(skeleton: skeleton)
-                    .frame(width: figureWidth, height: figureHeight)
-                    .position(x: subjectX, y: floor - figureHeight / 2)
+                    .frame(width: layout.figureWidth, height: layout.figureHeight)
+                    .position(x: layout.subjectX, y: layout.floor - layout.figureHeight / 2)
+
+                if let turn = geometry.spec?.subjectTurnDegrees {
+                    Image(systemName: turn > 0 ? "arrow.clockwise" : "arrow.counterclockwise")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .position(x: layout.subjectX + (turn > 0 ? 1 : -1) * layout.figureWidth * 0.59,
+                                  y: layout.floor - layout.figureHeight * 0.53)
+                }
 
                 guideLabel(self.geometry.adjustmentLabel, width: min(116, canvas.size.width * 0.31))
-                    .position(x: photographerX, y: floor - figureHeight - 23)
+                    .position(x: layout.photographerX, y: layout.floor - layout.figureHeight - 23)
                 guideLabel(self.geometry.angleLabel, width: min(116, canvas.size.width * 0.31))
-                    .position(x: subjectX, y: floor - figureHeight - 23)
-                guideLabel(self.geometry.distanceLabel, width: min(132, canvas.size.width * 0.42))
+                    .position(x: layout.subjectX, y: layout.floor - layout.figureHeight - 23)
+                guideLabel(self.geometry.distanceLabel, width: min(210, canvas.size.width * 0.58))
                     .position(x: canvas.size.width * 0.5, y: canvas.size.height - 25)
                 Text("PHOTOGRAPHER")
-                    .position(x: photographerX, y: floor + 22)
+                    .position(x: layout.photographerX, y: layout.floor + 22)
                 Text("SUBJECT")
-                    .position(x: subjectX, y: floor + 22)
+                    .position(x: layout.subjectX, y: layout.floor + 22)
             }
             .font(.system(size: 13, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
@@ -173,6 +177,31 @@ private struct PoseDiagramView: View {
 }
 
 private extension PoseSkeleton {
+    static func photographer(cameraHeightMeters: Double, phoneYInFigure: CGFloat) -> PoseSkeleton {
+        let crouch = min(1, max(0, CGFloat((1.25 - cameraHeightMeters) / 0.6)))
+        let upright = photographer(crouched: false)
+        let low = photographer(crouched: true)
+        var points: [PoseJoint: CGPoint] = [:]
+        for joint in PoseJoint.allCases {
+            guard let a = upright[joint], let b = low[joint] else { continue }
+            points[joint] = CGPoint(x: a.x + (b.x - a.x) * crouch,
+                                    y: a.y + (b.y - a.y) * crouch)
+        }
+
+        // BubblePoseFigure compresses vertical coordinates into the drawing.
+        // Invert that transform so both hands meet the height marker at the phone.
+        let wristY = min(0.97, max(0.02, 0.95 + (phoneYInFigure - 0.95) / 0.9))
+        points[.leftWrist] = CGPoint(x: 0.78, y: wristY - 0.01)
+        points[.rightWrist] = CGPoint(x: 0.78, y: wristY + 0.01)
+        if let shoulder = points[.leftShoulder] {
+            points[.leftElbow] = CGPoint(x: 0.59, y: shoulder.y + (wristY - shoulder.y) * 0.55)
+        }
+        if let shoulder = points[.rightShoulder] {
+            points[.rightElbow] = CGPoint(x: 0.67, y: shoulder.y + (wristY - shoulder.y) * 0.55)
+        }
+        return PoseSkeleton(points: points)
+    }
+
     static func photographer(crouched: Bool) -> PoseSkeleton {
         if crouched {
             return PoseSkeleton(points: [
@@ -201,14 +230,24 @@ struct MiniPoseGuide: View {
     let skeleton: PoseSkeleton
     let geometry: ShotGeometry
 
+    private var distanceWidth: CGFloat {
+        9 + 18 * ShotDiagramLayout.distanceFraction(geometry.distanceMeters)
+    }
+
+    private var phoneOffset: CGFloat {
+        let subjectHeight = max(1.2, geometry.spec?.subjectHeightMeters ?? ShotSpecEstimator.defaultSubjectHeight)
+        return CGFloat(0.6 - geometry.cameraHeightMeters / subjectHeight) * 35
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "iphone.gen3")
                 .font(.system(size: 21, weight: .ultraLight))
                 .rotationEffect(.degrees(-Double(geometry.tiltDegrees)))
+                .offset(y: phoneOffset)
             Rectangle()
                 .fill(.white.opacity(0.55))
-                .frame(width: 17, height: 1)
+                .frame(width: distanceWidth, height: 1)
             AnimatedPoseFigure(skeleton: skeleton)
                 .frame(width: 48, height: 82)
         }
