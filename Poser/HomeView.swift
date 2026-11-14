@@ -44,7 +44,9 @@ struct HomeView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .background(Palette.background.ignoresSafeArea())
-            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if !showingPoseTutorial { bottomBar }
+            }
             .toolbar(.hidden, for: .navigationBar)
         }
         .tint(.white)
@@ -57,7 +59,7 @@ struct HomeView: View {
         }
         .overlay {
             if showingPoseTutorial, let selectedRecipe {
-                PoseTutorialView(referenceImage: referenceImage, analysis: analysis, recipe: selectedRecipe) {
+                PoseTutorialView(analysis: analysis, recipe: selectedRecipe) {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
                 } onClose: {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
@@ -117,7 +119,8 @@ struct HomeView: View {
             referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
             queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
             embedded: true,
-            isActive: activeTab == .camera && !showingPoseTutorial && completionPreview == nil
+            isActive: activeTab == .camera && completionPreview == nil,
+            isGuideOverlayVisible: showingPoseTutorial
         ) { image in
             if !shootQueue.isEmpty {
                 Task { await completeCurrentShot(image) }
@@ -131,7 +134,7 @@ struct HomeView: View {
                 Task { await scanScene(image) }
             }
         } onPoseGuide: {
-            showingPoseTutorial = true
+            openPoseGuide()
         }
     }
 
@@ -265,7 +268,7 @@ struct HomeView: View {
             .accessibilityLabel("Home")
             Button {
                 if activeTab == .home, selectedRecipe != nil, capturedImage == nil, shootQueue.isEmpty {
-                    showingPoseTutorial = true
+                    openPoseGuide()
                 } else {
                     withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
                 }
@@ -651,7 +654,7 @@ struct HomeView: View {
                 instruction(symbol: "square.dashed", title: "Frame", body: recipe.framing)
             }
             Button {
-                showingPoseTutorial = true
+                openPoseGuide()
             } label: {
                 Text("See pose guide")
                     .font(.system(size: 16, weight: .semibold))
@@ -799,6 +802,11 @@ struct HomeView: View {
             selectedRecipe = result.recipe
         } catch { errorMessage = error.localizedDescription }
         isAnalyzing = false
+    }
+
+    private func openPoseGuide() {
+        activeTab = .camera
+        withAnimation(.easeInOut(duration: 0.3)) { showingPoseTutorial = true }
     }
 
     private func importInspiration(_ image: UIImage, source: InspirationSource) async {

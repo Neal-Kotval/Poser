@@ -12,6 +12,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     private let queue = DispatchQueue(label: "poser.camera")
     private let videoQueue = DispatchQueue(label: "poser.camera.vision")
     private let motion = CMMotionManager()
+    private let targetLock = NSLock()
+    private var storedTargetX: CGFloat = 0.5
+    private var storedTargetPose: PoseSkeleton?
     private var lastDetection = Date.distantPast
     private var wantsToRun = false
     private var isConfigured = false
@@ -24,8 +27,14 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published var subjectHint = "Place the subject inside the guide"
     @Published var poseScore: Int?
     @Published var poseHint = "Looking for the reference pose"
-    var targetX: CGFloat = 0.5
-    var targetPose: PoseSkeleton?
+    var targetX: CGFloat {
+        get { targetLock.lock(); defer { targetLock.unlock() }; return storedTargetX }
+        set { targetLock.lock(); storedTargetX = newValue; targetLock.unlock() }
+    }
+    var targetPose: PoseSkeleton? {
+        get { targetLock.lock(); defer { targetLock.unlock() }; return storedTargetPose }
+        set { targetLock.lock(); storedTargetPose = newValue; targetLock.unlock() }
+    }
     var onPhoto: ((UIImage) -> Void)?
 
     func start() {
@@ -219,6 +228,7 @@ struct CameraScreen: View {
     let queueProgress: (current: Int, total: Int)?
     let embedded: Bool
     let isActive: Bool
+    let isGuideOverlayVisible: Bool
     let onCapture: (UIImage) -> Void
     let onPoseGuide: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
@@ -227,7 +237,7 @@ struct CameraScreen: View {
     @State private var showPose = true
     @State private var tutorialStep = 0
 
-    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil) {
+    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil) {
         self.mode = mode
         self.recipe = recipe
         self.targetX = targetX
@@ -238,6 +248,7 @@ struct CameraScreen: View {
         self.queueProgress = queueProgress
         self.embedded = embedded
         self.isActive = isActive
+        self.isGuideOverlayVisible = isGuideOverlayVisible
         self.onCapture = onCapture
         self.onPoseGuide = onPoseGuide
     }
@@ -259,13 +270,21 @@ struct CameraScreen: View {
                     CameraPreview(session: camera.session)
                         .ignoresSafeArea()
                 }
-                if showGrid { ThirdsGrid().ignoresSafeArea() }
-                if showPose && mode == .guide && recipe != nil {
+                if showGrid && !isGuideOverlayVisible { ThirdsGrid().ignoresSafeArea() }
+                if showPose && mode == .guide && !isGuideOverlayVisible,
+                   let guidePose = targetPose ?? recipe.map(PoseSkeleton.example) {
                     GeometryReader { geometry in
-                        Ellipse()
-                            .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 1.3, dash: [7, 7]))
-                            .frame(width: 180, height: 330)
-                            .position(x: geometry.size.width * min(max(targetX, 0.22), 0.78), y: geometry.size.height * 0.53)
+                        let guideX = geometry.size.width * min(max(targetX, 0.25), 0.75)
+                        BubblePoseFigure(target: guidePose, progress: 1)
+                            .opacity(0.3)
+                            .frame(width: 170, height: 310)
+                            .position(x: guideX, y: geometry.size.height * 0.53)
+                        Text(targetPose == nil ? "POSE EXAMPLE" : "REFERENCE POSE")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .tracking(1)
+                            .foregroundStyle(.white)
+                            .shadow(color: .black, radius: 5)
+                            .position(x: guideX, y: geometry.size.height * 0.53 + 170)
                     }
                     .allowsHitTesting(false)
                 }
@@ -348,7 +367,7 @@ struct CameraScreen: View {
                     .padding(.horizontal, 18)
                 }
 
-                if mode == .guide, let recipe {
+                if mode == .guide, let recipe, !showPose {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "sparkle.viewfinder")
                             .foregroundStyle(Palette.primaryText)
@@ -370,15 +389,21 @@ struct CameraScreen: View {
                 if mode == .guide, recipe != nil, camera.isReady, !camera.isDemo {
                     VStack(alignment: .leading, spacing: 8) {
                         if targetPose != nil {
-                            HStack(spacing: 8) {
-                                Image(systemName: "figure.stand")
-                                Text(camera.poseHint)
-                                Spacer()
-                                if let score = camera.poseScore {
-                                    Text("\(score)%")
-                                        .monospacedDigit()
+                            HStack(alignment: .center, spacing: 13) {
+                                Text(camera.poseScore.map { "\($0)%" } ?? "—")
+                                    .font(.system(size: 31, weight: .bold, design: .rounded))
+                                    .monospacedDigit()
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("POSE MATCH")
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .tracking(1)
+                                    Text(camera.poseHint)
+                                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                                        .foregroundStyle(Palette.secondaryText)
                                 }
+                                Spacer(minLength: 0)
                             }
+                            Rectangle().fill(.white.opacity(0.2)).frame(height: 1)
                         }
                         HStack(spacing: 8) {
                             Image(systemName: "person.crop.rectangle")
@@ -394,7 +419,7 @@ struct CameraScreen: View {
                             Button(showPose ? "Hide pose" : "Show pose") { showPose.toggle() }
                         }
                     }
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .padding(14)
                     .background(Palette.background.opacity(0.75), in: RoundedRectangle(cornerRadius: PoserRadius.control))
                     .padding(.horizontal, 18)
@@ -426,6 +451,8 @@ struct CameraScreen: View {
                 .padding(.bottom, embedded ? 90 : 30)
             }
             .foregroundStyle(.white)
+            .opacity(isGuideOverlayVisible ? 0 : 1)
+            .allowsHitTesting(!isGuideOverlayVisible)
         }
         .onAppear {
             camera.onPhoto = { image in
@@ -444,6 +471,11 @@ struct CameraScreen: View {
             camera.targetX = targetX
             camera.poseScore = nil
         }
+        .onChange(of: targetPose?.points) { _, _ in
+            camera.targetPose = targetPose
+            camera.poseScore = nil
+        }
+        .onChange(of: targetX) { _, newValue in camera.targetX = newValue }
         .onDisappear { camera.stop() }
         .alert("Camera issue", isPresented: Binding(
             get: { camera.isReady && camera.message != nil },

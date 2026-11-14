@@ -56,8 +56,8 @@ struct PoseSkeleton {
             .leftAnkle: CGPoint(x: 0.40, y: 0.94), .rightAnkle: CGPoint(x: 0.63, y: 0.94)
         ]
         if recipe.id == "street" {
-            points[.rightElbow] = CGPoint(x: 0.64, y: 0.45)
-            points[.rightWrist] = CGPoint(x: 0.57, y: 0.58)
+            points[.rightElbow] = CGPoint(x: 0.69, y: 0.44)
+            points[.rightWrist] = CGPoint(x: 0.75, y: 0.58)
             points[.leftKnee] = CGPoint(x: 0.38, y: 0.74)
         } else if recipe.id == "cafe" {
             points[.leftElbow] = CGPoint(x: 0.35, y: 0.47)

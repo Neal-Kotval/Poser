@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct PoseTutorialView: View {
-    let referenceImage: UIImage?
     let analysis: PhotoAnalysis?
     let recipe: ShotRecipe
     let onContinue: () -> Void
@@ -14,19 +13,7 @@ struct PoseTutorialView: View {
     var body: some View {
         GeometryReader { screen in
             ZStack {
-                if let referenceImage {
-                    Image(uiImage: referenceImage)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: screen.size.width, height: screen.size.height)
-                        .clipped()
-                        .ignoresSafeArea()
-                } else {
-                    Palette.background.ignoresSafeArea()
-                }
-                LinearGradient(colors: [.black.opacity(0.6), .black.opacity(0.35), .black.opacity(0.68)],
-                               startPoint: .top, endPoint: .bottom)
-                    .ignoresSafeArea()
+                Color.black.opacity(0.7).ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     HStack {
@@ -46,11 +33,11 @@ struct PoseTutorialView: View {
 
                     Spacer(minLength: 30)
                     Text("MATCH THIS SHOT")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
                         .tracking(2)
                         .shadow(color: .black.opacity(0.5), radius: 8)
                     PoseDiagramView(skeleton: skeleton, geometry: analysis?.geometry ?? ShotGeometryEstimator.fallback(for: recipe))
-                        .frame(height: min(380, screen.size.height * 0.48))
+                        .frame(height: min(430, screen.size.height * 0.52))
                         .padding(.top, 14)
                     Spacer(minLength: 24)
 
@@ -59,7 +46,7 @@ struct PoseTutorialView: View {
                             Text("Open camera")
                             Image(systemName: "arrow.right")
                         }
-                        .font(PoserType.action)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity, minHeight: 56)
                         .background(.white, in: Capsule())
@@ -71,7 +58,6 @@ struct PoseTutorialView: View {
                 .foregroundStyle(.white)
             }
         }
-        .background(Palette.background.ignoresSafeArea())
     }
 }
 
@@ -83,66 +69,65 @@ private struct PoseDiagramView: View {
 
     var body: some View {
         GeometryReader { canvas in
-            let floor = canvas.size.height * 0.8
+            let floor = canvas.size.height * 0.79
             let photographerX = canvas.size.width * 0.23
             let subjectX = canvas.size.width * 0.78
             let crouched = self.geometry.cameraHeightMeters < 1.1
-            let phonePoint = CGPoint(x: photographerX + 34, y: floor - (crouched ? 72 : 107))
-            let subjectPoint = CGPoint(x: subjectX - 20, y: floor - 120)
+            let phonePoint = CGPoint(x: photographerX + 43, y: floor - (crouched ? 88 : 130))
+            let subjectPoint = CGPoint(x: subjectX - 25, y: floor - 146)
             ZStack {
                 Path { path in
                     path.move(to: CGPoint(x: 20, y: floor))
                     path.addLine(to: CGPoint(x: canvas.size.width - 20, y: floor))
                 }
-                .stroke(.white.opacity(0.2), style: StrokeStyle(lineWidth: 1.5, dash: [3, 5]))
+                .stroke(.white.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
-                    path.move(to: CGPoint(x: photographerX + 43, y: floor - 12))
-                    path.addLine(to: CGPoint(x: subjectX - 40, y: floor - 12))
+                    path.move(to: CGPoint(x: photographerX + 48, y: floor - 14))
+                    path.addLine(to: CGPoint(x: subjectX - 48, y: floor - 14))
                 }
-                .stroke(.white.opacity(0.65), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 5]))
+                .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
                     path.move(to: phonePoint)
                     path.addLine(to: subjectPoint)
                 }
-                .stroke(.white.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 5]))
+                .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
-                    path.move(to: CGPoint(x: photographerX + 48, y: floor - (crouched ? 116 : 158)))
-                    path.addLine(to: CGPoint(x: photographerX + 48, y: phonePoint.y))
+                    path.move(to: CGPoint(x: photographerX + 56, y: floor - (crouched ? 145 : 194)))
+                    path.addLine(to: CGPoint(x: photographerX + 56, y: phonePoint.y))
                 }
-                .stroke(.white.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2, 5]))
+                .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
-                PhotographerFigureShape(crouched: crouched)
-                    .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
-                    .frame(width: 112, height: 177)
-                    .position(x: photographerX, y: floor - 90)
+                BubblePoseFigure(target: .photographer(crouched: crouched), progress: 1)
+                    .frame(width: 128, height: 206)
+                    .position(x: photographerX, y: floor - 104)
 
                 Image(systemName: "iphone.gen3")
-                    .font(.system(size: 20, weight: .light))
+                    .font(.system(size: 25, weight: .semibold))
                     .foregroundStyle(.white)
                     .rotationEffect(.degrees(-Double(self.geometry.tiltDegrees)))
                     .position(phonePoint)
 
-                PoseFigureShape(target: skeleton, progress: posed ? 1 : 0)
-                    .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
-                    .frame(width: 112, height: 177)
-                    .position(x: subjectX, y: floor - 90)
+                BubblePoseFigure(target: skeleton, progress: posed ? 1 : 0)
+                    .frame(width: 128, height: 206)
+                    .position(x: subjectX, y: floor - 104)
 
-                Text(self.geometry.adjustmentLabel)
-                    .position(x: photographerX + 24, y: 36)
-                Text(self.geometry.angleLabel)
-                    .position(x: canvas.size.width * 0.61, y: 78)
-                Text(self.geometry.distanceLabel)
-                    .position(x: canvas.size.width * 0.5, y: canvas.size.height - 27)
+                guideLabel(self.geometry.adjustmentLabel)
+                    .position(x: photographerX + 24, y: floor - (crouched ? 180 : 225))
+                guideLabel(self.geometry.angleLabel)
+                    .position(x: canvas.size.width * 0.65, y: floor - 230)
+                guideLabel(self.geometry.distanceLabel)
+                    .position(x: canvas.size.width * 0.5, y: canvas.size.height - 25)
                 Text("PHOTOGRAPHER")
-                    .position(x: photographerX, y: floor + 20)
+                    .position(x: photographerX, y: floor + 22)
                 Text("SUBJECT")
-                    .position(x: subjectX, y: floor + 20)
+                    .position(x: subjectX, y: floor + 22)
             }
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white.opacity(0.78))
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.85), radius: 5)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Animated setup: photographer at \(geometry.heightLabel), \(geometry.distanceLabel), \(geometry.angleLabel)")
@@ -156,51 +141,36 @@ private struct PoseDiagramView: View {
             }
         }
     }
+
+    private func guideLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .shadow(color: .black, radius: 5)
+    }
 }
 
-private struct PhotographerFigureShape: Shape {
-    let crouched: Bool
-
-    func path(in rect: CGRect) -> Path {
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.minX + rect.width * x, y: rect.minY + rect.height * y)
-        }
-        var path = Path()
-        let headY: CGFloat = crouched ? 0.25 : 0.06
-        path.addEllipse(in: CGRect(x: p(0.31, headY).x, y: p(0, headY).y,
-                                width: rect.width * 0.24, height: rect.height * 0.15))
+private extension PoseSkeleton {
+    static func photographer(crouched: Bool) -> PoseSkeleton {
         if crouched {
-            path.move(to: p(0.43, 0.40))
-            path.addLine(to: p(0.52, 0.68))
-            path.move(to: p(0.45, 0.47))
-            path.addLine(to: p(0.58, 0.50))
-            path.addLine(to: p(0.69, 0.60))
-            path.move(to: p(0.45, 0.47))
-            path.addLine(to: p(0.53, 0.62))
-            path.addLine(to: p(0.69, 0.62))
-            path.move(to: p(0.52, 0.68))
-            path.addLine(to: p(0.29, 0.75))
-            path.addLine(to: p(0.19, 0.98))
-            path.move(to: p(0.52, 0.68))
-            path.addLine(to: p(0.69, 0.83))
-            path.addLine(to: p(0.62, 0.98))
-        } else {
-            path.move(to: p(0.43, 0.21))
-            path.addLine(to: p(0.43, 0.55))
-            path.move(to: p(0.43, 0.28))
-            path.addLine(to: p(0.55, 0.34))
-            path.addLine(to: p(0.69, 0.39))
-            path.move(to: p(0.43, 0.28))
-            path.addLine(to: p(0.49, 0.43))
-            path.addLine(to: p(0.69, 0.41))
-            path.move(to: p(0.43, 0.55))
-            path.addLine(to: p(0.29, 0.77))
-            path.addLine(to: p(0.23, 0.98))
-            path.move(to: p(0.43, 0.55))
-            path.addLine(to: p(0.57, 0.77))
-            path.addLine(to: p(0.64, 0.98))
+            return PoseSkeleton(points: [
+                .nose: CGPoint(x: 0.41, y: 0.31), .neck: CGPoint(x: 0.42, y: 0.42),
+                .leftShoulder: CGPoint(x: 0.31, y: 0.47), .rightShoulder: CGPoint(x: 0.54, y: 0.47),
+                .leftElbow: CGPoint(x: 0.55, y: 0.51), .leftWrist: CGPoint(x: 0.73, y: 0.60),
+                .rightElbow: CGPoint(x: 0.51, y: 0.64), .rightWrist: CGPoint(x: 0.72, y: 0.62),
+                .leftHip: CGPoint(x: 0.43, y: 0.67), .rightHip: CGPoint(x: 0.57, y: 0.67),
+                .leftKnee: CGPoint(x: 0.28, y: 0.78), .rightKnee: CGPoint(x: 0.72, y: 0.81),
+                .leftAnkle: CGPoint(x: 0.16, y: 0.96), .rightAnkle: CGPoint(x: 0.63, y: 0.97)
+            ])
         }
-        return path
+        return PoseSkeleton(points: [
+            .nose: CGPoint(x: 0.41, y: 0.13), .neck: CGPoint(x: 0.42, y: 0.25),
+            .leftShoulder: CGPoint(x: 0.31, y: 0.30), .rightShoulder: CGPoint(x: 0.54, y: 0.30),
+            .leftElbow: CGPoint(x: 0.55, y: 0.34), .leftWrist: CGPoint(x: 0.72, y: 0.40),
+            .rightElbow: CGPoint(x: 0.51, y: 0.44), .rightWrist: CGPoint(x: 0.72, y: 0.42),
+            .leftHip: CGPoint(x: 0.37, y: 0.56), .rightHip: CGPoint(x: 0.54, y: 0.56),
+            .leftKnee: CGPoint(x: 0.30, y: 0.76), .rightKnee: CGPoint(x: 0.60, y: 0.76),
+            .leftAnkle: CGPoint(x: 0.21, y: 0.97), .rightAnkle: CGPoint(x: 0.65, y: 0.97)
+        ])
     }
 }
 
@@ -218,8 +188,7 @@ struct MiniPoseGuide: View {
             Rectangle()
                 .fill(.white.opacity(0.55))
                 .frame(width: 17, height: 1)
-            PoseFigureShape(target: skeleton, progress: posed ? 1 : 0)
-                .stroke(.white, style: StrokeStyle(lineWidth: 2.3, lineCap: .round, lineJoin: .round))
+            BubblePoseFigure(target: skeleton, progress: posed ? 1 : 0)
                 .frame(width: 48, height: 82)
         }
             .frame(width: 128, height: 110)
@@ -237,7 +206,7 @@ struct MiniPoseGuide: View {
     }
 }
 
-private struct PoseFigureShape: Shape {
+struct BubblePoseFigure: View, Animatable {
     let target: PoseSkeleton
     var progress: CGFloat
 
@@ -246,33 +215,60 @@ private struct PoseFigureShape: Shape {
         set { progress = newValue }
     }
 
-    func path(in rect: CGRect) -> Path {
-        let neutral = PoseSkeleton.example(for: ShotRecipe.presets[1])
-        func point(_ joint: PoseJoint) -> CGPoint {
-            let start = neutral[joint] ?? CGPoint(x: 0.5, y: 0.5)
-            let end = target[joint] ?? start
-            let x = start.x + (end.x - start.x) * progress
-            let y = start.y + (end.y - start.y) * progress
-            return CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height)
+    var body: some View {
+        Canvas { context, size in
+            let neutral = PoseSkeleton.example(for: ShotRecipe.presets[1])
+            func point(_ joint: PoseJoint) -> CGPoint {
+                let start = neutral[joint] ?? CGPoint(x: 0.5, y: 0.5)
+                let end = target[joint] ?? start
+                return CGPoint(x: (start.x + (end.x - start.x) * progress) * size.width,
+                               y: (start.y + (end.y - start.y) * progress) * size.height)
+            }
+            let white = GraphicsContext.Shading.color(.white)
+            func limb(_ start: PoseJoint, _ bend: PoseJoint, _ end: PoseJoint, width: CGFloat) {
+                var path = Path()
+                path.move(to: point(start))
+                path.addQuadCurve(to: point(end), control: point(bend))
+                context.stroke(path, with: white,
+                               style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
+            }
+
+            let thickness = size.width * 0.105
+            limb(.leftHip, .leftKnee, .leftAnkle, width: thickness * 1.08)
+            limb(.rightHip, .rightKnee, .rightAnkle, width: thickness * 1.08)
+            limb(.leftShoulder, .leftElbow, .leftWrist, width: thickness)
+            limb(.rightShoulder, .rightElbow, .rightWrist, width: thickness)
+
+            let leftShoulder = point(.leftShoulder)
+            let rightShoulder = point(.rightShoulder)
+            let leftHip = point(.leftHip)
+            let rightHip = point(.rightHip)
+            var torso = Path()
+            torso.move(to: leftShoulder)
+            torso.addCurve(to: rightShoulder,
+                           control1: CGPoint(x: leftShoulder.x + size.width * 0.06, y: leftShoulder.y - size.height * 0.04),
+                           control2: CGPoint(x: rightShoulder.x - size.width * 0.06, y: rightShoulder.y - size.height * 0.04))
+            torso.addCurve(to: rightHip,
+                           control1: CGPoint(x: rightShoulder.x + size.width * 0.06, y: rightShoulder.y + size.height * 0.07),
+                           control2: CGPoint(x: rightHip.x + size.width * 0.04, y: rightHip.y - size.height * 0.05))
+            torso.addCurve(to: leftHip,
+                           control1: CGPoint(x: rightHip.x, y: rightHip.y + size.height * 0.05),
+                           control2: CGPoint(x: leftHip.x, y: leftHip.y + size.height * 0.05))
+            torso.addCurve(to: leftShoulder,
+                           control1: CGPoint(x: leftHip.x - size.width * 0.04, y: leftHip.y - size.height * 0.05),
+                           control2: CGPoint(x: leftShoulder.x - size.width * 0.06, y: leftShoulder.y + size.height * 0.07))
+            torso.closeSubpath()
+            context.fill(torso, with: white)
+
+            let head = point(.nose)
+            let radius = max(7, size.width * 0.125)
+            var neck = Path()
+            neck.move(to: CGPoint(x: head.x, y: head.y + radius * 0.7))
+            neck.addLine(to: point(.neck))
+            context.stroke(neck, with: white,
+                           style: StrokeStyle(lineWidth: size.width * 0.095, lineCap: .round))
+            context.fill(Path(ellipseIn: CGRect(x: head.x - radius, y: head.y - radius,
+                                                width: radius * 2, height: radius * 2)), with: white)
         }
-        var path = Path()
-        let head = point(.nose)
-        path.addEllipse(in: CGRect(x: head.x - 12, y: head.y - 12, width: 24, height: 24))
-        path.move(to: CGPoint(x: head.x, y: head.y + 12))
-        path.addLine(to: point(.neck))
-        let segments: [(PoseJoint, PoseJoint)] = [
-            (.neck, .leftShoulder), (.neck, .rightShoulder),
-            (.leftShoulder, .leftElbow), (.leftElbow, .leftWrist),
-            (.rightShoulder, .rightElbow), (.rightElbow, .rightWrist),
-            (.leftShoulder, .leftHip), (.rightShoulder, .rightHip),
-            (.leftHip, .rightHip),
-            (.leftHip, .leftKnee), (.leftKnee, .leftAnkle),
-            (.rightHip, .rightKnee), (.rightKnee, .rightAnkle)
-        ]
-        for (from, to) in segments {
-            path.move(to: point(from))
-            path.addLine(to: point(to))
-        }
-        return path
     }
 }

@@ -17,17 +17,17 @@ struct ShotGeometry {
         }
     }
 
-    var distanceLabel: String { "≈\(distanceMeters.formatted(.number.precision(.fractionLength(1)))) m away" }
+    var distanceLabel: String { "\(distanceMeters.formatted(.number.precision(.fractionLength(1)))) m apart" }
 
     var adjustmentLabel: String {
         let lowerFeet = Int(((1.55 - cameraHeightMeters) * 3.28084).rounded())
-        return lowerFeet > 0 ? "Lower ≈\(lowerFeet) ft" : "Eye level"
+        return lowerFeet > 0 ? "Lower \(lowerFeet) ft" : "Eye level"
     }
 
     var angleLabel: String {
-        if tiltDegrees >= 5 { return "Tilt up ≈\(tiltDegrees)°" }
-        if tiltDegrees <= -5 { return "Tilt down ≈\(-tiltDegrees)°" }
-        return "Keep level"
+        if tiltDegrees >= 5 { return "Tilt up \(tiltDegrees)°" }
+        if tiltDegrees <= -5 { return "Tilt down \(-tiltDegrees)°" }
+        return "Level"
     }
 }
 
