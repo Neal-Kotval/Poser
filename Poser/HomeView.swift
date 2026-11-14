@@ -3,12 +3,20 @@ import PhotosUI
 
 private struct ReferenceTagFrameKey: PreferenceKey {
     static var defaultValue: CGRect = .null
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+    // Pages without this view report .null; never let them erase a real frame.
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isNull { value = next }
+    }
 }
 
 private struct SavedInspirationFrameKey: PreferenceKey {
     static var defaultValue: CGRect = .null
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+    // Pages without this view report .null; never let them erase a real frame.
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isNull { value = next }
+    }
 }
 
 enum HomePaging {
@@ -55,6 +63,8 @@ struct HomeView: View {
     @State private var isLoadingImports = false
     @State private var isSavingImports = false
     @State private var failedImportCount = 0
+    @State private var importStartsShoot = true
+    @State private var shotAddedToProfile: UIImage?
     @State private var pendingReferenceDeletion: Set<UUID> = []
     @State private var isEditingInspiration = false
     @State private var selectedInspiration: Set<UUID> = []
@@ -149,30 +159,15 @@ struct HomeView: View {
                 .zIndex(1)
             }
         }
+        .onAppear {
+            #if DEBUG
+            seedDemoProfileIfRequested()
+            #endif
+        }
         .onChange(of: selectedPhotos) { _, items in
             guard !items.isEmpty else { return }
             selectedPhotos = []
-            let requestID = UUID()
-            importLoadID = requestID
-            isLoadingImports = true
-            Task {
-                var loaded: [PendingImport] = []
-                for item in items.prefix(10) {
-                    guard requestID == importLoadID else { return }
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        loaded.append(PendingImport(image: image, data: data))
-                    }
-                }
-                guard requestID == importLoadID else { return }
-                isLoadingImports = false
-                failedImportCount = items.count - loaded.count
-                if loaded.isEmpty {
-                    errorMessage = "These photos could not be loaded. Try selecting them again."
-                } else {
-                    importReviewBatch = ImportReviewBatch(imports: loaded, failedCount: failedImportCount)
-                }
-            }
+            loadPicked(items, startsShoot: true)
         }
         .sheet(item: $importReviewBatch, onDismiss: {
             let chosen = confirmedImports
@@ -386,10 +381,38 @@ struct HomeView: View {
         .background(Palette.background)
     }
 
+    #if DEBUG
+    /// Launch with `-PoserDemoProfile` to fill an empty profile with sample shots and open it.
+    private func seedDemoProfileIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("-PoserDemoProfile") else { return }
+        activeTab = .profile
+        guard shootStore.shots.isEmpty else { return }
+        let references = ReferenceCatalog.items.prefix(16).compactMap { item in item.image.map { (item.id, $0) } }
+        guard references.count >= 9 else { return }
+        let scores = [61, 68, 64, 73, 79, 76, 84, 88, 91]
+        for (index, score) in scores.enumerated() {
+            let (id, image) = references[index]
+            let photo = references[index + 1].1
+            let day = Calendar.current.date(byAdding: .day, value: -(scores.count - 1 - index) / 2, to: Date())!
+            try? shootStore.add(photo: photo, reference: image, matchScore: score, referenceID: id,
+                                createdAt: day.addingTimeInterval(Double(index) * 60))
+        }
+        for (_, image) in references.suffix(5) {
+            try? inspirationStore.add(image, source: .photoLibrary)
+        }
+        profileStore.updateDisplayName("Nathan")
+        profileStore.updateBio("Golden hour enjoyer. Recreating Pinterest shots one pose at a time.")
+    }
+    #endif
+
     private var profilePage: some View {
         ProfileView(
             profileStore: profileStore,
             shootStore: shootStore,
+            inspirationStore: inspirationStore,
+            onOpenReference: { openSavedReference($0) },
+            onAddPoses: { loadPicked($0, startsShoot: false) },
+            onDeleteReference: { pendingReferenceDeletion = [$0] },
             onOpenCamera: {
                 withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
             },
@@ -520,6 +543,12 @@ struct HomeView: View {
     private var landing: some View {
         VStack(alignment: .leading, spacing: 16) {
             savedInspiration
+
+            if GeminiImageCoach.isConfigured {
+                Text("Reference photos are sent to Gemini for shot suggestions.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondaryText)
+            }
 
             HStack {
                 Text("For you")
@@ -903,7 +932,7 @@ struct HomeView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(isEditingInspiration ? "Select \(item.title)" : "Open \(item.title)")
+        .accessibilityLabel(isEditingInspiration ? "Select saved reference" : "Open saved reference")
         .accessibilityAddTraits(selected && isEditingInspiration ? [.isSelected] : [])
         .contextMenu {
             if !isEditingInspiration {
@@ -1218,6 +1247,28 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
             } else {
+                if let referenceImage {
+                    let added = shotAddedToProfile === image
+                    Button {
+                        do {
+                            try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore)
+                            shotAddedToProfile = image
+                        } catch {
+                            errorMessage = "The shot could not be added to your profile. Try again."
+                        }
+                    } label: {
+                        Label(added ? "Added to profile" : "Add to profile",
+                              systemImage: added ? "checkmark" : "person.crop.square")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 17)
+                            .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                            .opacity(added ? 0.6 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(added)
+                }
                 Button {
                     PhotoLibrarySaver.save(image) { success in
                         savedMessage = success ? "Your shot is in Photos." : "Allow Photos access in Settings to save this shot."
@@ -1225,10 +1276,11 @@ struct HomeView: View {
                 } label: {
                     Text("Save to Photos")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(referenceImage == nil ? .black : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 17)
-                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                        .background(referenceImage == nil ? Color.white : Palette.elevated,
+                                    in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 }
                 .buttonStyle(.plain)
                 Button("Take another shot") {
@@ -1324,10 +1376,44 @@ struct HomeView: View {
         await analyze(image, scene: false, imageData: imageData)
     }
 
+    private func loadPicked(_ items: [PhotosPickerItem], startsShoot: Bool) {
+        guard !items.isEmpty else { return }
+        importStartsShoot = startsShoot
+        let requestID = UUID()
+        importLoadID = requestID
+        isLoadingImports = true
+        Task {
+            var loaded: [PendingImport] = []
+            for item in items.prefix(10) {
+                guard requestID == importLoadID else { return }
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    loaded.append(PendingImport(image: image, data: data))
+                }
+            }
+            guard requestID == importLoadID else { return }
+            isLoadingImports = false
+            failedImportCount = min(items.count, 10) - loaded.count
+            if loaded.isEmpty {
+                errorMessage = "These photos could not be loaded. Try selecting them again."
+            } else {
+                importReviewBatch = ImportReviewBatch(imports: loaded, failedCount: failedImportCount)
+            }
+        }
+    }
+
+    private func openSavedReference(_ item: InspirationItem) {
+        guard let preview = inspirationStore.image(for: item) else { return }
+        Task {
+            let original = inspirationStore.originalData(for: item)
+            await analyze(original.flatMap(UIImage.init(data:)) ?? preview, scene: false, imageData: original)
+        }
+    }
+
     /// Only called after the review sheet has confirmed and dismissed.
     private func addInspiration(_ chosen: [PendingImport]) async {
         guard !chosen.isEmpty, !isSavingImports else { return }
-        if chosen.count == 1, let only = chosen.first {
+        if importStartsShoot, chosen.count == 1, let only = chosen.first {
             await importInspiration(only.image, source: .photoLibrary, imageData: only.data)
             return
         }
@@ -1452,7 +1538,8 @@ struct HomeView: View {
         isSavingShot = true
         defer { isSavingShot = false }
         do {
-            try shootStore.add(photo: image, reference: referenceImage)
+            try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore,
+                               referenceID: shootQueue[currentShotIndex])
         } catch {
             errorMessage = "The shot could not be saved to your profile. Try again."
             return
@@ -1476,42 +1563,9 @@ struct HomeView: View {
     }
 
     private func completedShotDetail(_ shot: CompletedShot) -> some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Completed shot")
-                    .font(.system(size: 28, weight: .bold))
-                Text(shot.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Palette.secondaryText)
-                if let photo = shootStore.photo(for: shot) {
-                    Image(uiImage: photo)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                    Button("Save to Photos") {
-                        PhotoLibrarySaver.save(photo) { success in
-                            savedMessage = success ? "Your shot is in Photos." : "Allow Photos access in Settings to save this shot."
-                        }
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
-                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                }
-                if let reference = shootStore.reference(for: shot) {
-                    Text("Reference")
-                        .font(.system(size: 17, weight: .semibold))
-                    Image(uiImage: reference)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                }
-            }
-            .padding(PoserSpace.large)
-            .foregroundStyle(.white)
+        ShotPostView(shot: shot, shootStore: shootStore) {
+            selectedCompletedShot = nil
         }
-        .background(Palette.background.ignoresSafeArea())
     }
 
     private func compare(_ image: UIImage) async {
@@ -1536,10 +1590,10 @@ struct HomeView: View {
             default:
                 focalRatio = 1
             }
-            let mappedOutline = reference.shotSpec.silhouette.map {
-                FrameMapping.map($0, fromAspect: reference.shotSpec.imageAspect,
-                                 intoAspect: result.shotSpec.imageAspect, focalRatio: focalRatio)
-            }
+            let mappedOutline = FrameMapping.mapOutline(reference.shotSpec.silhouette,
+                                                        fromAspect: reference.shotSpec.imageAspect,
+                                                        intoAspect: result.shotSpec.imageAspect,
+                                                        focalRatio: focalRatio)
             let overlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
                                                          live: result.shotSpec.silhouette)
             comparisonNote = match.score >= 85 && (overlap ?? 100) < 70

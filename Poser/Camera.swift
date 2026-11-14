@@ -270,10 +270,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                               focalRatio: CGFloat) -> (pose: PoseMatch?, frameOverlap: Int?) {
         let pose = PoseMatcher.compare(reference: referencePose, live: livePose,
                                        referenceOutline: referenceOutline, liveOutline: liveOutline)
-        let mappedOutline = referenceOutline.map {
-            FrameMapping.map($0, fromAspect: referenceAspect, intoAspect: liveAspect,
-                             focalRatio: focalRatio)
-        }
+        let mappedOutline = FrameMapping.mapOutline(referenceOutline, fromAspect: referenceAspect,
+                                                    intoAspect: liveAspect, focalRatio: focalRatio)
         let frameOverlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline, live: liveOutline)
         return (pose, frameOverlap)
     }

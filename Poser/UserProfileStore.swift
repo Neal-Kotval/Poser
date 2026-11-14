@@ -2,10 +2,15 @@ import Foundation
 import UIKit
 
 struct UserProfile: Codable, Equatable {
+    /// Instagram's limits: a 30-character name and a 150-character bio.
+    static let nameLimit = 30
+    static let bioLimit = 150
+
     var displayName: String
     var avatarFilename: String?
+    var bio: String?
 
-    static let `default` = UserProfile(displayName: "Photographer", avatarFilename: nil)
+    static let `default` = UserProfile(displayName: "Photographer", avatarFilename: nil, bio: nil)
 }
 
 @MainActor
@@ -41,9 +46,16 @@ final class UserProfileStore: ObservableObject {
     }
 
     func updateDisplayName(_ name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let singleLine = name.components(separatedBy: .newlines).joined(separator: " ")
+        let trimmed = singleLine.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        profile.displayName = trimmed
+        profile.displayName = String(trimmed.prefix(UserProfile.nameLimit))
+        save()
+    }
+
+    func updateBio(_ bio: String) {
+        let trimmed = bio.trimmingCharacters(in: .whitespacesAndNewlines)
+        profile.bio = trimmed.isEmpty ? nil : String(trimmed.prefix(UserProfile.bioLimit))
         save()
     }
 
