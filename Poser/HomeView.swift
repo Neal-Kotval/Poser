@@ -321,61 +321,128 @@ struct HomeView: View {
     }
 
     private var landing: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Button {
-                if let image = UIImage(named: "InspirationPortrait") {
-                    Task { await analyze(image, scene: false) }
+        VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Find your next shot.")
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .tracking(-0.7)
+                    .foregroundStyle(.white)
+                Text("Ideas for wherever you are.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Palette.secondaryText)
+            }
+
+            HStack(spacing: 9) {
+                Button { showingScan = true } label: {
+                    feedAction(symbol: "viewfinder", title: "Scan place")
                 }
-            } label: {
-                Image("InspirationPortrait")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 410)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .overlay(alignment: .bottom) {
-                        LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .center, endPoint: .bottom)
-                            .frame(height: 200)
-                    }
-                    .overlay(alignment: .bottomLeading) {
-                        HStack(alignment: .bottom) {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text("INSPIRATION")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .tracking(1.5)
-                                Text("Street portrait")
-                                    .font(.system(size: 24, weight: .bold))
-                            }
-                            Spacer()
-                            Image(systemName: "arrow.up.right")
-                                .font(.system(size: 17, weight: .medium))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(18)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    feedAction(symbol: "plus", title: "Add photo")
+                }
+                Button { showingLink = true } label: {
+                    feedAction(symbol: "link", title: "Paste link")
+                }
             }
             .buttonStyle(.plain)
-            Text("Make your own")
-                .font(PoserType.title)
-                .foregroundStyle(.white)
-            VStack(spacing: 0) {
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    actionRow(symbol: "photo", title: "Choose a photo", detail: "Use a reference from your library")
-                }
-                .buttonStyle(.plain)
-                rowDivider
-                Button { showingLink = true } label: {
-                    actionRow(symbol: "link", title: "Paste a link", detail: "Pinterest, Instagram, or an image URL")
-                }
-                .buttonStyle(.plain)
-                rowDivider
-                Button { showingScan = true } label: {
-                    actionRow(symbol: "viewfinder", title: "Scan this place", detail: "Get an idea for your surroundings")
-                }
-                .buttonStyle(.plain)
+
+            if !inspirationStore.items.isEmpty {
+                savedInspiration
             }
-            savedInspiration
+
+            HStack {
+                Text("For you")
+                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                Spacer()
+                Text("\(ReferenceCatalog.items.count) ideas")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.secondaryText)
+            }
+
+            LazyVStack(alignment: .leading, spacing: 28) {
+                ForEach(Array(ReferenceCatalog.items.enumerated()), id: \.element.id) { index, asset in
+                    if let image = asset.image {
+                        feedCard(asset, image: image, index: index)
+                    }
+                }
+            }
+        }
+    }
+
+    private func feedAction(symbol: String, title: String) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(Palette.surface, in: Capsule())
+        .overlay(Capsule().stroke(Palette.border, lineWidth: 1))
+    }
+
+    private func feedCard(_ asset: ReferenceAsset, image: UIImage, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(Palette.elevated)
+                    .frame(width: 32, height: 32)
+                    .overlay(Image(systemName: "camera").font(.system(size: 13)).foregroundStyle(.white))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(asset.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Photo idea · \(String(format: "%02d", index + 1))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.secondaryText)
+                }
+                Spacer()
+            }
+
+            Button { Task { await analyze(image, scene: false) } } label: {
+                GeometryReader { tile in
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: tile.size.width, height: tile.size.height)
+                        .clipped()
+                }
+                .frame(height: 370)
+                .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(asset.title) inspiration")
+
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Try this shot")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    if let source = asset.source {
+                        Link("\(asset.credit) · \(asset.license)", destination: source)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.secondaryText)
+                    } else {
+                        Text("\(asset.credit) · \(asset.license)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.secondaryText)
+                    }
+                }
+                Spacer()
+                Button { Task { await analyze(image, scene: false) } } label: {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(width: 38, height: 38)
+                        .background(.white, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Try \(asset.title) shot")
+            }
+            Rectangle().fill(Palette.border).frame(height: 1).padding(.top, 9)
         }
     }
 
@@ -527,29 +594,6 @@ struct HomeView: View {
         Color.white.opacity(0.16)
             .frame(height: 1)
             .padding(.leading, 40)
-    }
-
-    private func actionRow(symbol: String, title: String, detail: String) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: symbol)
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(.white)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                Text(detail)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.52))
-            }
-            Spacer(minLength: 4)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.35))
-        }
-        .frame(maxWidth: .infinity, minHeight: 78)
-        .contentShape(Rectangle())
     }
 
     private var analyzingView: some View {
