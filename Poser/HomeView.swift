@@ -608,31 +608,34 @@ struct HomeView: View {
                         Text("Your inspiration")
                             .font(.system(size: 24, weight: .semibold, design: .rounded))
                             .foregroundStyle(.white)
-                        if !isEditingInspiration && !inspirationStore.items.isEmpty {
-                            Text("\(inspirationStore.items.count) saved")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Palette.secondaryText)
+                        if !inspirationStore.items.isEmpty {
+                            HStack(spacing: 8) {
+                                Text(isEditingInspiration ? "\(selectedInspiration.count) selected"
+                                     : "\(inspirationStore.items.count) saved")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Palette.secondaryText)
+                                Button(isEditingInspiration ? "Done" : "Edit") {
+                                    isEditingInspiration.toggle()
+                                    selectedInspiration = []
+                                }
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(minWidth: 44, minHeight: 44)
+                                .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
+                            }
                         }
                     }
                     Spacer(minLength: 4)
                     if !isEditingInspiration {
                         PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 17, weight: .semibold))
-                                .frame(width: 44, height: 44)
+                            Label("Add photos", systemImage: "plus")
+                                .font(.system(size: 13, weight: .semibold))
+                                .padding(.horizontal, 14)
+                                .frame(minHeight: 44)
                                 .poserGlass(interactive: true)
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Add reference photo")
-                    }
-                    if !inspirationStore.items.isEmpty {
-                        Button(isEditingInspiration ? "Done" : "Edit") {
-                            isEditingInspiration.toggle()
-                            selectedInspiration = []
-                        }
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
+                        .accessibilityLabel("Add reference photos")
                     }
                 }
                 if isEditingInspiration {
@@ -653,7 +656,7 @@ struct HomeView: View {
                 }
             }
             if inspirationStore.items.isEmpty {
-                Text("Tap + to add photos for your next shoot.")
+                Text("Add photos to save inspiration for your next shoot.")
                     .font(PoserType.supporting)
                     .foregroundStyle(Palette.secondaryText)
                     .padding(.vertical, 8)
