@@ -30,6 +30,7 @@ struct HomeView: View {
     @State private var isSavingShot = false
     @State private var selectedCompletedShot: CompletedShot?
     @State private var flowID = UUID()
+    @State private var showLiveCamera = true
 
     var body: some View {
         NavigationStack {
@@ -105,8 +106,10 @@ struct HomeView: View {
         } message: { Text(savedMessage ?? "") }
     }
 
+    @ViewBuilder
     private var cameraPage: some View {
-        CameraScreen(
+        if showLiveCamera {
+            CameraScreen(
             mode: .guide,
             recipe: selectedRecipe,
             targetX: analysis?.subjectPoint?.x ?? 0.5,
@@ -123,19 +126,24 @@ struct HomeView: View {
                 capturedImage = image
                 comparisonNote = nil
                 poseScore = nil
-                withAnimation(.easeOut(duration: 0.32)) { activeTab = .home }
+                withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
                 Task { await compare(image) }
             } else if selectedRecipe != nil, referenceImage != nil {
                 capturedImage = image
                 comparisonNote = nil
                 poseScore = nil
-                withAnimation(.easeOut(duration: 0.32)) { activeTab = .home }
+                withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
                 Task { await compare(image) }
             } else {
                 Task { await scanScene(image) }
             }
         } onPoseGuide: {
             openPoseGuide()
+        } onStartOver: {
+            reset()
+        }
+        } else {
+            shootPage
         }
     }
 
@@ -143,16 +151,45 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 header
+                landing
+            }
+            .frame(maxWidth: 620)
+            .padding(.horizontal, PoserSpace.large)
+            .padding(.top, PoserSpace.large)
+            .padding(.bottom, PoserSpace.xLarge)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Palette.background)
+    }
+
+    private var shootPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
+                header
                 if let capturedImage {
                     comparison(capturedImage)
+                } else if isAnalyzing || isPreparingReference {
+                    analyzingView
                 } else if !sceneMatches.isEmpty && shootQueue.isEmpty {
                     sceneMatchResults
                 } else if let selectedRecipe {
                     recipeDetail(selectedRecipe)
-                } else if isAnalyzing || isPreparingReference {
-                    analyzingView
                 } else {
-                    landing
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Couldn’t prepare this shot")
+                            .font(.system(size: 24, weight: .semibold))
+                        Text("Choose another idea from Home or start a new scan.")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Palette.secondaryText)
+                        Button("Browse Home") {
+                            withAnimation(.easeOut(duration: 0.32)) { activeTab = .home }
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .padding(.top, 8)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 70)
                 }
             }
             .frame(maxWidth: 620)
@@ -239,7 +276,7 @@ struct HomeView: View {
 
     private var bottomBar: some View {
         VStack(spacing: 0) {
-            if activeTab == .home, !sceneMatches.isEmpty, shootQueue.isEmpty, capturedImage == nil {
+            if activeTab == .camera, !showLiveCamera, !sceneMatches.isEmpty, shootQueue.isEmpty, capturedImage == nil {
                 Button { Task { await startSelectedShoot() } } label: {
                     Text(isPreparingReference ? "Preparing your shots…" : "Continue with \(selectedMatches.count) \(selectedMatches.count == 1 ? "shot" : "shots")")
                         .font(.system(size: 16, weight: .semibold))
@@ -268,11 +305,7 @@ struct HomeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Home")
             Button {
-                if activeTab == .home, selectedRecipe != nil, capturedImage == nil, shootQueue.isEmpty {
-                    openPoseGuide()
-                } else {
-                    withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
-                }
+                withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
             } label: {
                 Image(systemName: "camera.fill")
                     .font(.system(size: 22, weight: .semibold))
@@ -314,7 +347,7 @@ struct HomeView: View {
                 .foregroundStyle(.white)
             HStack {
                 Spacer()
-                if selectedRecipe != nil || capturedImage != nil || !sceneMatches.isEmpty || isAnalyzing {
+                if activeTab == .camera, !showLiveCamera {
                     Button("Start over") { reset() }
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.65))
@@ -763,7 +796,7 @@ struct HomeView: View {
                     capturedImage = nil
                     comparisonNote = nil
                     poseScore = nil
-                    withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
+                    withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = true; activeTab = .camera }
                 }
                 .disabled(isSavingShot)
                 .font(.system(size: 15, weight: .medium))
@@ -784,7 +817,9 @@ struct HomeView: View {
                         .background(.white, in: Capsule())
                 }
                 .buttonStyle(.plain)
-                Button("Take another shot") { activeTab = .camera }
+                Button("Take another shot") {
+                    withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = true; activeTab = .camera }
+                }
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -818,7 +853,8 @@ struct HomeView: View {
     private func analyze(_ image: UIImage, scene: Bool) async {
         let requestID = UUID()
         flowID = requestID
-        activeTab = .home
+        showLiveCamera = false
+        activeTab = .camera
         shootQueue = []
         selectedMatches = []
         referenceImage = image
@@ -843,6 +879,7 @@ struct HomeView: View {
     }
 
     private func openPoseGuide() {
+        showLiveCamera = true
         activeTab = .camera
         withAnimation(.easeInOut(duration: 0.3)) { showingPoseTutorial = true }
     }
@@ -860,7 +897,8 @@ struct HomeView: View {
     private func scanScene(_ image: UIImage) async {
         let requestID = UUID()
         flowID = requestID
-        activeTab = .home
+        showLiveCamera = false
+        activeTab = .camera
         isSceneScan = false
         scannedScene = image
         sceneMatches = []
@@ -933,6 +971,7 @@ struct HomeView: View {
             analysis = result
             selectedRecipe = result.recipe
             capturedImage = nil
+            showLiveCamera = true
             withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
             withAnimation(.easeInOut(duration: 0.3)) { showingPoseTutorial = true }
         } catch {
@@ -965,6 +1004,7 @@ struct HomeView: View {
             selectedRecipe = nil
             analysis = nil
             self.referenceImage = nil
+            showLiveCamera = true
             withAnimation(.easeOut(duration: 0.32)) { activeTab = .profile }
         }
     }
@@ -1032,6 +1072,8 @@ struct HomeView: View {
 
     private func reset() {
         flowID = UUID()
+        showLiveCamera = true
+        activeTab = .camera
         selectedPhoto = nil
         referenceImage = nil
         analysis = nil
