@@ -12,12 +12,17 @@
 		350C719386422C12520F1ED4 /* Camera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00E9C851F5E46FCB3464F117 /* Camera.swift */; };
 		529BAAE2787F053604F8E491 /* InspirationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65CF4B431723F11B20C72D26 /* InspirationStore.swift */; };
 		535CF5C4A1BE29E55BF9D3B1 /* PoserApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72858BE94E55ADBAB75C548B /* PoserApp.swift */; };
+		EB370896B5757578171CAE74 /* GeminiImageCoach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 583793B136E0AB8B2EB7AEBF /* GeminiImageCoach.swift */; };
+		32E78726CC74FBBE06F701AB /* FirebaseAILogic in Frameworks */ = {isa = PBXBuildFile; productRef = E2AA70E64870F0732264F4C9 /* FirebaseAILogic */; };
+		3D13B28F3CB3A714A14328D6 /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 27817B09250CCD109C633918 /* FirebaseAppCheck */; };
+		F9003373FB8B1B9472FB8366 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 15FF92A4F8473B2E634A1198 /* FirebaseCore */; };
 		6FF8C0E0A6131401CC767EB2 /* ReferenceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46C68AD11200E562CDB98023 /* ReferenceCatalog.swift */; };
 		8A3F3DE31188F7F1DC0D49CF /* SceneMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D5B9FF7614FDB4BCB283B7 /* SceneMatcher.swift */; };
 		8A5B17C7CAB2E10F0F0A3F29 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F796CF4EF566BF4C674566A /* Design.swift */; };
 		9087FDC71C52E1ED6E817C47 /* ShotAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C0BDBE904DBAEA8A0C850F /* ShotAnalysis.swift */; };
 		934758836B26E53568726AB7 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DAC834AB4513408C49B1400 /* HomeView.swift */; };
 		97E9A3BF780BAF0A78277ECA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 76BBB6E7618692362776FC5B /* Assets.xcassets */; };
+		6BF73E9C07F7430388D94E10 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 6BF73E9C07F7430388D94E11 /* GoogleService-Info.plist */; };
 		A17D91B2C3D4E5F60718293A /* PinterestLibrary in Resources */ = {isa = PBXBuildFile; fileRef = B28EA2C3D4E5F60718293A4B /* PinterestLibrary */; };
 		CBB6B0E22B69BE40E1C4464C /* ShootStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27A4ED2C0016F1A86C4B3C25 /* ShootStore.swift */; };
 		E3E530D35DAFFB8A7960731A /* PoseMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2A125C99445696F76111D3 /* PoseMatcher.swift */; };
@@ -28,8 +33,13 @@
 		5A0C1E7B2D4F6A8B9C0D1E08 /* LiveCoach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */; };
 		5A0C1E7B2D4F6A8B9C0D1E0C /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E0B /* ProfileView.swift */; };
 		5A0C1E7B2D4F6A8B9C0D1E0E /* UserProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E0D /* UserProfileStore.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E12 /* TypesenseConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E11 /* TypesenseConfig.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E14 /* TypesenseClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E13 /* TypesenseClient.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E16 /* ReferenceSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E15 /* ReferenceSearch.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E1A /* Secrets in Resources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E19 /* Secrets */; };
 		5A0C1E7B2D4F6A8B9C0D1E0A /* LiveCoachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */; };
 		5A0C1E7B2D4F6A8B9C0D1E10 /* ProfileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E0F /* ProfileStoreTests.swift */; };
+		5A0C1E7B2D4F6A8B9C0D1E18 /* ReferenceSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C1E7B2D4F6A8B9C0D1E17 /* ReferenceSearchTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,12 +57,14 @@
 		27A4ED2C0016F1A86C4B3C25 /* ShootStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShootStore.swift; sourceTree = "<group>"; };
 		2F796CF4EF566BF4C674566A /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
 		3DAC834AB4513408C49B1400 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		583793B136E0AB8B2EB7AEBF /* GeminiImageCoach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiImageCoach.swift; sourceTree = "<group>"; };
 		46C68AD11200E562CDB98023 /* ReferenceCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceCatalog.swift; sourceTree = "<group>"; };
 		65CF4B431723F11B20C72D26 /* InspirationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspirationStore.swift; sourceTree = "<group>"; };
 		68D5B9FF7614FDB4BCB283B7 /* SceneMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneMatcher.swift; sourceTree = "<group>"; };
 		72858BE94E55ADBAB75C548B /* PoserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoserApp.swift; sourceTree = "<group>"; };
 		74C0BDBE904DBAEA8A0C850F /* ShotAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotAnalysis.swift; sourceTree = "<group>"; };
 		76BBB6E7618692362776FC5B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6BF73E9C07F7430388D94E11 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		B28EA2C3D4E5F60718293A4B /* PinterestLibrary */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PinterestLibrary; sourceTree = "<group>"; };
 		8C2FDB549430228924D4D029 /* ShotGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotGeometry.swift; sourceTree = "<group>"; };
 		8CFBB70FB62CEEB43C5F311C /* PoseTutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseTutorial.swift; sourceTree = "<group>"; };
@@ -66,9 +78,27 @@
 		5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCoach.swift; sourceTree = "<group>"; };
 		5A0C1E7B2D4F6A8B9C0D1E0B /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		5A0C1E7B2D4F6A8B9C0D1E0D /* UserProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileStore.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E11 /* TypesenseConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypesenseConfig.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E13 /* TypesenseClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypesenseClient.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E15 /* ReferenceSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceSearch.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E19 /* Secrets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Secrets; sourceTree = "<group>"; };
 		5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveCoachTests.swift; sourceTree = "<group>"; };
 		5A0C1E7B2D4F6A8B9C0D1E0F /* ProfileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStoreTests.swift; sourceTree = "<group>"; };
+		5A0C1E7B2D4F6A8B9C0D1E17 /* ReferenceSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceSearchTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		052AD3CCB79F7FB85821C92D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				32E78726CC74FBBE06F701AB /* FirebaseAILogic in Frameworks */,
+				3D13B28F3CB3A714A14328D6 /* FirebaseAppCheck in Frameworks */,
+				F9003373FB8B1B9472FB8366 /* FirebaseCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		1851D1961F5A7C411FE552FC /* Products */ = {
@@ -96,6 +126,7 @@
 				5A0C1E7B2D4F6A8B9C0D1E05 /* ShotSpecTests.swift */,
 				5A0C1E7B2D4F6A8B9C0D1E09 /* LiveCoachTests.swift */,
 				5A0C1E7B2D4F6A8B9C0D1E0F /* ProfileStoreTests.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E17 /* ReferenceSearchTests.swift */,
 			);
 			path = PoserTests;
 			sourceTree = "<group>";
@@ -104,10 +135,13 @@
 			isa = PBXGroup;
 			children = (
 				76BBB6E7618692362776FC5B /* Assets.xcassets */,
+				6BF73E9C07F7430388D94E11 /* GoogleService-Info.plist */,
+				5A0C1E7B2D4F6A8B9C0D1E19 /* Secrets */,
 				B28EA2C3D4E5F60718293A4B /* PinterestLibrary */,
 				00E9C851F5E46FCB3464F117 /* Camera.swift */,
 				2F796CF4EF566BF4C674566A /* Design.swift */,
 				3DAC834AB4513408C49B1400 /* HomeView.swift */,
+				583793B136E0AB8B2EB7AEBF /* GeminiImageCoach.swift */,
 				65CF4B431723F11B20C72D26 /* InspirationStore.swift */,
 				AB2A125C99445696F76111D3 /* PoseMatcher.swift */,
 				72858BE94E55ADBAB75C548B /* PoserApp.swift */,
@@ -122,6 +156,9 @@
 				5A0C1E7B2D4F6A8B9C0D1E07 /* LiveCoach.swift */,
 				5A0C1E7B2D4F6A8B9C0D1E0B /* ProfileView.swift */,
 				5A0C1E7B2D4F6A8B9C0D1E0D /* UserProfileStore.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E11 /* TypesenseConfig.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E13 /* TypesenseClient.swift */,
+				5A0C1E7B2D4F6A8B9C0D1E15 /* ReferenceSearch.swift */,
 			);
 			path = Poser;
 			sourceTree = "<group>";
@@ -153,6 +190,7 @@
 			buildPhases = (
 				E28BD4B33BE7AE664D78A479 /* Sources */,
 				F087C6004A88418F2F061C98 /* Resources */,
+				052AD3CCB79F7FB85821C92D /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -160,6 +198,9 @@
 			);
 			name = Poser;
 			packageProductDependencies = (
+				E2AA70E64870F0732264F4C9 /* FirebaseAILogic */,
+				27817B09250CCD109C633918 /* FirebaseAppCheck */,
+				15FF92A4F8473B2E634A1198 /* FirebaseCore */,
 			);
 			productName = Poser;
 			productReference = EA439CA4C1F6EC46A8193FFE /* Poser.app */;
@@ -192,6 +233,9 @@
 				en,
 			);
 			mainGroup = 8486C606B95AAA49AC82084B;
+			packageReferences = (
+				B16B53FEE8A0224BF3CE9D75 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1851D1961F5A7C411FE552FC /* Products */;
@@ -210,7 +254,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				97E9A3BF780BAF0A78277ECA /* Assets.xcassets in Resources */,
+				6BF73E9C07F7430388D94E10 /* GoogleService-Info.plist in Resources */,
 				A17D91B2C3D4E5F60718293A /* PinterestLibrary in Resources */,
+				5A0C1E7B2D4F6A8B9C0D1E1A /* Secrets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -225,6 +271,7 @@
 				5A0C1E7B2D4F6A8B9C0D1E06 /* ShotSpecTests.swift in Sources */,
 				5A0C1E7B2D4F6A8B9C0D1E0A /* LiveCoachTests.swift in Sources */,
 				5A0C1E7B2D4F6A8B9C0D1E10 /* ProfileStoreTests.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E18 /* ReferenceSearchTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -239,6 +286,7 @@
 				E3E530D35DAFFB8A7960731A /* PoseMatcher.swift in Sources */,
 				2EEC321518B836FE4F1F9201 /* PoseTutorial.swift in Sources */,
 				535CF5C4A1BE29E55BF9D3B1 /* PoserApp.swift in Sources */,
+				EB370896B5757578171CAE74 /* GeminiImageCoach.swift in Sources */,
 				6FF8C0E0A6131401CC767EB2 /* ReferenceCatalog.swift in Sources */,
 				8A3F3DE31188F7F1DC0D49CF /* SceneMatcher.swift in Sources */,
 				CBB6B0E22B69BE40E1C4464C /* ShootStore.swift in Sources */,
@@ -249,6 +297,9 @@
 				5A0C1E7B2D4F6A8B9C0D1E08 /* LiveCoach.swift in Sources */,
 				5A0C1E7B2D4F6A8B9C0D1E0C /* ProfileView.swift in Sources */,
 				5A0C1E7B2D4F6A8B9C0D1E0E /* UserProfileStore.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E12 /* TypesenseConfig.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E14 /* TypesenseClient.swift in Sources */,
+				5A0C1E7B2D4F6A8B9C0D1E16 /* ReferenceSearch.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -415,6 +466,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = Poser/Poser.entitlements;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = GN2A6926JU;
@@ -491,6 +543,35 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B16B53FEE8A0224BF3CE9D75 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.15.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		15FF92A4F8473B2E634A1198 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B16B53FEE8A0224BF3CE9D75 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		27817B09250CCD109C633918 /* FirebaseAppCheck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B16B53FEE8A0224BF3CE9D75 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAppCheck;
+		};
+		E2AA70E64870F0732264F4C9 /* FirebaseAILogic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B16B53FEE8A0224BF3CE9D75 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAILogic;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 980EF0AA836D43D9A6FD129A /* Project object */;
 }

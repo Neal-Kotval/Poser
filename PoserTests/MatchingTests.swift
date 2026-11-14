@@ -294,7 +294,7 @@ final class MatchingTests: XCTestCase {
         XCTAssertLessThan(score!.score, 85, "Matching joints should not hide a mismatched outline")
         XCTAssertEqual(PoseMatcher.compare(reference: pose, live: pose,
                                            referenceOutline: full, liveOutline: full)?.score, 100)
-        XCTAssertEqual(score?.cue, "Match your outline to the guide")
+        XCTAssertEqual(score?.cue, "Adjust your body shape to match the reference")
     }
 
     func testMatchingOutlineCannotHideWrongArm() {
@@ -502,6 +502,24 @@ final class MatchingTests: XCTestCase {
         XCTAssertEqual(detected[.leftWrist], CGPoint(x: 1.4, y: -0.5))
         XCTAssertLessThan(diagram[.leftWrist]!.x, 0.8)
         XCTAssertGreaterThan(diagram[.leftWrist]!.y, 0)
+    }
+
+    func testSemanticIllustrationFillsOnlyMissingJoints() {
+        let detected = PoseSkeleton(points: [
+            .leftShoulder: CGPoint(x: 0.38, y: 0.28),
+            .rightShoulder: CGPoint(x: 0.62, y: 0.28),
+            .leftHip: CGPoint(x: 0.43, y: 0.55),
+            .rightHip: CGPoint(x: 0.57, y: 0.55),
+            .leftKnee: CGPoint(x: 0.42, y: 0.74),
+            .leftAnkle: CGPoint(x: 0.40, y: 0.94)
+        ])
+        var illustrativePoints = PoseSkeleton.example(for: ShotRecipe.presets[1]).points
+        illustrativePoints[.rightAnkle] = CGPoint(x: 0.72, y: 0.94)
+        let diagram = detected.displayingMissingJoints(fallback: PoseSkeleton(points: illustrativePoints))
+
+        XCTAssertEqual(diagram[.leftAnkle], detected[.leftAnkle])
+        XCTAssertEqual(diagram[.rightAnkle], illustrativePoints[.rightAnkle])
+        XCTAssertNil(detected[.rightAnkle])
     }
 
     @MainActor

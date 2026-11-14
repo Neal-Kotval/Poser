@@ -48,13 +48,16 @@ struct PoseSkeleton {
 
     /// Supplies a complete outline for the illustrated guide without changing
     /// which joints Vision actually found for scoring or pose cues.
-    func displayingMissingJoints() -> PoseSkeleton {
+    func displayingMissingJoints(fallback: PoseSkeleton? = nil) -> PoseSkeleton {
         guard let leftShoulder = points[.leftShoulder],
               let rightShoulder = points[.rightShoulder] else { return self }
-        let example = Self.example(for: ShotRecipe.presets[1])
+        let example = fallback ?? Self.example(for: ShotRecipe.presets[1])
         let shoulderCenter = CGPoint(x: (leftShoulder.x + rightShoulder.x) / 2,
                                      y: (leftShoulder.y + rightShoulder.y) / 2)
-        let exampleShoulderCenter = CGPoint(x: 0.5, y: 0.28)
+        let exampleShoulderCenter = CGPoint(
+            x: ((example[.leftShoulder]?.x ?? 0.38) + (example[.rightShoulder]?.x ?? 0.62)) / 2,
+            y: ((example[.leftShoulder]?.y ?? 0.28) + (example[.rightShoulder]?.y ?? 0.28)) / 2
+        )
         let signedWidth = rightShoulder.x - leftShoulder.x
         let scale = min(max(hypot(signedWidth, rightShoulder.y - leftShoulder.y) / 0.24, 0.7), 1.4)
         let horizontalScale = signedWidth < 0 ? -scale : scale
@@ -172,7 +175,9 @@ enum AnalysisService {
             // Vision models are not available in every simulator/runtime. Keep the
             // reference flow usable when one model cannot initialize.
             try? handler.perform([classify])
-            try? handler.perform([person])
+            if let error = VisionRunner.perform(person, on: handler) {
+                print("[AnalysisService] 2D pose failed: \(error)")
+            }
             try? handler.perform([face])
             try? handler.perform([salient])
 

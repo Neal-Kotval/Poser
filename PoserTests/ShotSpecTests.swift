@@ -4,6 +4,51 @@ import UIKit
 @testable import Poser
 
 final class ShotSpecTests: XCTestCase {
+    func testSemanticReferencePlanSeedsOnlyUnmeasuredSetup() {
+        let plan = GeminiReferencePlan(hasPerson: true, summary: "Keep the figure low in frame.",
+                                       poseCue: "Lean forward.", framingCue: "Leave sky above.",
+                                       lightCue: "Use side light.", poseStyle: .leaning,
+                                       cameraLevel: .knee, tilt: .up, distance: .far)
+        let unmeasured = ShotSpec(source: .fallback)
+        var suggested = ReferenceStartingSetup(spec: unmeasured)
+        suggested.apply(plan, preserving: unmeasured)
+        XCTAssertEqual(suggested.distanceMeters, 4)
+        XCTAssertEqual(suggested.heightMeters, 0.6)
+        XCTAssertEqual(suggested.tiltDegrees, 10)
+
+        let measured = ShotSpec(source: .pose3D, cameraHeightRatio: 0.9,
+                                distanceMeters: 1.8, pitchDegrees: -7)
+        var preserved = ReferenceStartingSetup(spec: measured)
+        preserved.apply(plan, preserving: measured)
+        XCTAssertEqual(preserved.distanceMeters, 1.8)
+        XCTAssertEqual(preserved.heightMeters, measured.cameraHeightMeters)
+        XCTAssertEqual(preserved.tiltDegrees, -7)
+    }
+
+    func testSemanticPlanWithoutPersonDoesNotSetPoseGeometry() {
+        let plan = GeminiReferencePlan(hasPerson: false, summary: "Match the foreground.",
+                                       poseCue: "", framingCue: "Keep the horizon low.",
+                                       lightCue: "", poseStyle: .unknown,
+                                       cameraLevel: .ground, tilt: .up, distance: .close)
+        let spec = ShotSpec(source: .fallback)
+        var setup = ReferenceStartingSetup(spec: spec)
+        setup.apply(plan, preserving: spec)
+        XCTAssertEqual(setup.distanceMeters, 2.5)
+        XCTAssertEqual(setup.heightMeters, 1.5)
+        XCTAssertEqual(setup.tiltDegrees, 0)
+    }
+
+    func testBundledFullBodyReferenceProducesOutlineOnDevice() async throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Person segmentation is unavailable in this simulator runtime")
+        #else
+        let reference = ReferenceCatalog.items[0]
+        let image = try XCTUnwrap(reference.image)
+        let estimate = await ShotSpecEstimator.estimate(image: image, imageData: reference.imageData)
+        XCTAssertGreaterThan(estimate.spec.silhouette.count, 2, estimate.diagnostics.text)
+        #endif
+    }
+
     private let leftHip = SIMD3<Float>(0.1, 0, 0)
     private let rightHip = SIMD3<Float>(-0.1, 0, 0)
     private let leftAnkle = SIMD3<Float>(0.1, -0.8, 0)

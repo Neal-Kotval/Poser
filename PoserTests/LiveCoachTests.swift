@@ -6,6 +6,20 @@ final class LiveCoachTests: XCTestCase {
     private lazy var spec = ShotSpec(source: .pose3D, cameraHeightRatio: 0.3, distanceMeters: 2.0, pitchDegrees: 10,
                                      subjectYawDegrees: 0, subjectBox: box, subjectHeightMeters: 1.7, imageAspect: 0.75)
 
+    func testLiveSubjectSelectionUsesReferencePositionInsteadOfFirstDetection() {
+        let left = CGRect(x: 0.05, y: 0.15, width: 0.24, height: 0.65)
+        let right = CGRect(x: 0.65, y: 0.15, width: 0.24, height: 0.65)
+        XCTAssertEqual(LiveSubjectSelector.select(boxes: [left, right], targetX: 0.77, previousBox: nil), 1)
+    }
+
+    func testLiveSubjectSelectionStaysWithTrackedPerson() {
+        let left = CGRect(x: 0.25, y: 0.15, width: 0.24, height: 0.65)
+        let right = CGRect(x: 0.55, y: 0.15, width: 0.24, height: 0.65)
+        XCTAssertEqual(LiveSubjectSelector.select(boxes: [left, right], targetX: 0.5,
+                                                   previousBox: CGRect(x: 0.57, y: 0.15, width: 0.24, height: 0.65)), 1)
+        XCTAssertNil(LiveSubjectSelector.select(boxes: [], targetX: 0.5, previousBox: nil))
+    }
+
     private func reading(height: Double = 0.3, distance: Double = 2.0, yaw: Double = 0,
                          box: CGRect? = CGRect(x: 0.35, y: 0.1, width: 0.3, height: 0.8)) -> LiveReading {
         LiveReading(cameraHeightRatio: height, distanceMeters: distance, subjectYawDegrees: yaw,
@@ -162,7 +176,7 @@ final class LiveCoachTests: XCTestCase {
         live.silhouette = liveOutline
         let result = coach.update(reading: live, pitchDegrees: 0, rollDegrees: 0)
         XCTAssertEqual(result.kind, .adjustPose)
-        XCTAssertEqual(result.text, "Align your outline with the guide")
+        XCTAssertEqual(result.text, "Adjust your position to match the reference")
     }
 
     func testReferenceFramingUsesVisibleOutlineBounds() {

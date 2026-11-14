@@ -203,7 +203,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         if coachEnabled {
-            guard let reading = analyzer.analyze(sampleBuffer) else { return }
+            guard let reading = analyzer.analyze(sampleBuffer, targetX: targetX) else { return }
             let outline = referenceOutlineSnapshot
             let scores = Self.scoreLivePose(referencePose: targetPose, livePose: reading.pose,
                                             referenceOutline: outline.points, liveOutline: reading.silhouette,
@@ -216,7 +216,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                 self.poseScore = scores.pose?.score
                 self.outlineOverlap = scores.frameOverlap
                 self.poseHint = scores.frameOverlap.map { $0 < 65 && (scores.pose?.score ?? 0) >= 85
-                    ? "Align your outline with the guide" : scores.pose?.cue ?? "Match the outline" }
+                    ? "Adjust your position to match the reference" : scores.pose?.cue ?? "Match the reference pose" }
                     ?? scores.pose?.cue
                     ?? (reading.pose == nil ? "Looking for the reference pose" : "Move into view to match the pose")
             }
@@ -227,7 +227,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         lastDetection = Date()
         let request = VNDetectHumanBodyPoseRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right)
-        guard (try? handler.perform([request])) != nil,
+        guard VisionRunner.perform(request, on: handler) == nil,
               let person = request.results?.first else {
             DispatchQueue.main.async {
                 self.subjectHint = "Place the subject inside the guide"
@@ -391,7 +391,7 @@ struct CameraScreen: View {
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 } else if showPose && mode == .guide && !isGuideOverlayVisible,
-                   let guidePose = targetPose {
+                          let guidePose = targetPose {
                     GeometryReader { geometry in
                         let guideX = geometry.size.width * min(max(targetX, 0.25), 0.75)
                         BubblePoseFigure(target: guidePose, progress: 1)

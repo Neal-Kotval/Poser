@@ -16,7 +16,20 @@ Open `Poser.xcodeproj` in Xcode and run the Poser target on iOS 26 or later. For
 6. Use the thirds grid, motion based level, pose overlay, and live pose cue, then capture.
 7. Compare the captured shot with the reference and save it to Photos. A pose score appears when Vision detects enough body joints in both photos.
 
-Scene matching searches the local inspiration library and the bundled examples; it does not search Pinterest or Instagram. No model key is required.
+Scene matching searches the local inspiration library and the bundled examples. Optional Typesense keyword search uses a configured remote index; image similarity falls back to on-device matching on the free tier. See [Tools/Typesense/README.md](Tools/Typesense/README.md). The on-device flow does not require a model key.
+
+## Optional Gemini image guidance
+
+When a user chooses a reference photo, Poser sends it to Gemini during preparation. Gemini returns a short shot summary and visible pose, framing, lighting, and qualitative camera cues. The app maps clear camera cues to editable starting suggestions and uses pose style only to illustrate joints that Vision could not see. These suggestions are not measurements of the original camera; Vision remains the source of measured geometry and the live pose score. On the shot review screen, **Get photo tips** optionally sends the reference and captured photo to Gemini for qualitative feedback.
+
+The iOS client uses [Firebase AI Logic](https://firebase.google.com/docs/ai-logic) so a Gemini API key is not embedded in the app. To enable it:
+
+1. The dedicated Firebase project is `poser-neal-app-20261114`, registered to iOS bundle ID `com.nealkotval.Poser` with the Gemini Developer API. It uses the no-billing Spark plan, and Firebase AI Logic generation is limited to 5 requests per minute per user.
+2. [Firebase App Check](https://firebase.google.com/docs/ai-logic/app-check) is enforced for AI Logic. Local Debug builds use the App Check debug provider; register each device's logged debug token in Firebase before using Gemini. A production release needs App Attest and an Apple Developer team that supports that capability; the current Personal Team does not.
+3. `Poser/GoogleService-Info.plist` is the Firebase app config and is included in the target's **Copy Bundle Resources**. It contains a Firebase client API key, not a Gemini API key; that key is restricted to the Poser iOS bundle ID and supported Firebase APIs. Keep debug tokens out of the repository. If regenerating the project from `project.yml`, check that the config resource and Release App Attest entitlement remain included.
+4. Build and run. Reference preparation and optional photo tips use `gemini-3.5-flash-lite`. If cloud preparation fails, the local Vision setup remains available.
+
+The committed Firebase config identifies the Poser project. App Check still requires a registered development token for Debug builds or a supported production attestation provider for Release builds.
 
 ## Pinterest reference collection
 
