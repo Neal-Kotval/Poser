@@ -212,17 +212,24 @@ enum ReferenceCatalog {
     }()
 
     static func items(matching tag: ReferenceTag?, query: String = "") -> [ReferenceAsset] {
-        filter(items, matching: tag, query: query)
+        filter(items, matching: tag.map { [$0] } ?? [], query: query)
     }
 
     static func feed(matching tag: ReferenceTag?, query: String = "") -> [ReferenceAsset] {
-        filter(feedItems, matching: tag, query: query)
+        filter(feedItems, matching: tag.map { [$0] } ?? [], query: query)
     }
 
-    private static func filter(_ references: [ReferenceAsset], matching tag: ReferenceTag?, query: String) -> [ReferenceAsset] {
+    static func feed(matching tags: Set<ReferenceTag>, query: String = "") -> [ReferenceAsset] {
+        filter(feedItems, matching: tags, query: query)
+    }
+
+    private static func filter(_ references: [ReferenceAsset], matching tags: Set<ReferenceTag>, query: String) -> [ReferenceAsset] {
         let terms = searchText(query).split { !$0.isLetter && !$0.isNumber }
+        let settings = Set(tags.filter { $0.kind == .setting }.map(\.value))
+        let poses = Set(tags.filter { $0.kind == .pose }.map(\.value))
         return references.filter { asset in
-            guard tag?.matches(asset) ?? true else { return false }
+            guard settings.isEmpty || settings.contains(asset.setting ?? ""),
+                  poses.isEmpty || poses.contains(asset.pose ?? "") else { return false }
             let text = searchText([asset.title, asset.setting ?? "", asset.pose ?? ""].joined(separator: " "))
             return terms.allSatisfy { text.contains($0) }
         }

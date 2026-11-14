@@ -3,6 +3,41 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    func testMultiplePlacesMatchEitherPlaceAndCombineWithPose() {
+        let tags: Set<ReferenceTag> = [
+            ReferenceTag(kind: .setting, value: "street"),
+            ReferenceTag(kind: .setting, value: "beach"),
+            ReferenceTag(kind: .pose, value: "walking")
+        ]
+        let expected = ReferenceCatalog.feedItems.filter {
+            ["street", "beach"].contains($0.setting ?? "") && $0.pose == "walking"
+        }
+        let results = ReferenceCatalog.feed(matching: tags)
+        XCTAssertFalse(results.isEmpty)
+        XCTAssertEqual(results.map(\.id), expected.map(\.id))
+        let onlyPlaces = tags.filter { $0.kind == .setting }
+        XCTAssertGreaterThan(ReferenceCatalog.feed(matching: onlyPlaces).count, results.count)
+    }
+
+    func testMultiplePosesCombineWithPlacesAndSearch() {
+        let tags: Set<ReferenceTag> = [
+            ReferenceTag(kind: .pose, value: "walking"),
+            ReferenceTag(kind: .pose, value: "standing")
+        ]
+        let expected = ReferenceCatalog.feedItems.filter { ["walking", "standing"].contains($0.pose ?? "") }
+        XCTAssertEqual(ReferenceCatalog.feed(matching: tags).map(\.id), expected.map(\.id))
+        let searched = ReferenceCatalog.feed(matching: tags, query: "STREET")
+        XCTAssertFalse(searched.isEmpty)
+        XCTAssertTrue(searched.allSatisfy { $0.setting == "street" && ["walking", "standing"].contains($0.pose ?? "") })
+    }
+
+    func testClearingMultipleFiltersRestoresStableFeedWithoutDuplicates() {
+        let allTags = Set(ReferenceCatalog.tags)
+        XCTAssertEqual(ReferenceCatalog.feed(matching: allTags).map(\.id), ReferenceCatalog.feedItems.map(\.id))
+        XCTAssertEqual(ReferenceCatalog.feed(matching: Set<ReferenceTag>()).map(\.id), ReferenceCatalog.feedItems.map(\.id))
+        XCTAssertTrue(ReferenceCatalog.feed(matching: [ReferenceTag(kind: .setting, value: "missing")]).isEmpty)
+    }
+
     func testMixedFeedSpreadsCategoriesAndKeepsEveryReferenceExactlyOnce() {
         let feed = ReferenceCatalog.feedItems
         XCTAssertEqual(feed.count, ReferenceCatalog.items.count)

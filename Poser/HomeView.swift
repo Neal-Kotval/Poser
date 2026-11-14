@@ -81,7 +81,7 @@ struct HomeView: View {
     @State private var flowID = UUID()
     @State private var showLiveCamera = true
     @State private var showShotDetails = false
-    @State private var selectedReferenceTag: ReferenceTag?
+    @State private var selectedReferenceTags: Set<ReferenceTag> = []
     @State private var referenceQuery = ""
     @State private var isReferenceSearchExpanded = false
     @State private var isSearchKeyboardVisible = false
@@ -466,7 +466,7 @@ struct HomeView: View {
         }
         if tab == .home {
             closeReferenceSearch()
-            selectedReferenceTag = nil
+            selectedReferenceTags = []
             referenceQuery = ""
             isEditingInspiration = false
             selectedInspiration = []
@@ -528,7 +528,7 @@ struct HomeView: View {
                 } actions: {
                     Button("Clear search and filters") {
                         referenceQuery = ""
-                        selectedReferenceTag = nil
+                        selectedReferenceTags = []
                     }
                 }
             }
@@ -544,7 +544,7 @@ struct HomeView: View {
     }
 
     private var filteredReferences: [ReferenceAsset] {
-        ReferenceCatalog.feed(matching: selectedReferenceTag, query: referenceQuery)
+        ReferenceCatalog.feed(matching: selectedReferenceTags, query: referenceQuery)
     }
 
     private var referenceSearchBubble: some View {
@@ -603,14 +603,23 @@ struct HomeView: View {
                 }
                 .padding(.bottom, 16)
                 .transition(.opacity)
-            } else if let tag = selectedReferenceTag {
-                Button { selectedReferenceTag = nil } label: {
-                    Label(tag.title, systemImage: "xmark.circle.fill")
-                        .font(PoserType.caption)
-                        .foregroundStyle(Palette.secondaryText)
-                        .frame(minHeight: 44)
+            } else if !selectedReferenceTags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(ReferenceCatalog.tags.filter { selectedReferenceTags.contains($0) }) { tag in
+                            Button { selectedReferenceTags.remove(tag) } label: {
+                                Label(tag.title, systemImage: "xmark.circle.fill")
+                                    .font(PoserType.caption)
+                                    .foregroundStyle(Palette.secondaryText)
+                                    .padding(.horizontal, 10)
+                                    .frame(minHeight: 44)
+                                    .background(.white.opacity(0.06), in: Capsule())
+                            }
+                            .accessibilityLabel("Remove \(tag.title) filter")
+                        }
+                    }
                 }
-                .accessibilityLabel("Remove \(tag.title) filter")
+                .padding(.bottom, 8)
             }
         }
         .buttonStyle(.plain)
@@ -640,9 +649,14 @@ struct HomeView: View {
     }
 
     private func referenceTagButton(_ tag: ReferenceTag?) -> some View {
-        let isSelected = selectedReferenceTag == tag
+        let isSelected = tag.map { selectedReferenceTags.contains($0) } ?? selectedReferenceTags.isEmpty
         return Button {
-            selectedReferenceTag = tag
+            if let tag {
+                if selectedReferenceTags.contains(tag) { selectedReferenceTags.remove(tag) }
+                else { selectedReferenceTags.insert(tag) }
+            } else {
+                selectedReferenceTags = []
+            }
             isReferenceSearchFocused = false
         } label: {
             Text(tag?.title ?? "All")
@@ -653,7 +667,7 @@ struct HomeView: View {
                 .contentShape(Capsule())
         }
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityHint(tag.map { "Filter reference photos by \($0.title)" } ?? "Show all categories")
+        .accessibilityHint(tag.map { "\(isSelected ? "Remove" : "Add") \($0.title) filter" } ?? "Clear all category filters")
     }
 
     private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
