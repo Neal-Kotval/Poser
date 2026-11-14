@@ -15,6 +15,10 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     private let targetLock = NSLock()
     private var storedTargetX: CGFloat = 0.5
     private var storedTargetPose: PoseSkeleton?
+    private var storedCoachEnabled = false
+    private let analyzer = LiveFrameAnalyzer(minimumInterval: 0.3)
+    private var coach: LiveCoach?
+    private var pendingReading: LiveReading?
     private var lastDetection = Date.distantPast
     private var wantsToRun = false
     private var isConfigured = false
@@ -27,6 +31,20 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published var subjectHint = "Place the subject inside the guide"
     @Published var poseScore: Int?
     @Published var poseHint = "Looking for the reference pose"
+    @Published var coachInstruction: CoachInstruction?
+    private var coachEnabled: Bool {
+        get { targetLock.lock(); defer { targetLock.unlock() }; return storedCoachEnabled }
+        set { targetLock.lock(); storedCoachEnabled = newValue; targetLock.unlock() }
+    }
+    /// Set on the main thread. A spec from a 3D-measured reference turns on step-by-step coaching.
+    var shotSpec: ShotSpec? {
+        didSet {
+            coach = shotSpec.map { LiveCoach(spec: $0) }
+            pendingReading = nil
+            coachInstruction = nil
+            coachEnabled = coach != nil
+        }
+    }
     var targetX: CGFloat {
         get { targetLock.lock(); defer { targetLock.unlock() }; return storedTargetX }
         set { targetLock.lock(); storedTargetX = newValue; targetLock.unlock() }
@@ -68,6 +86,10 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                     self.videoOutput.alwaysDiscardsLateVideoFrames = true
                     self.videoOutput.setSampleBufferDelegate(self, queue: self.videoQueue)
                     self.session.addOutput(self.videoOutput)
+                    if let connection = self.videoOutput.connection(with: .video),
+                       connection.isCameraIntrinsicMatrixDeliverySupported {
+                        connection.isCameraIntrinsicMatrixDeliveryEnabled = true
+                    }
                     self.session.commitConfiguration()
                     self.isConfigured = true
                 }
@@ -78,9 +100,14 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         if motion.isDeviceMotionAvailable {
             motion.deviceMotionUpdateInterval = 0.12
             motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
-                guard let gravity = data?.gravity else { return }
-                self?.pitch = atan2(gravity.z, -gravity.y) * 180 / .pi
-                self?.roll = atan2(gravity.x, -gravity.y) * 180 / .pi
+                guard let self, let gravity = data?.gravity else { return }
+                self.pitch = atan2(gravity.z, -gravity.y) * 180 / .pi
+                self.roll = atan2(gravity.x, -gravity.y) * 180 / .pi
+                if let coach = self.coach {
+                    self.coachInstruction = coach.update(reading: self.pendingReading,
+                                                         pitchDegrees: self.pitch, rollDegrees: self.roll)
+                    self.pendingReading = nil
+                }
             }
         }
         #endif
@@ -138,6 +165,18 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        if coachEnabled {
+            guard let reading = analyzer.analyze(sampleBuffer) else { return }
+            let poseMatch = targetPose.flatMap { target in
+                reading.pose.flatMap { PoseMatcher.compare(reference: target, live: $0) }
+            }
+            DispatchQueue.main.async {
+                self.pendingReading = reading
+                self.poseScore = poseMatch?.score
+                self.poseHint = poseMatch?.cue ?? (reading.pose == nil ? "Looking for the reference pose" : "Move into view to match the pose")
+            }
+            return
+        }
         guard Date().timeIntervalSince(lastDetection) > 0.6,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastDetection = Date()
@@ -223,6 +262,7 @@ struct CameraScreen: View {
     let targetX: CGFloat
     let targetPose: PoseSkeleton?
     let shotGeometry: ShotGeometry?
+    let shotSpec: ShotSpec?
     let referenceImage: UIImage?
     let referenceTitle: String?
     let queueProgress: (current: Int, total: Int)?
@@ -237,12 +277,13 @@ struct CameraScreen: View {
     @State private var showPose = true
     @State private var tutorialStep = 0
 
-    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil) {
+    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, shotSpec: ShotSpec? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil) {
         self.mode = mode
         self.recipe = recipe
         self.targetX = targetX
         self.targetPose = targetPose
         self.shotGeometry = shotGeometry
+        self.shotSpec = shotSpec
         self.referenceImage = referenceImage
         self.referenceTitle = referenceTitle
         self.queueProgress = queueProgress
@@ -272,6 +313,20 @@ struct CameraScreen: View {
                 }
                 if showGrid && !isGuideOverlayVisible { ThirdsGrid().ignoresSafeArea() }
                 if showPose && mode == .guide && !isGuideOverlayVisible,
+                   let shotSpec, shotSpec.silhouette.count > 2 {
+                    GeometryReader { geometry in
+                        let aligned = camera.coachInstruction?.kind == .hold
+                        Path { path in
+                            path.addLines(FrameMapping.cutout(for: shotSpec, viewSize: geometry.size))
+                            path.closeSubpath()
+                        }
+                        .stroke(.white.opacity(aligned ? 0.95 : 0.7),
+                                style: StrokeStyle(lineWidth: aligned ? 3 : 2, lineJoin: .round, dash: aligned ? [] : [8, 6]))
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                } else if showPose && mode == .guide && !isGuideOverlayVisible,
                    let guidePose = targetPose {
                     GeometryReader { geometry in
                         let guideX = geometry.size.width * min(max(targetX, 0.25), 0.75)
@@ -422,18 +477,32 @@ struct CameraScreen: View {
                             }
                             Rectangle().fill(.white.opacity(0.2)).frame(height: 1)
                         }
-                        HStack(spacing: 8) {
-                            Image(systemName: "person.crop.rectangle")
-                                .foregroundStyle(Palette.primaryText)
-                            Text(camera.subjectHint)
-                            Spacer()
-                        }
-                        HStack(spacing: 8) {
-                            Image(systemName: abs(camera.roll) < 3 ? "checkmark.circle.fill" : "level")
-                                .foregroundStyle(abs(camera.roll) < 3 ? Palette.primaryText : Palette.secondaryText)
-                            Text(abs(camera.roll) < 3 ? "Level" : "Tilt \(Int(abs(camera.roll)))° to level")
-                            Spacer()
-                            Button(showPose ? "Hide pose" : "Show pose") { showPose.toggle() }
+                        if let instruction = camera.coachInstruction {
+                            HStack(spacing: 10) {
+                                Image(systemName: instruction.symbol)
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .frame(width: 26)
+                                Text(instruction.text)
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Spacer()
+                                Button(showPose ? "Hide pose" : "Show pose") { showPose.toggle() }
+                            }
+                            .accessibilityElement(children: .combine)
+                        } else {
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.crop.rectangle")
+                                    .foregroundStyle(Palette.primaryText)
+                                Text(camera.subjectHint)
+                                Spacer()
+                            }
+                            HStack(spacing: 8) {
+                                Image(systemName: abs(camera.roll) < 3 ? "checkmark.circle.fill" : "level")
+                                    .foregroundStyle(abs(camera.roll) < 3 ? Palette.primaryText : Palette.secondaryText)
+                                Text(abs(camera.roll) < 3 ? "Level" : "Tilt \(Int(abs(camera.roll)))° to level")
+                                Spacer()
+                                Button(showPose ? "Hide pose" : "Show pose") { showPose.toggle() }
+                            }
                         }
                     }
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -478,6 +547,7 @@ struct CameraScreen: View {
             }
             camera.targetX = targetX
             camera.targetPose = targetPose
+            camera.shotSpec = shotSpec
             if isActive { camera.start() }
         }
         .onChange(of: isActive) { _, active in
@@ -486,12 +556,15 @@ struct CameraScreen: View {
         .onChange(of: queueProgress?.current) { _, _ in
             camera.targetPose = targetPose
             camera.targetX = targetX
+            camera.shotSpec = shotSpec
             camera.poseScore = nil
         }
         .onChange(of: targetPose?.points) { _, _ in
             camera.targetPose = targetPose
+            camera.shotSpec = shotSpec
             camera.poseScore = nil
         }
+        .onChange(of: shotSpec?.distanceMeters) { _, _ in camera.shotSpec = shotSpec }
         .onChange(of: targetX) { _, newValue in camera.targetX = newValue }
         .onDisappear { camera.stop() }
         .alert("Camera issue", isPresented: Binding(

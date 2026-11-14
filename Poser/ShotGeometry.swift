@@ -7,26 +7,33 @@ struct ShotGeometry {
     let distanceMeters: Double
     let tiltDegrees: Int
     let inferredFromPose: Bool
+    /// Present when the setup was measured from a 3D body pose rather than estimated from 2D framing.
+    var spec: ShotSpec? = nil
 
     var heightLabel: String {
+        if let bucket = spec?.heightBucket { return bucket.label }
         switch cameraHeightMeters {
-        case ..<0.8: "Knee height"
-        case ..<1.1: "Waist height"
-        case ..<1.4: "Chest height"
-        default: "Eye height"
+        case ..<0.8: return "Knee height"
+        case ..<1.1: return "Waist height"
+        case ..<1.4: return "Chest height"
+        default: return "Eye height"
         }
     }
 
     var distanceLabel: String {
-        inferredFromPose ? "Start ≈\(distanceMeters.formatted(.number.precision(.fractionLength(1)))) m away" : "Move until framing matches"
+        if let label = spec?.distanceLabel { return "Stand \(label) away" }
+        return inferredFromPose ? "Start ≈\(distanceMeters.formatted(.number.precision(.fractionLength(1)))) m away" : "Move until framing matches"
     }
 
     var adjustmentLabel: String {
-        "Adjust camera height"
+        spec?.heightBucket.map { "Phone \($0.holdPhrase)" } ?? "Adjust camera height"
     }
 
     var angleLabel: String {
-        "Match background lines"
+        guard spec?.pitchDegrees != nil else { return "Match background lines" }
+        if tiltDegrees >= 5 { return "Tilt up ≈\(tiltDegrees)°" }
+        if tiltDegrees <= -5 { return "Tilt down ≈\(-tiltDegrees)°" }
+        return "Keep the phone level"
     }
 }
 

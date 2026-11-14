@@ -42,6 +42,12 @@ struct PoseTutorialView: View {
                     Text(analysis?.poseSkeleton?.shortCue ?? "Use the reference to adjust your pose")
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .multilineTextAlignment(.center)
+                    if let turn = analysis?.geometry.spec?.subjectTurnDegrees {
+                        Text("Subject turns ≈\(abs(turn))° to their \(turn > 0 ? "right" : "left")")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(Palette.secondaryText)
+                            .padding(.top, 4)
+                    }
                     Spacer(minLength: 24)
 
                     Button(action: onContinue) {
