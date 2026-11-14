@@ -1,6 +1,15 @@
 import Foundation
 import UIKit
 
+private enum ReferencePreviewCache {
+    static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 96
+        cache.totalCostLimit = 40 * 1024 * 1024
+        return cache
+    }()
+}
+
 struct ReferenceAsset: Identifiable {
     let id: UUID
     let title: String
@@ -25,7 +34,16 @@ struct ReferenceAsset: Identifiable {
             withExtension: "jpg",
             subdirectory: "PinterestLibrary/\(folder)"
         ) else { return nil }
-        return UIImage(contentsOfFile: url.path)
+        let key = url.path as NSString
+        if folder == "previews", let cached = ReferencePreviewCache.images.object(forKey: key) {
+            return cached
+        }
+        guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+        if folder == "previews" {
+            let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+            ReferencePreviewCache.images.setObject(image, forKey: key, cost: cost)
+        }
+        return image
     }
 }
 

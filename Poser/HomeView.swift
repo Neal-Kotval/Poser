@@ -31,6 +31,12 @@ enum HomePaging {
     }
 }
 
+private enum PageMotion {
+    static func animation(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .interpolatingSpring(stiffness: 300, damping: 34)
+    }
+}
+
 struct HomeView: View {
     private enum Tab: Int, CaseIterable { case home, camera, profile }
 
@@ -81,8 +87,9 @@ struct HomeView: View {
     @FocusState private var isReferenceSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var referenceTagFrame: CGRect = .null
-    @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.25)))
-    private var pageDragOffset: CGFloat = 0
+    @State private var previewedTab: Tab?
+    @State private var isCameraTransitioning = false
+    @State private var pageTransitionID = UUID()
 
     private var isBottomNavigationVisible: Bool {
         !showingPoseTutorial && !isReferenceSearchFocused && !isSearchKeyboardVisible
@@ -223,45 +230,29 @@ struct HomeView: View {
     }
 
     private var pagePager: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                homePage.id(homePageID).frame(width: geometry.size.width)
-                cameraPage.id(cameraPageID).frame(width: geometry.size.width)
-                profilePage.id(profilePageID).frame(width: geometry.size.width)
+        SmoothPagePager(selection: activeTab.rawValue, pageCount: Tab.allCases.count,
+                        canBegin: { start, translation, width in
+            guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return false }
+            guard activeTab != .home || savedInspirationFrame.isNull
+                || !savedInspirationFrame.insetBy(dx: -16, dy: -16).contains(start) else { return false }
+            return HomePaging.allowsSwipe(start: start, translation: translation,
+                                         excluding: activeTab == .home ? referenceTagFrame : .null,
+                                         viewportWidth: width)
+        }, onPreview: { index in
+            if let index, let tab = Tab(rawValue: index) {
+                preparePage(tab)
+                previewedTab = tab
+            } else {
+                previewedTab = nil
             }
-            .offset(x: -CGFloat(activeTab.rawValue) * geometry.size.width + pageDragOffset)
-            .frame(width: geometry.size.width, alignment: .leading)
-            .clipped()
-            .contentShape(Rectangle())
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: activeTab)
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 32, coordinateSpace: .named("homePager"))
-                    .updating($pageDragOffset) { value, offset, _ in
-                        guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
-                        guard activeTab != .home || !savedInspirationFrame.insetBy(dx: -16, dy: -16).contains(value.startLocation) else { return }
-                        let excludedFrame = activeTab == .home ? referenceTagFrame : .null
-                        guard HomePaging.allowsSwipe(start: value.startLocation,
-                                                     translation: value.translation,
-                                                     excluding: excludedFrame, viewportWidth: geometry.size.width) else { return }
-                        let translation = value.translation.width
-                        guard !(activeTab == .home && translation > 0),
-                              !(activeTab == .profile && translation < 0) else { return }
-                        offset = translation
-                    }
-                    .onEnded { value in
-                        guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
-                        guard activeTab != .home || !savedInspirationFrame.insetBy(dx: -16, dy: -16).contains(value.startLocation) else { return }
-                        let excludedFrame = activeTab == .home ? referenceTagFrame : .null
-                        guard HomePaging.allowsSwipe(start: value.startLocation,
-                                                     translation: value.translation,
-                                                     excluding: excludedFrame, viewportWidth: geometry.size.width),
-                              let step = HomePaging.pageStep(translation: value.translation,
-                                                             viewportWidth: geometry.size.width) else { return }
-                        if let next = Tab(rawValue: activeTab.rawValue + step) {
-                            navigate(to: next)
-                        }
-                    }
-            )
+        }, onNavigate: { index in
+            if let tab = Tab(rawValue: index) { navigate(to: tab, prepare: false) }
+        }) {
+            HStack(spacing: 0) {
+                homePage.id(homePageID).containerRelativeFrame(.horizontal)
+                cameraPage.id(cameraPageID).containerRelativeFrame(.horizontal)
+                profilePage.id(profilePageID).containerRelativeFrame(.horizontal)
+            }
         }
         .coordinateSpace(name: "homePager")
         .onPreferenceChange(ReferenceTagFrameKey.self) { referenceTagFrame = $0 }
@@ -282,7 +273,7 @@ struct HomeView: View {
             referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
             queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
             embedded: true,
-            isActive: activeTab == .camera,
+            isActive: activeTab == .camera || previewedTab == .camera || isCameraTransitioning,
             isGuideOverlayVisible: showingPoseTutorial
         ) { image in
             if !shootQueue.isEmpty {
@@ -428,7 +419,7 @@ struct HomeView: View {
     private func navigationItem(_ tab: Tab, title: String, symbol: String, selectedSymbol: String) -> some View {
         let selected = activeTab == tab
         return Button {
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.32)) { navigate(to: tab) }
+            navigate(to: tab)
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: selected ? selectedSymbol : symbol)
@@ -447,15 +438,29 @@ struct HomeView: View {
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
-    private func navigate(to tab: Tab) {
-        let previous = activeTab
-        guard previous != tab else { return }
-        // Invalidate work on exit, but reset the destination before it enters
-        // view so the outgoing page does not visibly snap during its swipe.
-        // Opening a reference bypasses this to retain its prepared shoot.
-        if previous == .camera { flowID = UUID() }
+    private func navigate(to tab: Tab, prepare: Bool = true) {
+        guard activeTab != tab else { return }
+        let transitionID = UUID()
+        pageTransitionID = transitionID
+        if activeTab == .camera { isCameraTransitioning = true }
+        if prepare { preparePage(tab) }
+        if activeTab == .camera { flowID = UUID() }
+        withAnimation(PageMotion.animation(reduceMotion: reduceMotion), completionCriteria: .logicallyComplete) {
+            activeTab = tab
+            previewedTab = nil
+        } completion: {
+            // Keep the outgoing live preview running until it is off screen.
+            if transitionID == pageTransitionID { isCameraTransitioning = false }
+        }
+        errorMessage = nil
+        savedMessage = nil
+    }
+
+    private func preparePage(_ tab: Tab) {
+        // Reset before the incoming page is dragged into view, rather than
+        // replacing its hierarchy when the finger lifts.
         if tab == .camera {
-            reset()
+            reset(returnToCamera: false)
             cameraPageID = UUID()
         }
         if tab == .home {
@@ -476,9 +481,6 @@ struct HomeView: View {
             selectedCompletedShot = nil
             profilePageID = UUID()
         }
-        errorMessage = nil
-        savedMessage = nil
-        activeTab = tab
     }
 
     private var header: some View {
@@ -801,10 +803,6 @@ struct HomeView: View {
                                 .padding(8)
                         }
                     }
-                Text(item.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
             }
             .frame(width: 132, alignment: .leading)
             .contentShape(Rectangle())
@@ -1427,10 +1425,10 @@ struct HomeView: View {
         comparisonNote = "Not enough matching arm and leg joints were visible to score this pose. Try a clearer full-body shot."
     }
 
-    private func reset() {
+    private func reset(returnToCamera: Bool = true) {
         flowID = UUID()
         showLiveCamera = true
-        activeTab = .camera
+        if returnToCamera { activeTab = .camera }
         selectedPhotos = []
         importLoadID = UUID()
         isLoadingImports = false
@@ -1454,6 +1452,100 @@ struct HomeView: View {
         isAnalyzing = false
         showShotDetails = false
         startingSetup = ReferenceStartingSetup()
+    }
+}
+
+/// Owns gesture state so a drag only updates the page transform.
+private struct SmoothPagePager<Content: View>: View {
+    let selection: Int
+    let pageCount: Int
+    let canBegin: (CGPoint, CGSize, CGFloat) -> Bool
+    let onPreview: (Int?) -> Void
+    let onNavigate: (Int) -> Void
+    @ViewBuilder let content: Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @GestureState private var gestureActive = false
+    @State private var dragOffset: CGFloat = 0
+    @State private var evaluatedDrag = false
+    @State private var dragTarget: Int?
+    @State private var dragGeneration = UUID()
+
+    private var settlingAnimation: Animation? {
+        PageMotion.animation(reduceMotion: reduceMotion)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            content
+                .offset(x: -CGFloat(selection) * geometry.size.width + dragOffset)
+                .frame(width: geometry.size.width, alignment: .leading)
+                .clipped()
+                .contentShape(Rectangle())
+                .animation(settlingAnimation, value: selection)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8, coordinateSpace: .named("homePager"))
+                        .updating($gestureActive) { _, active, _ in active = true }
+                        .onChanged { value in
+                            if !evaluatedDrag {
+                                dragGeneration = UUID()
+                                evaluatedDrag = true
+                                let target = selection + (value.translation.width < 0 ? 1 : -1)
+                                if (0..<pageCount).contains(target),
+                                   canBegin(value.startLocation, value.translation, geometry.size.width) {
+                                    dragTarget = target
+                                    onPreview(target)
+                                }
+                            }
+                            guard let target = dragTarget else { return }
+                            let amount = target > selection
+                                ? min(0, max(-geometry.size.width, value.translation.width))
+                                : max(0, min(geometry.size.width, value.translation.width))
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) { dragOffset = amount }
+                        }
+                        .onEnded { value in
+                            let generation = dragGeneration
+                            let target = dragTarget
+                            let step = HomePaging.pageStep(translation: value.translation,
+                                                           viewportWidth: geometry.size.width)
+                            withAnimation(settlingAnimation, completionCriteria: .logicallyComplete) {
+                                // Both terms of the transform change in the same
+                                // transaction: no independent gesture-state snap.
+                                dragOffset = 0
+                                if let target, let step, target == selection + step {
+                                    onNavigate(target)
+                                }
+                            } completion: {
+                                if generation == dragGeneration { onPreview(nil) }
+                            }
+                            finishGesture()
+                        }
+                )
+                .onChange(of: gestureActive) { _, active in
+                    if !active && evaluatedDrag {
+                        let generation = dragGeneration
+                        withAnimation(settlingAnimation, completionCriteria: .logicallyComplete) {
+                            dragOffset = 0
+                        } completion: {
+                            if generation == dragGeneration { onPreview(nil) }
+                        }
+                        finishGesture()
+                    }
+                }
+                .onChange(of: selection) { _, _ in
+                    // Programmatic navigation may interrupt a held gesture.
+                    if dragOffset != 0 {
+                        withAnimation(settlingAnimation) { dragOffset = 0 }
+                    }
+                }
+        }
+    }
+
+    private func finishGesture() {
+        evaluatedDrag = false
+        dragTarget = nil
     }
 }
 
