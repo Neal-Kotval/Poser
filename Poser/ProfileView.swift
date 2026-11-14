@@ -14,7 +14,7 @@ struct ProfileView: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 
     var body: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: PoserSpace.large) {
                 header
                 gallery

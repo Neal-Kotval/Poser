@@ -303,7 +303,7 @@ struct HomeView: View {
 
     private var homePage: some View {
         ScrollViewReader { scroll in
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     header
                     landing
@@ -334,7 +334,7 @@ struct HomeView: View {
     }
 
     private var shootPage: some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 32) {
                 header
                 if let capturedImage {
@@ -1351,7 +1351,7 @@ struct HomeView: View {
     }
 
     private func completedShotDetail(_ shot: CompletedShot) -> some View {
-        ScrollView {
+        ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Completed shot")
                     .font(.system(size: 28, weight: .bold))
@@ -1590,7 +1590,7 @@ struct ImportReviewView: View {
                     .font(PoserType.caption)
                     .foregroundStyle(Palette.secondaryText)
             }
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8),
                                          count: imports.count == 1 ? 1 : 3), spacing: 8) {
                     ForEach(imports) { item in
