@@ -226,6 +226,18 @@ final class MatchingTests: XCTestCase {
         XCTAssertNotNil(diagram[.rightAnkle])
     }
 
+    func testDiagramContainsImplausibleWristWithoutChangingScoringPose() {
+        let detected = PoseSkeleton(points: [
+            .leftShoulder: CGPoint(x: 0.38, y: 0.28),
+            .rightShoulder: CGPoint(x: 0.62, y: 0.28),
+            .leftWrist: CGPoint(x: 1.4, y: -0.5)
+        ])
+        let diagram = detected.displayingMissingJoints()
+        XCTAssertEqual(detected[.leftWrist], CGPoint(x: 1.4, y: -0.5))
+        XCTAssertLessThan(diagram[.leftWrist]!.x, 0.8)
+        XCTAssertGreaterThan(diagram[.leftWrist]!.y, 0)
+    }
+
     @MainActor
     func testCompletedShotPersistsWithPhotoAndReference() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

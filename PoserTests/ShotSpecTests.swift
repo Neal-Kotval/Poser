@@ -78,6 +78,18 @@ final class ShotSpecTests: XCTestCase {
         XCTAssertTrue(Pose2DReader.hasFullBodyEvidence(complete))
     }
 
+    func testOneVisibleLegSupportsApproximateDistance() {
+        let pose: [PoseJoint: CGPoint] = [
+            .nose: CGPoint(x: 0.5, y: 0.12),
+            .leftShoulder: CGPoint(x: 0.4, y: 0.25), .rightShoulder: CGPoint(x: 0.6, y: 0.25),
+            .leftHip: CGPoint(x: 0.45, y: 0.54), .rightHip: CGPoint(x: 0.55, y: 0.54),
+            .leftKnee: CGPoint(x: 0.44, y: 0.72), .leftAnkle: CGPoint(x: 0.43, y: 0.92)
+        ]
+        XCTAssertTrue(Pose2DReader.hasFullBodyEvidence(pose))
+        XCTAssertTrue(Pose2DReader.hasUprightBodyEvidence(pose))
+        XCTAssertEqual(Pose2DReader.noseToAnkle(pose) ?? 0, 0.8, accuracy: 0.001)
+    }
+
     func testCroppedPortraitDoesNotClaim3DCameraGeometry() async throws {
         let portrait = try XCTUnwrap(UIImage(named: "InspirationPortrait"))
         let source = try XCTUnwrap(portrait.cgImage)
