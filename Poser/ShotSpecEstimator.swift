@@ -52,6 +52,19 @@ enum LensModel {
     }
 }
 
+enum FaceDistanceEstimator {
+    /// A rough adult face width. This is a starting distance, not camera metadata.
+    static let nominalFaceWidthMeters = 0.16
+
+    static func distance(focalPixels: Double, imageWidth: Double,
+                         faceWidthFraction: CGFloat) -> Double? {
+        guard focalPixels.isFinite, focalPixels > 0, imageWidth.isFinite, imageWidth > 0,
+              faceWidthFraction.isFinite, (0.08...0.7).contains(faceWidthFraction) else { return nil }
+        let meters = focalPixels * nominalFaceWidthMeters / (imageWidth * Double(faceWidthFraction))
+        return (0.25...5).contains(meters) ? meters : nil
+    }
+}
+
 struct CameraPlacement: Equatable {
     let heightRatio: Double
     /// In Vision's body-frame units, which assume `bodyHeight` meters tall.

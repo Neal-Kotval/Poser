@@ -11,7 +11,7 @@ Open `Poser.xcodeproj` in Xcode and run the Poser target on iOS 26 or later. For
 1. Select a reference from Photos. Imported images are saved in an on-device inspiration library.
 2. Scan the surroundings to rank the featured photo and saved references by scene structure, color, and light.
 3. Poser analyzes image labels, saliency, and body landmarks on device where available.
-4. Review a shot recipe with estimated distance, phone height, tilt, framing, subject position, and light guidance. Height and tilt are shown only when the reference supports a reliable 3D body estimate.
+4. Review a shot recipe with distance, phone height, tilt, framing, subject position, and light guidance. Full-body references can provide 3D setup estimates. For cropped portraits, face size provides a rough distance and the pose guide offers adjustable starting height and tilt.
 5. Preview an animated stick figure pose guide, then open the camera.
 6. Use the thirds grid, motion based level, pose overlay, and live pose cue, then capture.
 7. Compare the captured shot with the reference and save it to Photos. A pose score appears when Vision detects enough body joints in both photos.

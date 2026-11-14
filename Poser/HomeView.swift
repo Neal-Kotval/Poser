@@ -57,6 +57,7 @@ struct HomeView: View {
     private var isBottomNavigationVisible: Bool {
         !showingPoseTutorial && !isReferenceSearchFocused && !isSearchKeyboardVisible
     }
+    @State private var startingSetup = ReferenceStartingSetup()
 
     var body: some View {
         NavigationStack {
@@ -92,7 +93,8 @@ struct HomeView: View {
         }
         .overlay {
             if showingPoseTutorial, let selectedRecipe {
-                PoseTutorialView(analysis: analysis, recipe: selectedRecipe) {
+                PoseTutorialView(analysis: analysis, recipe: selectedRecipe,
+                                 referenceImage: referenceImage, startingSetup: $startingSetup) {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
                 } onClose: {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
@@ -776,30 +778,59 @@ struct HomeView: View {
             }
             if let referenceImage {
                 GeometryReader { tile in
-                    Image(uiImage: referenceImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: tile.size.width, height: tile.size.height)
-                        .background(Palette.surface)
-                        .overlay(alignment: .topLeading) {
-                            imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
+                    ZStack {
+                        Image(uiImage: referenceImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: tile.size.width, height: tile.size.height)
+                        if let box = analysis?.subjectBox {
+                            let scale = min(tile.size.width / max(referenceImage.size.width, 1),
+                                            tile.size.height / max(referenceImage.size.height, 1))
+                            let shown = CGSize(width: referenceImage.size.width * scale,
+                                               height: referenceImage.size.height * scale)
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(.white, lineWidth: 2)
+                                .frame(width: box.width * shown.width, height: box.height * shown.height)
+                                .position(x: (tile.size.width - shown.width) / 2 + box.midX * shown.width,
+                                          y: (tile.size.height - shown.height) / 2 + box.midY * shown.height)
+                                .accessibilityHidden(true)
                         }
+                    }
+                    .background(Palette.surface)
+                    .overlay(alignment: .topLeading) {
+                        imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
+                    }
                     }
                     .aspectRatio(1, contentMode: .fit)
             }
+            if let analysis {
+                Text(analysis.poseSkeleton != nil ? "Subject identified: body pose" :
+                     analysis.faceDistanceMeters != nil ? "Subject identified: face" :
+                     analysis.hasPerson ? "Person detected; pose unavailable" : "No person identified")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Palette.secondaryText)
+            }
             VStack(spacing: 0) {
-                instruction(symbol: "arrow.left.and.right", title: "Distance", body: analysis?.geometry.distanceLabel ?? recipe.camera)
+                instruction(symbol: "arrow.left.and.right", title: "Distance", body: analysis.map {
+                    $0.shotSpec.distanceMeters != nil ? $0.geometry.distanceLabel :
+                    "Start \(ShotSpec.formatDistance(startingSetup.distanceMeters)) away" +
+                    ($0.faceDistanceMeters != nil ? " (face estimate)" : " (adjustable)")
+                } ?? recipe.camera)
                 rowDivider
-                instruction(symbol: "iphone", title: "Phone height", body: analysis?.geometry.adjustmentLabel ?? "Analyzing reference")
+                instruction(symbol: "iphone", title: "Phone height", body: analysis.map {
+                    $0.shotSpec.cameraHeightRatio != nil ? $0.geometry.adjustmentLabel :
+                    "Start ≈\(startingSetup.heightMeters.formatted(.number.precision(.fractionLength(1)))) m high (adjustable)"
+                } ?? "Analyzing reference")
                 rowDivider
                 instruction(symbol: "angle", title: "Camera tilt", body: analysis.map {
-                    $0.shotSpec.pitchDegrees == nil ? "Not estimated from this reference" : $0.geometry.angleLabel
+                    $0.shotSpec.pitchDegrees != nil ? $0.geometry.angleLabel :
+                    "Start at \(Int(startingSetup.tiltDegrees))° (adjustable)"
                 } ?? "Analyzing reference")
                 rowDivider
                 instruction(symbol: "figure.stand", title: "Pose", body: analysis.map { $0.poseSkeleton?.shortCue ?? "Pose not measured; use the photo as your guide." } ?? recipe.pose)
             }
             if let analysis, analysis.shotSpec.source != .pose3D {
-                Text("Height and tilt could not be estimated from this photo. A clear full-body reference may help.")
+                Text("These starting values are adjustable in the pose guide. Height and tilt are not measured from this photo.")
                     .font(.system(size: 13))
                     .foregroundStyle(Palette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -986,6 +1017,8 @@ struct HomeView: View {
             let result = try await AnalysisService.analyze(image, imageData: imageData)
             guard requestID == flowID else { return }
             analysis = result
+            startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
+                                                   faceDistanceMeters: result.faceDistanceMeters)
             selectedRecipe = result.recipe
         } catch {
             guard requestID == flowID else { return }
@@ -1094,6 +1127,8 @@ struct HomeView: View {
             guard requestID == flowID else { return }
             referenceImage = image
             analysis = result
+            startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
+                                                   faceDistanceMeters: result.faceDistanceMeters)
             selectedRecipe = result.recipe
             capturedImage = nil
             showLiveCamera = true
@@ -1231,5 +1266,6 @@ struct HomeView: View {
         showingPoseTutorial = false
         isAnalyzing = false
         showShotDetails = false
+        startingSetup = ReferenceStartingSetup()
     }
 }
