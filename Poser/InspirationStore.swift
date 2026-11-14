@@ -1,0 +1,88 @@
+import Foundation
+import UIKit
+
+struct InspirationItem: Codable, Identifiable, Equatable {
+    let id: UUID
+    let title: String
+    let source: String
+    let createdAt: Date
+    let filename: String
+}
+
+enum InspirationSource: Equatable {
+    case photoLibrary
+    case link
+
+    var label: String {
+        switch self {
+        case .photoLibrary: "Photo library"
+        case .link: "Photo link"
+        }
+    }
+}
+
+enum InspirationStoreError: LocalizedError {
+    case imageEncodingFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .imageEncodingFailed: "This photo could not be saved to your inspiration library."
+        }
+    }
+}
+
+@MainActor
+final class InspirationStore: ObservableObject {
+    @Published private(set) var items: [InspirationItem] = []
+
+    private let folder: URL
+    private let indexURL: URL
+
+    init(folder customFolder: URL? = nil, fileManager: FileManager = .default) {
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        folder = customFolder ?? documents.appendingPathComponent("Inspiration", isDirectory: true)
+        indexURL = folder.appendingPathComponent("library.json")
+        if let data = try? Data(contentsOf: indexURL),
+           let decoded = try? JSONDecoder().decode([InspirationItem].self, from: data) {
+            items = decoded
+        }
+    }
+
+    @discardableResult
+    func add(_ image: UIImage, source: InspirationSource) throws -> InspirationItem {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
+        let id = UUID()
+        let filename = "\(id.uuidString).jpg"
+        let size = image.size
+        let scale = min(1, 1600 / max(max(size.width, size.height), 1))
+        let renderSize = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
+        let normalized = UIGraphicsImageRenderer(size: renderSize).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: renderSize))
+        }
+        guard let data = normalized.jpegData(compressionQuality: 0.82) else {
+            throw InspirationStoreError.imageEncodingFailed
+        }
+        let imageURL = folder.appendingPathComponent(filename)
+        try data.write(to: imageURL, options: .atomic)
+        let item = InspirationItem(
+            id: id,
+            title: source == .link ? "Linked photo \(items.count + 1)" : "Reference \(items.count + 1)",
+            source: source.label,
+            createdAt: Date(),
+            filename: filename
+        )
+        let updated = [item] + items
+        do {
+            try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
+            items = updated
+        } catch {
+            try? FileManager.default.removeItem(at: imageURL)
+            throw error
+        }
+        return item
+    }
+
+    func image(for item: InspirationItem) -> UIImage? {
+        UIImage(contentsOfFile: folder.appendingPathComponent(item.filename).path)
+    }
+}

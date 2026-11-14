@@ -22,7 +22,10 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published var roll: Double = 0
     @Published var message: String?
     @Published var subjectHint = "Place the subject inside the guide"
+    @Published var poseScore: Int?
+    @Published var poseHint = "Looking for the reference pose"
     var targetX: CGFloat = 0.5
+    var targetPose: PoseSkeleton?
     var onPhoto: ((UIImage) -> Void)?
 
     func start() {
@@ -129,8 +132,19 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right)
         guard (try? handler.perform([request])) != nil,
               let person = request.results?.first else {
-            DispatchQueue.main.async { self.subjectHint = "Place the subject inside the guide" }
+            DispatchQueue.main.async {
+                self.subjectHint = "Place the subject inside the guide"
+                self.poseScore = nil
+                self.poseHint = "Looking for the reference pose"
+            }
             return
+        }
+        let poseMatch = targetPose.flatMap { target in
+            PoseSkeleton.detected(from: person).flatMap { PoseMatcher.compare(reference: target, live: $0) }
+        }
+        DispatchQueue.main.async {
+            self.poseScore = poseMatch?.score
+            self.poseHint = poseMatch?.cue ?? "Move into view to match the pose"
         }
         let nose = try? person.recognizedPoint(.nose)
         let left = try? person.recognizedPoint(.leftShoulder)
@@ -194,6 +208,7 @@ struct CameraScreen: View {
     let mode: Mode
     let recipe: ShotRecipe?
     let targetX: CGFloat
+    let targetPose: PoseSkeleton?
     let embedded: Bool
     let onCapture: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -202,10 +217,11 @@ struct CameraScreen: View {
     @State private var showPose = true
     @State private var tutorialStep = 0
 
-    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, embedded: Bool = false, onCapture: @escaping (UIImage) -> Void) {
+    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, embedded: Bool = false, onCapture: @escaping (UIImage) -> Void) {
         self.mode = mode
         self.recipe = recipe
         self.targetX = targetX
+        self.targetPose = targetPose
         self.embedded = embedded
         self.onCapture = onCapture
     }
@@ -306,6 +322,17 @@ struct CameraScreen: View {
                 Spacer()
                 if mode == .guide, recipe != nil, camera.isReady, !camera.isDemo {
                     VStack(alignment: .leading, spacing: 8) {
+                        if targetPose != nil {
+                            HStack(spacing: 8) {
+                                Image(systemName: "figure.stand")
+                                Text(camera.poseHint)
+                                Spacer()
+                                if let score = camera.poseScore {
+                                    Text("\(score)%")
+                                        .monospacedDigit()
+                                }
+                            }
+                        }
                         HStack(spacing: 8) {
                             Image(systemName: "person.crop.rectangle")
                                 .foregroundStyle(Palette.primaryText)
@@ -348,6 +375,7 @@ struct CameraScreen: View {
                 if !embedded { dismiss() }
             }
             camera.targetX = targetX
+            camera.targetPose = targetPose
             camera.start()
         }
         .onDisappear { camera.stop() }

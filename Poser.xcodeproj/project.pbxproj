@@ -7,24 +7,43 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		107A817D5BC1B6E99DBB3EC5 /* MatchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFC842150A09ED8B7AECD16 /* MatchingTests.swift */; };
 		2EEC321518B836FE4F1F9201 /* PoseTutorial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CFBB70FB62CEEB43C5F311C /* PoseTutorial.swift */; };
 		350C719386422C12520F1ED4 /* Camera.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00E9C851F5E46FCB3464F117 /* Camera.swift */; };
+		529BAAE2787F053604F8E491 /* InspirationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65CF4B431723F11B20C72D26 /* InspirationStore.swift */; };
 		535CF5C4A1BE29E55BF9D3B1 /* PoserApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72858BE94E55ADBAB75C548B /* PoserApp.swift */; };
+		8A3F3DE31188F7F1DC0D49CF /* SceneMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D5B9FF7614FDB4BCB283B7 /* SceneMatcher.swift */; };
 		8A5B17C7CAB2E10F0F0A3F29 /* Design.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F796CF4EF566BF4C674566A /* Design.swift */; };
 		9087FDC71C52E1ED6E817C47 /* ShotAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C0BDBE904DBAEA8A0C850F /* ShotAnalysis.swift */; };
 		934758836B26E53568726AB7 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DAC834AB4513408C49B1400 /* HomeView.swift */; };
 		97E9A3BF780BAF0A78277ECA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 76BBB6E7618692362776FC5B /* Assets.xcassets */; };
+		E3E530D35DAFFB8A7960731A /* PoseMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2A125C99445696F76111D3 /* PoseMatcher.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C507BA6C184491DDC256C8FE /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 980EF0AA836D43D9A6FD129A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CE55D0029A88069642405077;
+			remoteInfo = Poser;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		00E9C851F5E46FCB3464F117 /* Camera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Camera.swift; sourceTree = "<group>"; };
 		2F796CF4EF566BF4C674566A /* Design.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Design.swift; sourceTree = "<group>"; };
 		3DAC834AB4513408C49B1400 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		65CF4B431723F11B20C72D26 /* InspirationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspirationStore.swift; sourceTree = "<group>"; };
+		68D5B9FF7614FDB4BCB283B7 /* SceneMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneMatcher.swift; sourceTree = "<group>"; };
 		72858BE94E55ADBAB75C548B /* PoserApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoserApp.swift; sourceTree = "<group>"; };
 		74C0BDBE904DBAEA8A0C850F /* ShotAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShotAnalysis.swift; sourceTree = "<group>"; };
 		76BBB6E7618692362776FC5B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8CFBB70FB62CEEB43C5F311C /* PoseTutorial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseTutorial.swift; sourceTree = "<group>"; };
+		AB2A125C99445696F76111D3 /* PoseMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PoseMatcher.swift; sourceTree = "<group>"; };
 		EA439CA4C1F6EC46A8193FFE /* Poser.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Poser.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F548E708701ECA3A0885871B /* PoserTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PoserTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FDFC842150A09ED8B7AECD16 /* MatchingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchingTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -32,6 +51,7 @@
 			isa = PBXGroup;
 			children = (
 				EA439CA4C1F6EC46A8193FFE /* Poser.app */,
+				F548E708701ECA3A0885871B /* PoserTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -40,8 +60,17 @@
 			isa = PBXGroup;
 			children = (
 				DAB6BC63FA6AAFDDA1516A06 /* Poser */,
+				CAB6C401FEBE2E548736F9D3 /* PoserTests */,
 				1851D1961F5A7C411FE552FC /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		CAB6C401FEBE2E548736F9D3 /* PoserTests */ = {
+			isa = PBXGroup;
+			children = (
+				FDFC842150A09ED8B7AECD16 /* MatchingTests.swift */,
+			);
+			path = PoserTests;
 			sourceTree = "<group>";
 		};
 		DAB6BC63FA6AAFDDA1516A06 /* Poser */ = {
@@ -51,8 +80,11 @@
 				00E9C851F5E46FCB3464F117 /* Camera.swift */,
 				2F796CF4EF566BF4C674566A /* Design.swift */,
 				3DAC834AB4513408C49B1400 /* HomeView.swift */,
+				65CF4B431723F11B20C72D26 /* InspirationStore.swift */,
+				AB2A125C99445696F76111D3 /* PoseMatcher.swift */,
 				72858BE94E55ADBAB75C548B /* PoserApp.swift */,
 				8CFBB70FB62CEEB43C5F311C /* PoseTutorial.swift */,
+				68D5B9FF7614FDB4BCB283B7 /* SceneMatcher.swift */,
 				74C0BDBE904DBAEA8A0C850F /* ShotAnalysis.swift */,
 			);
 			path = Poser;
@@ -61,6 +93,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		22BF5279E746A1C2A486B775 /* PoserTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 685E25398D53A337F4534CB5 /* Build configuration list for PBXNativeTarget "PoserTests" */;
+			buildPhases = (
+				2BD432972597AD47DEC2FFA4 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				939AEA435CBBA9A57BA5916D /* PBXTargetDependency */,
+			);
+			name = PoserTests;
+			packageProductDependencies = (
+			);
+			productName = PoserTests;
+			productReference = F548E708701ECA3A0885871B /* PoserTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		CE55D0029A88069642405077 /* Poser */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = DC1E9614693C75B1D9BBFB36 /* Build configuration list for PBXNativeTarget "Poser" */;
@@ -88,6 +138,14 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					22BF5279E746A1C2A486B775 = {
+						DevelopmentTeam = SV5MW3F3ZP;
+						ProvisioningStyle = Automatic;
+					};
+					CE55D0029A88069642405077 = {
+						DevelopmentTeam = SV5MW3F3ZP;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = F475EAC8FA023A9674C5F444 /* Build configuration list for PBXProject "Poser" */;
@@ -105,6 +163,7 @@
 			projectRoot = "";
 			targets = (
 				CE55D0029A88069642405077 /* Poser */,
+				22BF5279E746A1C2A486B775 /* PoserTests */,
 			);
 		};
 /* End PBXProject section */
@@ -121,6 +180,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		2BD432972597AD47DEC2FFA4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				107A817D5BC1B6E99DBB3EC5 /* MatchingTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E28BD4B33BE7AE664D78A479 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -128,13 +195,24 @@
 				350C719386422C12520F1ED4 /* Camera.swift in Sources */,
 				8A5B17C7CAB2E10F0F0A3F29 /* Design.swift in Sources */,
 				934758836B26E53568726AB7 /* HomeView.swift in Sources */,
+				529BAAE2787F053604F8E491 /* InspirationStore.swift in Sources */,
+				E3E530D35DAFFB8A7960731A /* PoseMatcher.swift in Sources */,
 				2EEC321518B836FE4F1F9201 /* PoseTutorial.swift in Sources */,
 				535CF5C4A1BE29E55BF9D3B1 /* PoserApp.swift in Sources */,
+				8A3F3DE31188F7F1DC0D49CF /* SceneMatcher.swift in Sources */,
 				9087FDC71C52E1ED6E817C47 /* ShotAnalysis.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		939AEA435CBBA9A57BA5916D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CE55D0029A88069642405077 /* Poser */;
+			targetProxy = C507BA6C184491DDC256C8FE /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		065F210DE3A75F1952B0893B /* Debug */ = {
@@ -151,6 +229,38 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
+		};
+		340A197CAE0B0CD29B14A3FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nealkotval.PoserTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Poser.app/Poser";
+			};
+			name = Debug;
+		};
+		75FED6C77E55D2885AEC805F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nealkotval.PoserTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Poser.app/Poser";
+			};
+			name = Release;
 		};
 		9143A807890932119B130363 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -185,8 +295,10 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = SV5MW3F3ZP;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -208,7 +320,7 @@
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Poser saves photos you capture to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Poser uses a photo you select as a reference.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -254,8 +366,10 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = SV5MW3F3ZP;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -271,7 +385,7 @@
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Poser saves photos you capture to your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Poser uses a photo you select as a reference.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -301,6 +415,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		685E25398D53A337F4534CB5 /* Build configuration list for PBXNativeTarget "PoserTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				340A197CAE0B0CD29B14A3FA /* Debug */,
+				75FED6C77E55D2885AEC805F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		DC1E9614693C75B1D9BBFB36 /* Build configuration list for PBXNativeTarget "Poser" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

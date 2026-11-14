@@ -2,10 +2,12 @@ name: Poser
 options:
   bundleIdPrefix: com.nealkotval
   deploymentTarget:
-    iOS: '27.0'
+    iOS: '26.0'
 settings:
   base:
     SWIFT_VERSION: '5.0'
+    DEVELOPMENT_TEAM: SV5MW3F3ZP
+    CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: '1,2'
     INFOPLIST_KEY_NSCameraUsageDescription: Poser uses the camera to scan your surroundings and guide your shot.
     INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Poser uses a photo you select as a reference.
@@ -22,3 +24,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nealkotval.Poser
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  PoserTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PoserTests
+    dependencies:
+      - target: Poser
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nealkotval.PoserTests
