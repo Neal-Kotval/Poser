@@ -560,7 +560,7 @@ struct CameraScreen: View {
                 .accessibilityLabel(mode == .scan || recipe == nil ? "Scan this scene" : "Take photo")
                 .accessibilityHint(camera.isCapturing ? "Processing photo" : "Double tap to capture")
                 .padding(.top, 17)
-                .padding(.bottom, embedded ? 90 : 30)
+                .padding(.bottom, embedded ? 140 : 30)
             }
             .foregroundStyle(.white)
             .opacity(isGuideOverlayVisible ? 0 : 1)

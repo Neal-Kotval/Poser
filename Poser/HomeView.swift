@@ -221,19 +221,35 @@ struct HomeView: View {
     }
 
     private var homePage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                header
-                landing
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 32) {
+                    header
+                    landing
+                }
+                .frame(maxWidth: 620)
+                .padding(.horizontal, PoserSpace.large)
+                .padding(.top, PoserSpace.large)
+                .padding(.bottom, 86)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 620)
-            .padding(.horizontal, PoserSpace.large)
-            .padding(.top, PoserSpace.large)
-            .padding(.bottom, 86)
-            .frame(maxWidth: .infinity)
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: isReferenceSearchExpanded) { _, expanded in
+                if expanded { centerReferenceSearch(using: scroll) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                // Center again in the final keyboard-adjusted viewport, rather
+                // than leaving suggestions below the keyboard after expansion.
+                if isReferenceSearchFocused { centerReferenceSearch(using: scroll) }
+            }
         }
-        .scrollDismissesKeyboard(.interactively)
         .background(Palette.background)
+    }
+
+    private func centerReferenceSearch(using scroll: ScrollViewProxy) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+            scroll.scrollTo("reference-search-bubble", anchor: .center)
+        }
     }
 
     private var shootPage: some View {
@@ -441,6 +457,7 @@ struct HomeView: View {
 
             referenceSearchBubble
                 .padding(.top, -12)
+                .id("reference-search-bubble")
 
             if filteredReferences.isEmpty {
                 ContentUnavailableView {
