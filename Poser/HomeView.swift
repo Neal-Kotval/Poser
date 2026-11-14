@@ -544,7 +544,7 @@ struct HomeView: View {
     }
 
     private var filteredReferences: [ReferenceAsset] {
-        ReferenceCatalog.items(matching: selectedReferenceTag, query: referenceQuery)
+        ReferenceCatalog.feed(matching: selectedReferenceTag, query: referenceQuery)
     }
 
     private var referenceSearchBubble: some View {

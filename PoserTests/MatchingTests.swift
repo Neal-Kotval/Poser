@@ -3,6 +3,30 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    func testMixedFeedSpreadsCategoriesAndKeepsEveryReferenceExactlyOnce() {
+        let feed = ReferenceCatalog.feedItems
+        XCTAssertEqual(feed.count, ReferenceCatalog.items.count)
+        XCTAssertEqual(Set(feed.map(\.id)), Set(ReferenceCatalog.items.map(\.id)))
+        XCTAssertEqual(Set(feed.map(\.id)).count, feed.count)
+        XCTAssertGreaterThanOrEqual(Set(feed.prefix(30).compactMap(\.setting)).count, 8)
+        XCTAssertGreaterThanOrEqual(Set(feed.prefix(30).compactMap(\.pose)).count, 4)
+        for (previous, next) in zip(feed.prefix(100), feed.dropFirst().prefix(99)) {
+            XCTAssertNotEqual(previous.setting, next.setting)
+            XCTAssertNotEqual(previous.pose, next.pose)
+        }
+    }
+
+    func testMixedFeedFilteringRetainsStableOrderAndAllMatchingResults() {
+        let tag = ReferenceTag(kind: .setting, value: "street")
+        let results = ReferenceCatalog.feed(matching: tag, query: "walking")
+        XCTAssertEqual(results.map(\.id), ReferenceCatalog.feedItems.filter {
+            $0.setting == "street" && $0.pose == "walking"
+        }.map(\.id))
+        XCTAssertEqual(Set(results.map(\.id)), Set(ReferenceCatalog.items(matching: tag, query: "walking").map(\.id)))
+        XCTAssertEqual(ReferenceCatalog.feed(matching: nil).map(\.id), ReferenceCatalog.feedItems.map(\.id))
+        XCTAssertTrue(ReferenceCatalog.diversified([]).isEmpty)
+    }
+
     @MainActor
     func testReferenceLikesPersistWithoutChangingOtherPostsAndCanBeUndone() throws {
         let suite = "poser-likes-test-\(UUID().uuidString)"

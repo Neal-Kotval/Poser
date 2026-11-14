@@ -51,3 +51,5 @@ The pre-shot pose guide uses a white line figure on a dark surface. It animates 
 Manual tab changes reset transient page state: Home search, filters, editing selection, and scroll position; the unsaved camera setup; and Profile presentation state. Saved references, completed shots, and profile data persist. Opening a reference is a separate programmatic transition that retains its shoot setup.
 
 Page gestures begin within 28 points of an outside edge and move inward with clear horizontal intent. They must travel at least 28% of the page width (96-point minimum). Search and saved-photo controls include protected margins, and their horizontal scrolling never triggers a page turn. Bottom navigation remains available for direct switching.
+
+For you ordering mixes setting/pose groups once per launch, penalizing recently shown tags and spreading category usage across the feed. Filtering preserves this session order. Every reference remains available; liking a card does not reorder the feed.

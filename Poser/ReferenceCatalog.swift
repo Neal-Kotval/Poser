@@ -155,6 +155,55 @@ enum ReferenceCatalog {
         }
     }()
 
+    // Mix once per launch, so taps, filtering, and re-rendering never reshuffle
+    // the feed beneath the user.
+    static let feedItems = diversified(items)
+
+    private struct FeedGroup: Hashable {
+        let setting: String
+        let pose: String
+    }
+
+    static func diversified(_ references: [ReferenceAsset]) -> [ReferenceAsset] {
+        let groups = Dictionary(grouping: references) {
+            FeedGroup(setting: $0.setting ?? "", pose: $0.pose ?? "")
+        }.mapValues { $0.shuffled() }
+        let keys = groups.keys.sorted {
+            ($0.setting, $0.pose) < ($1.setting, $1.pose)
+        }.shuffled()
+        let settingTotals = Dictionary(grouping: references, by: { $0.setting ?? "" }).mapValues(\.count)
+        let poseTotals = Dictionary(grouping: references, by: { $0.pose ?? "" }).mapValues(\.count)
+        var cursors: [FeedGroup: Int] = [:]
+        var shownSettings: [String: Int] = [:]
+        var shownPoses: [String: Int] = [:]
+        var result: [ReferenceAsset] = []
+        result.reserveCapacity(references.count)
+
+        while result.count < references.count {
+            var best: FeedGroup?
+            var bestScore = Double.infinity
+            for key in keys where cursors[key, default: 0] < groups[key, default: []].count {
+                var score = 20 * Double(shownSettings[key.setting, default: 0]) / Double(settingTotals[key.setting, default: 1])
+                score += 10 * Double(shownPoses[key.pose, default: 0]) / Double(poseTotals[key.pose, default: 1])
+                for (distance, previous) in result.suffix(4).reversed().enumerated() {
+                    if previous.setting == key.setting {
+                        score += distance == 0 ? 1000 : 30 / Double(distance)
+                    }
+                    if previous.pose == key.pose {
+                        score += distance == 0 ? 100 : 10 / Double(distance)
+                    }
+                }
+                if score < bestScore { best = key; bestScore = score }
+            }
+            guard let key = best, let bucket = groups[key] else { break }
+            result.append(bucket[cursors[key, default: 0]])
+            cursors[key, default: 0] += 1
+            shownSettings[key.setting, default: 0] += 1
+            shownPoses[key.pose, default: 0] += 1
+        }
+        return result
+    }
+
     static let tags: [ReferenceTag] = {
         let settings = Set(items.compactMap(\.setting)).sorted()
         let poses = Set(items.compactMap(\.pose)).sorted()
@@ -163,8 +212,16 @@ enum ReferenceCatalog {
     }()
 
     static func items(matching tag: ReferenceTag?, query: String = "") -> [ReferenceAsset] {
+        filter(items, matching: tag, query: query)
+    }
+
+    static func feed(matching tag: ReferenceTag?, query: String = "") -> [ReferenceAsset] {
+        filter(feedItems, matching: tag, query: query)
+    }
+
+    private static func filter(_ references: [ReferenceAsset], matching tag: ReferenceTag?, query: String) -> [ReferenceAsset] {
         let terms = searchText(query).split { !$0.isLetter && !$0.isNumber }
-        return items.filter { asset in
+        return references.filter { asset in
             guard tag?.matches(asset) ?? true else { return false }
             let text = searchText([asset.title, asset.setting ?? "", asset.pose ?? ""].joined(separator: " "))
             return terms.allSatisfy { text.contains($0) }
