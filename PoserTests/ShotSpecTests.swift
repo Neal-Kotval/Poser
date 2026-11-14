@@ -75,7 +75,18 @@ final class ShotSpecTests: XCTestCase {
         XCTAssertEqual(geometry.distanceMeters, 2.0)
         XCTAssertEqual(geometry.tiltDegrees, 10)
         XCTAssertEqual(geometry.heightLabel, "Knee height")
+        XCTAssertEqual(geometry.adjustmentLabel, "Phone ≈0.5 m high\n(knee height)")
         XCTAssertTrue(geometry.inferredFromPose)
+    }
+
+    func test2DShotSpecDisplaysOnlyEstimatedDistance() {
+        let spec = ShotSpec(source: .pose2D, distanceMeters: 2.1)
+        let fallback = ShotGeometryEstimator.fallback(for: ShotRecipe.presets[0])
+        let geometry = spec.shotGeometry(fallback: fallback)
+        XCTAssertEqual(geometry.distanceLabel, "Stand ≈2 m (7 ft) away")
+        XCTAssertEqual(geometry.adjustmentLabel, "Adjust camera height")
+        XCTAssertEqual(geometry.angleLabel, "Match background lines")
+        XCTAssertNotNil(geometry.spec)
     }
 
     func testSubjectTurnIgnoresSmallYaw() {

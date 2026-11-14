@@ -26,7 +26,12 @@ struct ShotGeometry {
     }
 
     var adjustmentLabel: String {
-        spec?.heightBucket.map { "Phone \($0.holdPhrase)" } ?? "Adjust camera height"
+        if let height = spec?.cameraHeightMeters, let bucket = spec?.heightBucket {
+            let rounded = (height * 10).rounded() / 10
+            let value = rounded.formatted(.number.precision(.fractionLength(1)))
+            return "Phone ≈\(value) m high\n(\(bucket.label.lowercased()))"
+        }
+        return "Adjust camera height"
     }
 
     var angleLabel: String {

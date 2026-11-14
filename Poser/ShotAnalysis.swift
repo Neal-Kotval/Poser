@@ -171,7 +171,9 @@ enum AnalysisService {
             print("[ShotSpec] source \(estimate.spec.source.rawValue)\n\(estimate.diagnostics.text)")
             #endif
             let poseGeometry = ShotGeometryEstimator.estimate(observation: pose, recipe: recipe)
-            let geometry = estimate.spec.source == .pose3D ? estimate.spec.shotGeometry(fallback: poseGeometry) : poseGeometry
+            let geometry = estimate.spec.source == .fallback
+                ? poseGeometry
+                : estimate.spec.shotGeometry(fallback: poseGeometry)
             return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil,
                                  poseSkeleton: poseSkeleton, geometry: geometry, shotSpec: estimate.spec,
                                  summary: summary, recipe: recipe)
