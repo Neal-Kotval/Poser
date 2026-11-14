@@ -33,7 +33,6 @@ struct HomeView: View {
     @State private var analysis: PhotoAnalysis?
     @State private var selectedRecipe: ShotRecipe?
     @State private var capturedImage: UIImage?
-    @State private var showingScan = false
     @State private var showingPoseTutorial = false
     @State private var isAnalyzing = false
     @State private var errorMessage: String?
@@ -124,11 +123,6 @@ struct HomeView: View {
                 } catch {
                     if requestID == flowID { errorMessage = error.localizedDescription }
                 }
-            }
-        }
-        .fullScreenCover(isPresented: $showingScan) {
-            CameraScreen(mode: .scan, recipe: nil, targetX: 0.5) { image in
-                Task { await scanScene(image) }
             }
         }
         .sheet(item: $selectedCompletedShot) { shot in
@@ -394,17 +388,7 @@ struct HomeView: View {
                 .foregroundStyle(.white)
             HStack {
                 Spacer()
-                if activeTab == .home {
-                    Button { showingScan = true } label: {
-                        Label("Scan", systemImage: "viewfinder")
-                            .font(.system(size: 13, weight: .semibold))
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: 44)
-                            .poserGlass(interactive: true)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Scan surroundings")
-                } else if activeTab == .camera, !showLiveCamera {
+                if activeTab == .camera, !showLiveCamera {
                     Button("Start over") { reset() }
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.65))
