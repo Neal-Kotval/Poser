@@ -674,19 +674,19 @@ struct HomeView: View {
             }
             .aspectRatio(1, contentMode: .fit)
             .overlay(alignment: .topLeading) {
-                HStack(spacing: 7) {
+                HStack(spacing: 4) {
                     Text(post.initials)
-                        .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 24, height: 24)
+                        .font(.system(size: 8, weight: .semibold))
+                        .frame(width: 18, height: 18)
                         .background(.white.opacity(0.14), in: Circle())
                     Text(post.accountName)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
                 }
                 .foregroundStyle(.white)
-                .padding(.leading, 5)
-                .padding(.trailing, 10)
-                .padding(.vertical, 5)
+                .padding(.leading, 3)
+                .padding(.trailing, 8)
+                .padding(.vertical, 3)
                 .background(.regularMaterial, in: Capsule())
                 .padding(12)
                 .allowsHitTesting(false)
