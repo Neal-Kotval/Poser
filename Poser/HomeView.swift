@@ -8,7 +8,9 @@ struct HomeView: View {
     @StateObject private var inspirationStore = InspirationStore()
     @StateObject private var shootStore = ShootStore()
     @StateObject private var profileStore = UserProfileStore()
-    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var pendingImports: [PendingImport] = []
+    @State private var isEditingInspiration = false
     @State private var referenceImage: UIImage?
     @State private var analysis: PhotoAnalysis?
     @State private var selectedRecipe: ShotRecipe?
@@ -64,19 +66,33 @@ struct HomeView: View {
                 .zIndex(1)
             }
         }
-        .onChange(of: selectedPhoto) { _, item in
-            guard let item else { return }
-            let requestID = flowID
+        .onChange(of: selectedPhotos) { _, items in
+            guard !items.isEmpty else { return }
+            selectedPhotos = []
             Task {
-                do {
-                    guard let data = try await item.loadTransferable(type: Data.self),
-                          let image = UIImage(data: data) else { throw AnalysisError.invalidImage }
-                    guard requestID == flowID else { return }
-                    await importInspiration(image, source: .photoLibrary, imageData: data)
-                    selectedPhoto = nil
-                } catch {
-                    if requestID == flowID { errorMessage = error.localizedDescription }
+                var loaded: [PendingImport] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        loaded.append(PendingImport(image: image, data: data))
+                    }
                 }
+                if loaded.isEmpty {
+                    errorMessage = AnalysisError.invalidImage.localizedDescription
+                } else {
+                    pendingImports = loaded
+                }
+            }
+        }
+        .sheet(isPresented: Binding(
+            get: { !pendingImports.isEmpty },
+            set: { if !$0 { pendingImports = [] } }
+        )) {
+            ImportReviewView(imports: pendingImports) { chosen in
+                pendingImports = []
+                Task { await addInspiration(chosen) }
+            } onCancel: {
+                pendingImports = []
             }
         }
         .sheet(isPresented: $showingLink) {
@@ -310,8 +326,9 @@ struct HomeView: View {
                 Button { showingScan = true } label: {
                     feedAction(symbol: "viewfinder", title: "Scan place")
                 }
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    feedAction(symbol: "plus", title: "Add photo")
+                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10,
+                             selectionBehavior: .ordered, matching: .images) {
+                    feedAction(symbol: "plus", title: "Add photos")
                 }
                 Button { showingLink = true } label: {
                     feedAction(symbol: "link", title: "Paste link")
@@ -404,6 +421,12 @@ struct HomeView: View {
                 Text("\(inspirationStore.items.count) saved")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.secondaryText)
+                Button(isEditingInspiration ? "Done" : "Edit") {
+                    withAnimation(.easeOut(duration: 0.2)) { isEditingInspiration.toggle() }
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(minWidth: 44, minHeight: 44)
             }
             if inspirationStore.items.isEmpty {
                 Text("Photos you import will appear here for future shoots and scene matching.")
@@ -416,6 +439,10 @@ struct HomeView: View {
                         ForEach(inspirationStore.items) { item in
                             if let image = inspirationStore.image(for: item) {
                                 Button {
+                                    if isEditingInspiration {
+                                        deleteInspiration(item)
+                                        return
+                                    }
                                     Task {
                                         let original = inspirationStore.originalData(for: item)
                                         await analyze(original.flatMap(UIImage.init(data:)) ?? image,
@@ -429,6 +456,17 @@ struct HomeView: View {
                                             .frame(width: 132, height: 132)
                                             .clipped()
                                             .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                                            .opacity(isEditingInspiration ? 0.7 : 1)
+                                            .overlay(alignment: .topTrailing) {
+                                                if isEditingInspiration {
+                                                    Image(systemName: "xmark.circle.fill")
+                                                        .font(.system(size: 22, weight: .semibold))
+                                                        .symbolRenderingMode(.palette)
+                                                        .foregroundStyle(.black, .white)
+                                                        .padding(6)
+                                                        .transition(.scale.combined(with: .opacity))
+                                                }
+                                            }
                                         Text(item.title)
                                             .font(.system(size: 12, weight: .medium))
                                             .foregroundStyle(.white)
@@ -437,6 +475,12 @@ struct HomeView: View {
                                     .frame(width: 132, alignment: .leading)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel(isEditingInspiration ? "Delete \(item.title)" : "Open \(item.title)")
+                                .contextMenu {
+                                    Button(role: .destructive) { deleteInspiration(item) } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
                             }
                         }
                     }
@@ -765,6 +809,35 @@ struct HomeView: View {
         await analyze(image, scene: false, imageData: imageData)
     }
 
+    /// A single confirmed photo starts a shot plan, matching the old one-photo flow.
+    /// Several photos are saved to the library so the person can pick one later.
+    private func addInspiration(_ chosen: [PendingImport]) async {
+        if chosen.count == 1, let only = chosen.first {
+            await importInspiration(only.image, source: .photoLibrary, imageData: only.data)
+            return
+        }
+        for item in chosen.reversed() {
+            do {
+                try inspirationStore.add(item.image, source: .photoLibrary, originalData: item.data)
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+    }
+
+    private func deleteInspiration(_ item: InspirationItem) {
+        do {
+            try withAnimation(.easeOut(duration: 0.2)) {
+                try inspirationStore.remove([item.id])
+            }
+            selectedMatches.remove(item.id)
+            if inspirationStore.items.isEmpty { isEditingInspiration = false }
+        } catch {
+            errorMessage = "This photo could not be deleted. Try again."
+        }
+    }
+
     private func scanScene(_ image: UIImage) async {
         let requestID = UUID()
         flowID = requestID
@@ -970,7 +1043,8 @@ struct HomeView: View {
         flowID = UUID()
         showLiveCamera = true
         activeTab = .camera
-        selectedPhoto = nil
+        selectedPhotos = []
+        pendingImports = []
         referenceImage = nil
         analysis = nil
         selectedRecipe = nil
@@ -997,39 +1071,150 @@ struct LinkEntryView: View {
     @State private var link = ""
     @State private var loading = false
     @State private var errorMessage: String?
+    @State private var preview: UIImage?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
-                Text("Paste a link")
+                Text(preview == nil ? "Paste a link" : "Is this the one?")
                     .font(.system(size: 25, weight: .bold, design: .rounded))
                 Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }
+                Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                    .accessibilityLabel("Close")
             }
-            Text("Use a public Pinterest or Instagram post, or a direct image URL.")
-                .font(.system(size: 14))
-                .foregroundStyle(.white.opacity(0.56))
-            TextField("https://…", text: $link)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .autocorrectionDisabled()
-                .padding(15)
-                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: PoserRadius.control))
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            Button {
-                loading = true
-                errorMessage = nil
-                Task {
-                    do { onImage(try await LinkImageLoader.image(from: link)) }
-                    catch { errorMessage = error.localizedDescription }
-                    loading = false
+            if let preview {
+                Image(uiImage: preview)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                    .accessibilityLabel("Photo from the link")
+                Button { onImage(preview) } label: {
+                    Text("Use this photo")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 17)
+                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 }
-            } label: {
-                Text(loading ? "Loading preview…" : "Use this photo")
+                .buttonStyle(.plain)
+                Button("Try another link") {
+                    self.preview = nil
+                    link = ""
+                }
+                .font(.system(size: 15, weight: .medium))
+                .frame(maxWidth: .infinity, minHeight: 44)
+            } else {
+                Text("Use a public Pinterest or Instagram post, or a direct image URL.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.56))
+                TextField("https://…", text: $link)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .padding(15)
+                    .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                Button {
+                    loading = true
+                    errorMessage = nil
+                    Task {
+                        do { preview = try await LinkImageLoader.image(from: link) }
+                        catch { errorMessage = error.localizedDescription }
+                        loading = false
+                    }
+                } label: {
+                    Text(loading ? "Loading preview…" : "Load photo")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 17)
+                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                }
+                .buttonStyle(.plain)
+                .disabled(loading || link.isEmpty)
+            }
+            Spacer()
+        }
+        .padding(24)
+        .background(Palette.background.ignoresSafeArea())
+        .foregroundStyle(.white)
+    }
+}
+
+struct PendingImport: Identifiable {
+    let id = UUID()
+    let image: UIImage
+    let data: Data?
+}
+
+/// Shows picked photos before they are saved, so a mistaken tap in the picker
+/// can be undone by deselecting instead of silently starting a shoot.
+struct ImportReviewView: View {
+    let imports: [PendingImport]
+    let onConfirm: ([PendingImport]) -> Void
+    let onCancel: () -> Void
+    @State private var excluded: Set<UUID> = []
+
+    private var chosen: [PendingImport] { imports.filter { !excluded.contains($0.id) } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(imports.count == 1 ? "Use this photo?" : "Review photos")
+                    .font(.system(size: 25, weight: .bold, design: .rounded))
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(minHeight: 44)
+            }
+            if imports.count > 1 {
+                Text("Tap any photo you didn’t mean to pick.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.secondaryText)
+            }
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8),
+                                         count: imports.count == 1 ? 1 : 3), spacing: 8) {
+                    ForEach(imports) { item in
+                        let isChosen = !excluded.contains(item.id)
+                        Button {
+                            guard imports.count > 1 else { return }
+                            if isChosen { excluded.insert(item.id) } else { excluded.remove(item.id) }
+                        } label: {
+                            GeometryReader { tile in
+                                Image(uiImage: item.image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: tile.size.width, height: tile.size.height)
+                                    .clipped()
+                            }
+                            .aspectRatio(imports.count == 1 ? 0.8 : 1, contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                            .opacity(isChosen ? 1 : 0.35)
+                            .overlay(alignment: .topTrailing) {
+                                if imports.count > 1 {
+                                    Image(systemName: isChosen ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 22, weight: .medium))
+                                        .symbolRenderingMode(.palette)
+                                        .foregroundStyle(isChosen ? .black : .white, .white)
+                                        .shadow(radius: 3)
+                                        .padding(6)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isChosen ? "Selected photo" : "Removed photo")
+                        .accessibilityHint(imports.count > 1 ? "Double tap to toggle" : "")
+                    }
+                }
+            }
+            Button { onConfirm(chosen) } label: {
+                Text(chosen.count <= 1 ? "Use this photo" : "Add \(chosen.count) photos")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
@@ -1037,8 +1222,8 @@ struct LinkEntryView: View {
                     .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
             }
             .buttonStyle(.plain)
-            .disabled(loading || link.isEmpty)
-            Spacer()
+            .disabled(chosen.isEmpty)
+            .opacity(chosen.isEmpty ? 0.4 : 1)
         }
         .padding(24)
         .background(Palette.background.ignoresSafeArea())

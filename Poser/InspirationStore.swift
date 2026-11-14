@@ -85,6 +85,18 @@ final class InspirationStore: ObservableObject {
         return item
     }
 
+    func remove(_ ids: Set<UUID>) throws {
+        let removed = items.filter { ids.contains($0.id) }
+        guard !removed.isEmpty else { return }
+        let updated = items.filter { !ids.contains($0.id) }
+        try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
+        items = updated
+        for item in removed {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(item.filename))
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(item.id.uuidString).original"))
+        }
+    }
+
     func image(for item: InspirationItem) -> UIImage? {
         UIImage(contentsOfFile: folder.appendingPathComponent(item.filename).path)
     }
