@@ -24,7 +24,13 @@ struct HomeView: View {
     @StateObject private var inspirationStore = InspirationStore()
     @StateObject private var shootStore = ShootStore()
     @StateObject private var profileStore = UserProfileStore()
-    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var importReviewBatch: ImportReviewBatch?
+    @State private var confirmedImports: [PendingImport] = []
+    @State private var importLoadID = UUID()
+    @State private var isLoadingImports = false
+    @State private var isSavingImports = false
+    @State private var failedImportCount = 0
     @State private var pendingReferenceDeletion: Set<UUID> = []
     @State private var isEditingInspiration = false
     @State private var selectedInspiration: Set<UUID> = []
@@ -110,18 +116,62 @@ struct HomeView: View {
                 .zIndex(1)
             }
         }
-        .onChange(of: selectedPhoto) { _, item in
-            guard let item else { return }
-            let requestID = flowID
+        .onChange(of: selectedPhotos) { _, items in
+            guard !items.isEmpty else { return }
+            selectedPhotos = []
+            let requestID = UUID()
+            importLoadID = requestID
+            isLoadingImports = true
             Task {
-                do {
-                    guard let data = try await item.loadTransferable(type: Data.self),
-                          let image = UIImage(data: data) else { throw AnalysisError.invalidImage }
-                    guard requestID == flowID else { return }
-                    await importInspiration(image, source: .photoLibrary, imageData: data)
-                    selectedPhoto = nil
-                } catch {
-                    if requestID == flowID { errorMessage = error.localizedDescription }
+                var loaded: [PendingImport] = []
+                for item in items.prefix(10) {
+                    guard requestID == importLoadID else { return }
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        loaded.append(PendingImport(image: image, data: data))
+                    }
+                }
+                guard requestID == importLoadID else { return }
+                isLoadingImports = false
+                failedImportCount = items.count - loaded.count
+                if loaded.isEmpty {
+                    errorMessage = "These photos could not be loaded. Try selecting them again."
+                } else {
+                    importReviewBatch = ImportReviewBatch(imports: loaded, failedCount: failedImportCount)
+                }
+            }
+        }
+        .sheet(item: $importReviewBatch, onDismiss: {
+            let chosen = confirmedImports
+            confirmedImports = []
+            guard !chosen.isEmpty else { return }
+            Task { await addInspiration(chosen) }
+        }) { batch in
+            ImportReviewView(imports: batch.imports, failedCount: batch.failedCount) { chosen in
+                confirmedImports = chosen
+                importReviewBatch = nil
+            } onCancel: {
+                importReviewBatch = nil
+            }
+        }
+        .overlay {
+            if isLoadingImports || isSavingImports {
+                ZStack {
+                    Color.black.opacity(0.4).ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        ProgressView()
+                        Text(isLoadingImports ? "Preparing photos…" : "Adding photos…")
+                            .font(PoserType.supporting)
+                        if isLoadingImports {
+                            Button("Cancel") {
+                                importLoadID = UUID()
+                                isLoadingImports = false
+                            }
+                            .frame(minHeight: 44)
+                        }
+                    }
+                    .padding(24)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
                 }
             }
         }
@@ -593,7 +643,8 @@ struct HomeView: View {
                         .foregroundStyle(.white)
                     Spacer()
                     if !isEditingInspiration {
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10,
+                                     selectionBehavior: .ordered, matching: .images) {
                             Image(systemName: "plus")
                                 .font(.system(size: 17, weight: .semibold))
                                 .frame(width: 44, height: 44)
@@ -1102,6 +1153,28 @@ struct HomeView: View {
         await analyze(image, scene: false, imageData: imageData)
     }
 
+    /// Only called after the review sheet has confirmed and dismissed.
+    private func addInspiration(_ chosen: [PendingImport]) async {
+        guard !chosen.isEmpty, !isSavingImports else { return }
+        if chosen.count == 1, let only = chosen.first {
+            await importInspiration(only.image, source: .photoLibrary, imageData: only.data)
+            return
+        }
+        isSavingImports = true
+        defer { isSavingImports = false }
+        var savedCount = 0
+        for item in chosen.reversed() {
+            do {
+                try inspirationStore.add(item.image, source: .photoLibrary, originalData: item.data)
+                savedCount += 1
+                await Task.yield()
+            } catch {
+                errorMessage = "Saved \(savedCount) of \(chosen.count) photos. \(error.localizedDescription)"
+                return
+            }
+        }
+    }
+
     private func scanScene(_ image: UIImage) async {
         let requestID = UUID()
         flowID = requestID
@@ -1307,7 +1380,11 @@ struct HomeView: View {
         flowID = UUID()
         showLiveCamera = true
         activeTab = .camera
-        selectedPhoto = nil
+        selectedPhotos = []
+        importLoadID = UUID()
+        isLoadingImports = false
+        importReviewBatch = nil
+        confirmedImports = []
         referenceImage = nil
         analysis = nil
         selectedRecipe = nil
@@ -1326,5 +1403,99 @@ struct HomeView: View {
         isAnalyzing = false
         showShotDetails = false
         startingSetup = ReferenceStartingSetup()
+    }
+}
+
+private struct ImportReviewBatch: Identifiable {
+    let id = UUID()
+    let imports: [PendingImport]
+    let failedCount: Int
+}
+
+struct PendingImport: Identifiable {
+    let id = UUID()
+    let image: UIImage
+    let data: Data?
+}
+
+/// Shows picked photos before they are saved, so a mistaken tap in the picker
+/// can be undone by deselecting instead of silently starting a shoot.
+struct ImportReviewView: View {
+    let imports: [PendingImport]
+    var failedCount: Int = 0
+    let onConfirm: ([PendingImport]) -> Void
+    let onCancel: () -> Void
+    @State private var excluded: Set<UUID> = []
+
+    private var chosen: [PendingImport] { imports.filter { !excluded.contains($0.id) } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(imports.count == 1 ? "Use this photo?" : "Review photos")
+                    .font(.system(size: 25, weight: .bold, design: .rounded))
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(minHeight: 44)
+            }
+            Text("Tap a photo to remove it or tap again to keep it. Nothing is saved until you confirm.")
+                .font(.system(size: 14))
+                .foregroundStyle(Palette.secondaryText)
+            if failedCount > 0 {
+                Text("\(failedCount) \(failedCount == 1 ? "photo couldn’t" : "photos couldn’t") be loaded. Cancel to try again.")
+                    .font(PoserType.caption)
+                    .foregroundStyle(Palette.secondaryText)
+            }
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8),
+                                         count: imports.count == 1 ? 1 : 3), spacing: 8) {
+                    ForEach(imports) { item in
+                        let isChosen = !excluded.contains(item.id)
+                        Button {
+                            if isChosen { excluded.insert(item.id) } else { excluded.remove(item.id) }
+                        } label: {
+                            GeometryReader { tile in
+                                Image(uiImage: item.image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: tile.size.width, height: tile.size.height)
+                                    .clipped()
+                            }
+                            .aspectRatio(imports.count == 1 ? 0.8 : 1, contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                            .contentShape(Rectangle())
+                            .opacity(isChosen ? 1 : 0.35)
+                            .overlay(alignment: .topTrailing) {
+                                Image(systemName: isChosen ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 22, weight: .medium))
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(isChosen ? .black : .white, .white)
+                                    .shadow(radius: 3)
+                                    .padding(6)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Photo \((imports.firstIndex { $0.id == item.id } ?? 0) + 1), \(isChosen ? "selected" : "removed")")
+                        .accessibilityAddTraits(isChosen ? [.isSelected] : [])
+                        .accessibilityHint("Double tap to \(isChosen ? "remove" : "keep") this photo")
+                    }
+                }
+            }
+            Button { onConfirm(chosen) } label: {
+                Text("Add \(chosen.count) \(chosen.count == 1 ? "photo" : "photos")")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 17)
+                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
+            }
+            .buttonStyle(.plain)
+            .disabled(chosen.isEmpty)
+            .opacity(chosen.isEmpty ? 0.4 : 1)
+        }
+        .padding(24)
+        .background(Palette.background.ignoresSafeArea())
+        .foregroundStyle(.white)
     }
 }

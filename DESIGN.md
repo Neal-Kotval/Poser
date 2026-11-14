@@ -31,6 +31,8 @@ The compatibility names `ink`, `panel`, `raised`, `cyan`, `cream`, and `muted` r
 
 The bottom navigation is a floating glass capsule with Home, Camera, and Profile in swipe order. A rounded selection background identifies the current page. While typing in Home search, navigation fades out and page swipes pause. Navigation returns after keyboard dismissal completes; queries and categories stay selected. Category suggestions can remain open with the keyboard dismissed. The camera opens first. Home is the inspiration feed; the Camera tab holds active shot plans and captured-image review. On the camera screen, the shutter is the strongest control and live guidance appears only when a recipe exists.
 
+The compact + control in Your inspiration opens an ordered photo picker capped at 10 selections. Review opens before anything is saved. Tapping a preview toggles inclusion; Add N photos confirms and Cancel (or dismissing the sheet) saves nothing. One confirmed photo starts a shoot; multiple confirmed photos stay in the inspiration library. Original photo bytes retain camera metadata.
+
 Saved inspiration supports long-press context menus for individual deletion. The section header’s Edit action enters selection mode with checkmarks, Select All, and a bulk Delete action. Deletion requires confirmation; Cancel preserves the selection, and Done exits selection mode. Horizontal scrolling within saved inspiration never changes pages.
 
 The pre-shot pose guide uses a white line figure on a dark surface. It animates between a neutral stance and detected body landmarks when available; the example pose is labeled when detection is unavailable. Keep its camera distance and subject instructions readable before the user opens the live camera.
