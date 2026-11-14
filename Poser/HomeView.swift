@@ -50,11 +50,14 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            pagePager
-            .background(Palette.background.ignoresSafeArea())
-            .overlay(alignment: .bottom) {
+            ZStack(alignment: .bottom) {
+                // Extend the pages themselves, not just their background, below
+                // the home indicator. Navigation keeps the normal safe area.
+                pagePager
+                    .ignoresSafeArea(.container, edges: .bottom)
                 if !showingPoseTutorial { bottomBar }
             }
+            .background(Palette.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
         }
         .tint(.white)
@@ -206,7 +209,7 @@ struct HomeView: View {
             .frame(maxWidth: 620)
             .padding(.horizontal, PoserSpace.large)
             .padding(.top, PoserSpace.large)
-            .padding(.bottom, 110)
+            .padding(.bottom, 86)
             .frame(maxWidth: .infinity)
         }
         .background(Palette.background)
@@ -245,7 +248,7 @@ struct HomeView: View {
             .frame(maxWidth: 620)
             .padding(.horizontal, PoserSpace.large)
             .padding(.top, PoserSpace.large)
-            .padding(.bottom, 180)
+            .padding(.bottom, 148)
             .frame(maxWidth: .infinity)
         }
         .id(capturedImage == nil ? "shot-plan" : "shot-review")
@@ -304,7 +307,7 @@ struct HomeView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: 620)
             .padding(.horizontal, PoserSpace.large)
-            .padding(.bottom, 110)
+            .padding(.bottom, 86)
             .frame(maxWidth: .infinity)
         }
         .background(Palette.background)
