@@ -427,6 +427,8 @@ struct CameraScreen: View {
                         Button { dismiss() } label: {
                             Image(systemName: "xmark").frame(width: 44, height: 44)
                         }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
                         .accessibilityLabel("Close camera")
                     }
                     Spacer()
@@ -447,6 +449,8 @@ struct CameraScreen: View {
                             .foregroundStyle(showGrid ? Palette.primaryText : Palette.secondaryText)
                             .frame(width: 44, height: 44)
                     }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
                     .accessibilityLabel("Grid")
                     .accessibilityValue(showGrid ? "On" : "Off")
                 }
@@ -478,7 +482,7 @@ struct CameraScreen: View {
                                 .font(.system(size: 21, weight: .medium))
                                 .foregroundStyle(.white)
                                 .frame(width: 44, height: 44)
-                                .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                                .poserGlass(interactive: true)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Open pose and camera setup")
@@ -524,18 +528,18 @@ struct CameraScreen: View {
                     }
                     .padding(.leading, 14)
                     .padding(.trailing, 4)
-                    .background(Palette.background.opacity(0.75), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                    .poserGlass()
                     .padding(.horizontal, 18)
                 } else if mode == .scan {
                     Text(camera.isDemo ? "Sample scene for simulator testing" : "Point at the place where you want to shoot")
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .padding(14)
-                        .background(Palette.background.opacity(0.85), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                        .poserGlass()
                 } else if mode == .guide, recipe == nil {
                     Text("Scan this place to find a shot")
                     .font(.system(size: 14, weight: .medium))
                     .padding(14)
-                    .background(Palette.background.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                    .poserGlass()
                 }
                 Button { camera.capture() } label: {
                     Circle()

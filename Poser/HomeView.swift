@@ -279,7 +279,7 @@ struct HomeView: View {
                     }
                     .padding(.top, 36)
                 } else {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 3), spacing: 3) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                         ForEach(shootStore.shots) { shot in
                             if let photo = shootStore.photo(for: shot) {
                                 Button { selectedCompletedShot = shot } label: {
@@ -291,6 +291,8 @@ struct HomeView: View {
                                             .clipped()
                                     }
                                     .aspectRatio(1, contentMode: .fit)
+                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("Completed shot from \(shot.createdAt.formatted(date: .abbreviated, time: .omitted))")
@@ -325,52 +327,40 @@ struct HomeView: View {
                 .padding(.horizontal, PoserSpace.large)
                 .padding(.top, 10)
             }
-            HStack(spacing: 0) {
-            Button { withAnimation(.easeOut(duration: 0.32)) { activeTab = .home } } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: activeTab == .home ? "house.fill" : "house")
-                        .font(.system(size: 20))
-                    Text("Home")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(activeTab == .home ? .white : .white.opacity(0.55))
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 4) {
+                navigationItem(.home, title: "Home", symbol: "house", selectedSymbol: "house.fill")
+                navigationItem(.camera, title: "Camera", symbol: "camera", selectedSymbol: "camera.fill")
+                navigationItem(.profile, title: "Profile", symbol: "person.crop.circle", selectedSymbol: "person.crop.circle.fill")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Home")
-            Button {
-                withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
-            } label: {
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(width: 52, height: 52)
-                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                    .overlay(RoundedRectangle(cornerRadius: PoserRadius.control).stroke(.white.opacity(activeTab == .camera ? 0.8 : 0), lineWidth: 2).padding(-5))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Camera")
-            Button { withAnimation(.easeOut(duration: 0.32)) { activeTab = .profile } } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: activeTab == .profile ? "person.crop.circle.fill" : "person.crop.circle")
-                        .font(.system(size: 21))
-                    Text("Profile")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(activeTab == .profile ? .white : .white.opacity(0.55))
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Profile")
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 70)
+            .padding(6)
+            .poserGlass(cornerRadius: 36)
+            .frame(maxWidth: 420)
+            .padding(.horizontal, PoserSpace.large)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
         }
-        .background {
-            Palette.background.opacity(0.92)
-                .ignoresSafeArea(edges: .bottom)
+    }
+
+    private func navigationItem(_ tab: Tab, title: String, symbol: String, selectedSymbol: String) -> some View {
+        let selected = activeTab == tab
+        return Button {
+            withAnimation(.easeOut(duration: 0.32)) { activeTab = tab }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: selected ? selectedSymbol : symbol)
+                    .font(.system(size: 21, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(selected ? .white : Palette.secondaryText)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(.white.opacity(selected ? 0.16 : 0), in: Capsule())
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private var header: some View {
@@ -440,11 +430,14 @@ struct HomeView: View {
 
     private var referenceTagBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: PoserSpace.small) {
-                referenceTagButton(nil)
-                ForEach(ReferenceCatalog.tags) { tag in
-                    referenceTagButton(tag)
+            GlassEffectContainer(spacing: 4) {
+                HStack(spacing: PoserSpace.small) {
+                    referenceTagButton(nil)
+                    ForEach(ReferenceCatalog.tags) { tag in
+                        referenceTagButton(tag)
+                    }
                 }
+                .padding(.vertical, 4)
             }
         }
         .accessibilityIdentifier("referenceTagBar")
@@ -466,12 +459,8 @@ struct HomeView: View {
                 .padding(.horizontal, PoserSpace.regular)
                 .frame(minHeight: 44)
                 .foregroundStyle(isSelected ? Palette.background : Palette.primaryText)
-                .background(isSelected ? Palette.primaryText : Palette.surface,
-                            in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                .overlay {
-                    RoundedRectangle(cornerRadius: PoserRadius.control)
-                        .stroke(isSelected ? Palette.primaryText : Palette.border, lineWidth: 1)
-                }
+                .poserGlass(cornerRadius: 100, interactive: true,
+                            tint: isSelected ? .white.opacity(0.9) : .clear)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
@@ -489,8 +478,7 @@ struct HomeView: View {
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, minHeight: 44)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-        .overlay(RoundedRectangle(cornerRadius: PoserRadius.control).stroke(Palette.border, lineWidth: 1))
+        .poserGlass(interactive: true)
     }
 
     private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
@@ -531,8 +519,10 @@ struct HomeView: View {
                     .accessibilityLabel("Open original Pin")
                 }
             }
-            Rectangle().fill(Palette.border).frame(height: 1).padding(.top, 9)
+            .padding(.horizontal, 4)
         }
+        .padding(12)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface, style: .continuous))
     }
 
     @ViewBuilder

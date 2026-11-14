@@ -25,7 +25,7 @@ struct PoseTutorialView: View {
                             Image(systemName: "xmark")
                                 .font(.system(size: 18, weight: .semibold))
                                 .frame(width: 44, height: 44)
-                                .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                                .poserGlass(interactive: true)
                         }
                         .accessibilityLabel("Close pose guide")
                         Spacer()
@@ -263,7 +263,7 @@ struct MiniPoseGuide: View {
                 .frame(width: 48, height: 82)
         }
             .frame(width: 128, height: 110)
-            .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+            .poserGlass()
             .accessibilityLabel("Animated setup: \(geometry.heightLabel), \(geometry.distanceLabel), \(geometry.angleLabel)")
     }
 }
