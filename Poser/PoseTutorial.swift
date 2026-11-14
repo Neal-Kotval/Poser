@@ -259,7 +259,7 @@ private struct PoseDiagramView: View {
                 .stroke(.white.opacity(startingSetup == nil && geometry.spec?.cameraHeightRatio == nil ? 0.35 : 0.8),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
-                BubblePoseFigure(target: photographer, progress: 1)
+                BubblePoseFigure(target: photographer, completesMissingJoints: false, progress: 1)
                     .frame(width: layout.figureWidth, height: layout.figureHeight)
                     .position(x: layout.photographerX, y: layout.floor - layout.figureHeight / 2)
 
@@ -382,9 +382,9 @@ private extension PoseSkeleton {
                 .leftShoulder: CGPoint(x: 0.35, y: 0.47), .rightShoulder: CGPoint(x: 0.55, y: 0.47),
                 .leftElbow: CGPoint(x: 0.53, y: 0.54), .leftWrist: CGPoint(x: 0.78, y: 0.59),
                 .rightElbow: CGPoint(x: 0.66, y: 0.55), .rightWrist: CGPoint(x: 0.78, y: 0.62),
-                .leftHip: CGPoint(x: 0.43, y: 0.67), .rightHip: CGPoint(x: 0.57, y: 0.67),
-                .leftKnee: CGPoint(x: 0.28, y: 0.78), .rightKnee: CGPoint(x: 0.72, y: 0.81),
-                .leftAnkle: CGPoint(x: 0.16, y: 0.96), .rightAnkle: CGPoint(x: 0.63, y: 0.97)
+                .leftHip: CGPoint(x: 0.28, y: 0.66), .rightHip: CGPoint(x: 0.40, y: 0.66),
+                .leftKnee: CGPoint(x: 0.43, y: 0.81), .rightKnee: CGPoint(x: 0.66, y: 0.78),
+                .leftAnkle: CGPoint(x: 0.18, y: 0.96), .rightAnkle: CGPoint(x: 0.53, y: 0.97)
             ])
         }
         return PoseSkeleton(points: [
@@ -456,6 +456,7 @@ private struct AnimatedPoseFigure: View {
 struct BubblePoseFigure: View, Animatable {
     let target: PoseSkeleton
     var illustrativeFallback: PoseSkeleton? = nil
+    var completesMissingJoints = true
     var progress: CGFloat
 
     var animatableData: CGFloat {
@@ -466,10 +467,8 @@ struct BubblePoseFigure: View, Animatable {
     var body: some View {
         Canvas { context, size in
             let neutral = PoseSkeleton.example(for: ShotRecipe.presets[1])
-            let completeTarget = target.displayingMissingJoints(fallback: illustrativeFallback)
-            let hipY = ((completeTarget[.leftHip]?.y ?? 0.55) + (completeTarget[.rightHip]?.y ?? 0.55)) / 2
-            let ankleY = ((completeTarget[.leftAnkle]?.y ?? 0.94) + (completeTarget[.rightAnkle]?.y ?? 0.94)) / 2
-            let legOffset = min(0.08, max(0, (ankleY - hipY) * 0.2))
+            let completeTarget = completesMissingJoints
+                ? target.displayingMissingJoints(fallback: illustrativeFallback) : target
             func point(_ joint: PoseJoint) -> CGPoint? {
                 guard let end = completeTarget[joint] else { return nil }
                 let rest = neutral[joint] ?? end
@@ -477,14 +476,8 @@ struct BubblePoseFigure: View, Animatable {
                                     y: end.y + (rest.y - end.y) * 0.22)
                 let x = start.x + (end.x - start.x) * progress
                 let y = start.y + (end.y - start.y) * progress
-                let bodyOffset: CGFloat
-                switch joint {
-                case .leftHip, .rightHip: bodyOffset = legOffset
-                case .leftKnee, .rightKnee: bodyOffset = legOffset / 2
-                default: bodyOffset = 0
-                }
                 return CGPoint(x: (0.5 + (x - 0.5) * 1.3) * size.width,
-                               y: (0.95 + (y + bodyOffset - 0.95) * 0.9) * size.height)
+                               y: (0.95 + (y - 0.95) * 0.9) * size.height)
             }
             let white = GraphicsContext.Shading.color(.white)
             func limb(_ start: PoseJoint, _ bend: PoseJoint, _ end: PoseJoint, width: CGFloat) {
@@ -495,13 +488,13 @@ struct BubblePoseFigure: View, Animatable {
                 path.addLine(to: c)
                 let observed = target[start] != nil && target[bend] != nil && target[end] != nil
                 context.stroke(path, with: .color(.white.opacity(observed ? 1 : 0.35)),
-                               style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round,
-                                                  dash: observed ? [] : [4, 5]))
+                               style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
             }
 
-            let thickness = max(3, size.width * 0.072)
-            limb(.leftHip, .leftKnee, .leftAnkle, width: thickness)
-            limb(.rightHip, .rightKnee, .rightAnkle, width: thickness)
+            // Sign-style silhouettes: generous, continuous capsules with round joints.
+            let thickness = max(4, size.width * 0.145)
+            limb(.leftHip, .leftKnee, .leftAnkle, width: thickness * 1.12)
+            limb(.rightHip, .rightKnee, .rightAnkle, width: thickness * 1.12)
             if let ls = point(.leftShoulder), let rs = point(.rightShoulder),
                let lh = point(.leftHip), let rh = point(.rightHip) {
                 let shoulderCenter = CGPoint(x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2)
@@ -518,15 +511,22 @@ struct BubblePoseFigure: View, Animatable {
                 torso.closeSubpath()
                 let observedTorso = [.leftShoulder, .rightShoulder, .leftHip, .rightHip]
                     .allSatisfy { target[$0] != nil }
-                context.fill(torso, with: .color(.white.opacity(observedTorso ? 1 : 0.35)))
+                // A rounded contour softens both the shoulders and the hip corners.
+                // Draw in one layer so illustrative bodies do not accumulate opacity.
+                context.drawLayer { body in
+                    body.opacity = observedTorso ? 1 : 0.35
+                    body.fill(torso, with: white)
+                    body.stroke(torso, with: white,
+                                style: StrokeStyle(lineWidth: thickness * 0.65,
+                                                   lineCap: .round, lineJoin: .round))
+                }
             }
             limb(.leftShoulder, .leftElbow, .leftWrist, width: thickness)
             limb(.rightShoulder, .rightElbow, .rightWrist, width: thickness)
 
             if let head = point(.nose) {
-                let radius = max(4.8, size.width * 0.09)
-                let neck = point(.neck) ?? head
-                let center = CGPoint(x: (head.x + neck.x) / 2, y: (head.y + neck.y) / 2)
+                let radius = max(6, size.width * 0.145)
+                let center = head
                 context.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius,
                                                     width: radius * 2, height: radius * 2)),
                              with: target[.nose] == nil ? .color(.white.opacity(0.35)) : white)
