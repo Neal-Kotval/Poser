@@ -1,9 +1,7 @@
 import Foundation
 import UIKit
 import Vision
-import LinkPresentation
 import ImageIO
-import UniformTypeIdentifiers
 
 struct ShotRecipe: Identifiable, Hashable {
     let id: String
@@ -29,6 +27,8 @@ struct PhotoAnalysis {
     let subjectPoint: CGPoint?
     let hasPerson: Bool
     let poseSkeleton: PoseSkeleton?
+    let faceDistanceMeters: Double?
+    let subjectBox: CGRect?
     let geometry: ShotGeometry
     let shotSpec: ShotSpec
     let summary: String
@@ -167,20 +167,31 @@ enum AnalysisService {
                 ?? VNImageRequestHandler(cgImage: cgImage, orientation: orientation)
             let classify = VNClassifyImageRequest()
             let person = VNDetectHumanBodyPoseRequest()
+            let face = VNDetectFaceRectanglesRequest()
             let salient = VNGenerateAttentionBasedSaliencyImageRequest()
             // Vision models are not available in every simulator/runtime. Keep the
             // reference flow usable when one model cannot initialize.
             try? handler.perform([classify])
             try? handler.perform([person])
+            try? handler.perform([face])
             try? handler.perform([salient])
 
             let observations = Array((classify.results ?? []).prefix(15))
             let labels = observations.prefix(8).map(\.identifier)
             let pose = person.results?.first
             let poseSkeleton = pose.flatMap(PoseSkeleton.detected)
+            let primaryFace = face.results?.max(by: {
+                $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height
+            })
+            let faceBox = primaryFace.map {
+                CGRect(x: $0.boundingBox.minX, y: 1 - $0.boundingBox.maxY,
+                       width: $0.boundingBox.width, height: $0.boundingBox.height)
+            }
             let point: CGPoint?
             if let pose, let nose = try? pose.recognizedPoint(.nose), nose.confidence > 0.25 {
                 point = CGPoint(x: nose.location.x, y: 1 - nose.location.y)
+            } else if let faceBox {
+                point = CGPoint(x: faceBox.midX, y: faceBox.midY)
             } else if let box = salient.results?.first?.salientObjects?.first?.boundingBox {
                 point = CGPoint(x: box.midX, y: 1 - box.midY)
             } else {
@@ -196,8 +207,10 @@ enum AnalysisService {
             let bestIndex = scores.enumerated().max(by: { $0.element < $1.element })?.offset ?? 0
             let recipe = scores[bestIndex] > 0.04 ? ShotRecipe.presets[bestIndex] : ShotRecipe.presets[0]
             let summary: String
-            if observations.isEmpty && pose == nil && point == nil {
+            if observations.isEmpty && pose == nil && primaryFace == nil && point == nil {
                 summary = "Image analysis is unavailable on this device. Use this shot plan as a starting point."
+            } else if pose == nil && primaryFace != nil {
+                summary = "We found the subject's face. Distance is approximate; set height and tilt to match the reference."
             } else if pose == nil {
                 summary = "We found the main focal area and scene cues. Use this setup as a starting point."
             } else {
@@ -205,13 +218,26 @@ enum AnalysisService {
             }
             let estimate = ShotSpecEstimator.estimate(cgImage: cgImage, orientation: orientation, imageData: imageData,
                                                       subjectHeightMeters: ShotSpecEstimator.defaultSubjectHeight)
+            let orientedSize = orientation.swapsDimensions
+                ? CGSize(width: cgImage.height, height: cgImage.width)
+                : CGSize(width: cgImage.width, height: cgImage.height)
+            let focalMM = imageData.flatMap(LensModel.equivalentFocalLength(imageData:))
+                ?? LensModel.phoneMainEquivalentMM
+            let focalPixels = LensModel.focalLengthPixels(imageSize: orientedSize, equivalentMM: focalMM)
+            let faceDistance = primaryFace.flatMap {
+                FaceDistanceEstimator.distance(focalPixels: focalPixels,
+                                               imageWidth: orientedSize.width,
+                                               faceWidthFraction: $0.boundingBox.width)
+            }
             #if DEBUG
             print("[ShotSpec] source \(estimate.spec.source.rawValue)\n\(estimate.diagnostics.text)")
             #endif
             let poseGeometry = ShotGeometryEstimator.estimate(observation: pose, recipe: recipe)
             let geometry = estimate.spec.shotGeometry(fallback: poseGeometry)
-            return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil,
-                                 poseSkeleton: poseSkeleton, geometry: geometry, shotSpec: estimate.spec,
+            return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil || primaryFace != nil,
+                                 poseSkeleton: poseSkeleton, faceDistanceMeters: faceDistance,
+                                 subjectBox: estimate.spec.subjectBox ?? faceBox,
+                                 geometry: geometry, shotSpec: estimate.spec,
                                  summary: summary, recipe: recipe)
         }.value
     }
@@ -235,44 +261,9 @@ private extension CGImagePropertyOrientation {
 
 enum AnalysisError: LocalizedError {
     case invalidImage
-    case missingPreview
     var errorDescription: String? {
         switch self {
         case .invalidImage: "This image could not be opened. Try another photo."
-        case .missingPreview: "This link does not expose a public image preview. Save the photo and import it instead."
-        }
-    }
-}
-
-@MainActor
-enum LinkImageLoader {
-    static func image(from text: String) async throws -> UIImage {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            throw AnalysisError.missingPreview
-        }
-        if ["jpg", "jpeg", "png", "webp", "heic"].contains(url.pathExtension.lowercased()) {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AnalysisError.missingPreview }
-            guard let image = UIImage(data: data) else { throw AnalysisError.invalidImage }
-            return image
-        }
-        let metadata: LPLinkMetadata
-        do { metadata = try await LPMetadataProvider().startFetchingMetadata(for: url) }
-        catch { throw AnalysisError.missingPreview }
-        guard let provider = metadata.imageProvider else { throw AnalysisError.missingPreview }
-        return try await withCheckedThrowingContinuation { continuation in
-            if provider.canLoadObject(ofClass: UIImage.self) {
-                provider.loadObject(ofClass: UIImage.self) { object, _ in
-                    if let image = object as? UIImage { continuation.resume(returning: image) }
-                    else { continuation.resume(throwing: AnalysisError.missingPreview) }
-                }
-            } else {
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-                    if let data, let image = UIImage(data: data) { continuation.resume(returning: image) }
-                    else { continuation.resume(throwing: AnalysisError.missingPreview) }
-                }
-            }
         }
     }
 }

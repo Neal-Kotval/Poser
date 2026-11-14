@@ -27,7 +27,8 @@ enum PoseMatcher {
         let hasArm = !compared.isDisjoint(with: [.leftElbow, .rightElbow, .leftWrist, .rightWrist])
         let hasLeg = !compared.isDisjoint(with: [.leftKnee, .rightKnee, .leftAnkle, .rightAnkle])
         let jointEvidence = differences.count >= 5 && hasArm && hasLeg
-        guard jointEvidence || outlineScore != nil else { return nil }
+        // A segmented shape alone is not evidence of a person or a measurable pose.
+        guard jointEvidence else { return nil }
 
         // Body-box normalized coordinates make this independent of camera distance.
         // Give arm and leg endpoints extra weight because they carry the pose.
@@ -41,21 +42,20 @@ enum PoseMatcher {
         }
         let meanError = weighted.reduce(0.0) { $0 + $1.0 } / max(weighted.reduce(0.0) { $0 + $1.1 }, 1)
         let jointScore = 100 * max(0, min(1, 1 - meanError / 0.30))
-        // The visible shape is the primary objective. Joints are most useful for
-        // explaining which limb to move when the shape differs.
-        let score = outlineScore.map { jointEvidence
-            ? Int((0.75 * Double($0) + 0.25 * jointScore).rounded()) : $0 }
+        // Joints carry the pose; the outline adds shape detail when segmentation succeeds.
+        let score = outlineScore.map {
+            Int((0.40 * Double($0) + 0.60 * jointScore).rounded()) }
             ?? Int(jointScore.rounded())
         if score >= 85 {
             return PoseMatch(score: score, cue: "Pose is close to the reference", comparedJoints: differences.count)
         }
-        if let outlineScore, outlineScore < 85, (!jointEvidence || jointScore >= 85) {
-            return PoseMatch(score: score, cue: "Match your outline to the guide", comparedJoints: differences.count)
+        if let outlineScore, outlineScore < 85, jointScore >= 85 {
+            return PoseMatch(score: score, cue: "Adjust your body shape to match the reference", comparedJoints: differences.count)
         }
         if let worst = differences.max(by: { $0.1 < $1.1 }) {
             return PoseMatch(score: score, cue: cue(for: worst.0, dx: worst.2, dy: worst.3), comparedJoints: differences.count)
         }
-        return PoseMatch(score: score, cue: "Match your outline to the guide", comparedJoints: 0)
+        return PoseMatch(score: score, cue: "Match the reference pose", comparedJoints: 0)
     }
 
     private static func cue(for joint: PoseJoint, dx: CGFloat, dy: CGFloat) -> String {

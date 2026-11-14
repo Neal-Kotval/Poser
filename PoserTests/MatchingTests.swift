@@ -3,6 +3,67 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    func testReferenceSearchMatchesMultipleWordsRegardlessOfCaseAndSpacing() {
+        let results = ReferenceCatalog.items(matching: nil, query: "  STREET   walking ")
+        let expected = ReferenceCatalog.items.filter { $0.setting == "street" && $0.pose == "walking" }
+        XCTAssertFalse(results.isEmpty)
+        XCTAssertEqual(results.map(\.id), expected.map(\.id))
+    }
+
+    func testReferenceSearchCombinesCategoryAndText() {
+        let street = ReferenceTag(kind: .setting, value: "street")
+        let results = ReferenceCatalog.items(matching: street, query: "walking")
+        XCTAssertFalse(results.isEmpty)
+        XCTAssertTrue(results.allSatisfy { $0.setting == "street" && $0.pose == "walking" })
+        XCTAssertTrue(ReferenceCatalog.items(matching: street, query: "beach").isEmpty)
+    }
+
+    func testReferenceSearchHandlesAccentsResetAndNoMatches() {
+        XCTAssertEqual(ReferenceCatalog.items(matching: nil, query: "CAFÉ").map(\.id),
+                       ReferenceCatalog.items.filter { $0.setting == "cafe" }.map(\.id))
+        XCTAssertEqual(ReferenceCatalog.items(matching: nil, query: " \n ").map(\.id),
+                       ReferenceCatalog.items.map(\.id))
+        XCTAssertTrue(ReferenceCatalog.items(matching: nil, query: "zzznomatch").isEmpty)
+    }
+
+    func testFilterBarDragsNeverPageEvenWhenDraggedOutsideTheBar() {
+        let bar = CGRect(x: 24, y: 220, width: 340, height: 44)
+        for translation in [CGSize(width: -250, height: 5), CGSize(width: 250, height: 100)] {
+            XCTAssertFalse(HomePaging.allowsSwipe(start: CGPoint(x: 100, y: 240),
+                                                 translation: translation, excluding: bar))
+        }
+    }
+
+    func testPageSwipeOutsideFiltersRequiresHorizontalMovement() {
+        let bar = CGRect(x: 24, y: 220, width: 340, height: 44)
+        XCTAssertTrue(HomePaging.allowsSwipe(start: CGPoint(x: 200, y: 400),
+                                            translation: CGSize(width: -100, height: 10), excluding: bar))
+        XCTAssertFalse(HomePaging.allowsSwipe(start: CGPoint(x: 200, y: 400),
+                                             translation: CGSize(width: 10, height: -100), excluding: bar))
+        XCTAssertTrue(HomePaging.allowsSwipe(start: CGPoint(x: 200, y: 240),
+                                            translation: CGSize(width: 100, height: 0), excluding: .null))
+    }
+
+    func testReferenceTagsFilterBySettingAndPose() {
+        XCTAssertFalse(ReferenceCatalog.tags.isEmpty)
+        XCTAssertEqual(Set(ReferenceCatalog.tags.map(\.id)).count, ReferenceCatalog.tags.count)
+        for tag in ReferenceCatalog.tags {
+            let matches = ReferenceCatalog.items(matching: tag)
+            XCTAssertFalse(matches.isEmpty, "Empty tag: \(tag.id)")
+            let expected = ReferenceCatalog.items.filter {
+                tag.kind == .setting ? $0.setting == tag.value : $0.pose == tag.value
+            }
+            XCTAssertEqual(matches.map(\.id), expected.map(\.id))
+            XCTAssertLessThan(matches.count, ReferenceCatalog.items.count)
+        }
+    }
+
+    func testAllReferenceTagRestoresOriginalFeedOrder() {
+        _ = ReferenceCatalog.items(matching: ReferenceTag(kind: .setting, value: "street"))
+        XCTAssertEqual(ReferenceCatalog.items(matching: nil).map(\.id), ReferenceCatalog.items.map(\.id))
+        XCTAssertTrue(ReferenceCatalog.items(matching: ReferenceTag(kind: .pose, value: "missing")).isEmpty)
+    }
+
     func testSceneMatcherPrefersSameSceneOverContrastingColor() async {
         let scene = solidImage(.systemGreen)
         let matchingID = UUID()
@@ -99,7 +160,7 @@ final class MatchingTests: XCTestCase {
         XCTAssertNil(PoseMatcher.compare(reference: noLeg, live: noLeg))
     }
 
-    func testOutlineDominatesPoseScore() {
+    func testOutlineContributesToPoseScore() {
         let pose = fiveJointPose(rightWristY: 0.3)
         let full = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.9, y: 0.1),
                     CGPoint(x: 0.9, y: 0.9), CGPoint(x: 0.1, y: 0.9)]
@@ -109,10 +170,21 @@ final class MatchingTests: XCTestCase {
         let score = PoseMatcher.compare(reference: pose, live: pose,
                                         referenceOutline: full, liveOutline: narrow)
         XCTAssertNotNil(score)
-        XCTAssertLessThan(score!.score, 80, "Matching joints should not hide a mismatched outline")
+        XCTAssertLessThan(score!.score, 85, "Matching joints should not hide a mismatched outline")
         XCTAssertEqual(PoseMatcher.compare(reference: pose, live: pose,
                                            referenceOutline: full, liveOutline: full)?.score, 100)
-        XCTAssertEqual(score?.cue, "Match your outline to the guide")
+        XCTAssertEqual(score?.cue, "Adjust your body shape to match the reference")
+    }
+
+    func testMatchingOutlineCannotHideWrongArm() {
+        let reference = fiveJointPose(rightWristY: 0.3)
+        let live = fiveJointPose(rightWristY: 0.75)
+        let outline = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.9, y: 0.1),
+                       CGPoint(x: 0.9, y: 0.9), CGPoint(x: 0.1, y: 0.9)]
+        let result = PoseMatcher.compare(reference: reference, live: live,
+                                         referenceOutline: outline, liveOutline: outline)
+        XCTAssertLessThan(result!.score, 85)
+        XCTAssertEqual(result?.cue, "Raise your right arm")
     }
 
     func testOutlineRejectsInvalidOrTinyContours() {
@@ -125,15 +197,28 @@ final class MatchingTests: XCTestCase {
         XCTAssertNil(SilhouetteMatcher.score(reference: full, live: invalid))
     }
 
-    func testOutlineOnlyMatchAndFrameOverlapStayDistinct() {
+    func testOutlineWithoutJointsCannotProducePoseScore() {
         let reference = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.4, y: 0.1),
                          CGPoint(x: 0.4, y: 0.8), CGPoint(x: 0.1, y: 0.8)]
         let shifted = reference.map { CGPoint(x: $0.x + 0.4, y: $0.y) }
 
-        XCTAssertEqual(PoseMatcher.compare(reference: nil, live: nil,
-                                           referenceOutline: reference, liveOutline: shifted)?.score, 100)
+        XCTAssertNil(PoseMatcher.compare(reference: nil, live: nil,
+                                         referenceOutline: reference, liveOutline: shifted))
         XCTAssertEqual(SilhouetteMatcher.frameOverlap(reference: reference, live: shifted), 0)
         XCTAssertEqual(SilhouetteMatcher.frameOverlap(reference: reference, live: reference), 100)
+    }
+
+    func testLiveScoreUsesPoseShapeRatherThanFramePosition() {
+        let reference = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.4, y: 0.1),
+                         CGPoint(x: 0.4, y: 0.8), CGPoint(x: 0.1, y: 0.8)]
+        let shifted = reference.map { CGPoint(x: $0.x + 0.4, y: $0.y) }
+        let result = CameraModel.scoreLivePose(referencePose: nil, livePose: nil,
+                                               referenceOutline: reference, liveOutline: shifted,
+                                               referenceAspect: 0.75, liveAspect: 0.75,
+                                               focalRatio: 1)
+
+        XCTAssertNil(result.pose)
+        XCTAssertEqual(result.frameOverlap, 0)
     }
 
     @MainActor
@@ -147,6 +232,66 @@ final class MatchingTests: XCTestCase {
 
         XCTAssertEqual(reopened.items, [saved])
         XCTAssertNotNil(reopened.image(for: saved))
+    }
+
+    @MainActor
+    func testDeletingImportedReferenceRemovesOriginalAndIndexEntry() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let image = solidImage(.systemGreen)
+        let original = try XCTUnwrap(image.pngData())
+        let store = InspirationStore(folder: folder)
+        let item = try store.add(image, source: .photoLibrary, originalData: original)
+
+        try store.remove(item)
+
+        XCTAssertTrue(store.items.isEmpty)
+        XCTAssertNil(store.image(for: item))
+        XCTAssertNil(store.originalData(for: item))
+        XCTAssertTrue(InspirationStore(folder: folder).items.isEmpty)
+    }
+
+    @MainActor
+    func testBulkDeletionPreservesUnselectedReferencesAndSurvivesReload() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let image = solidImage(.systemGreen)
+        let original = try XCTUnwrap(image.pngData())
+        let store = InspirationStore(folder: folder)
+        let first = try store.add(image, source: .photoLibrary, originalData: original)
+        let retained = try store.add(image, source: .photoLibrary, originalData: original)
+        let last = try store.add(image, source: .photoLibrary, originalData: original)
+
+        try store.remove(ids: [first.id, last.id, UUID()])
+
+        let reopened = InspirationStore(folder: folder)
+        XCTAssertEqual(reopened.items, [retained])
+        XCTAssertNotNil(reopened.image(for: retained))
+        XCTAssertEqual(reopened.originalData(for: retained), original)
+        for deleted in [first, last] {
+            XCTAssertNil(reopened.image(for: deleted))
+            XCTAssertNil(reopened.originalData(for: deleted))
+        }
+        try store.remove(ids: [])
+        try store.remove(ids: [first.id])
+        XCTAssertEqual(store.items, [retained])
+    }
+
+    @MainActor
+    func testBulkDeletionDoesNotRemovePhotosIfIndexCannotBeWritten() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = InspirationStore(folder: folder)
+        let first = try store.add(solidImage(.systemGreen), source: .photoLibrary)
+        let second = try store.add(solidImage(.systemBlue), source: .photoLibrary)
+        let index = folder.appendingPathComponent("library.json")
+        try FileManager.default.removeItem(at: index)
+        try FileManager.default.createDirectory(at: index, withIntermediateDirectories: false)
+
+        XCTAssertThrowsError(try store.remove(ids: [first.id, second.id]))
+        XCTAssertEqual(store.items.map(\.id), [second.id, first.id])
+        XCTAssertNotNil(store.image(for: first))
+        XCTAssertNotNil(store.image(for: second))
     }
 
     @MainActor

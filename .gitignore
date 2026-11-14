@@ -7,3 +7,4 @@ xcuserdata/
 .playwright-mcp/
 .venv/
 __pycache__/
+Poser/GoogleService-Info.plist

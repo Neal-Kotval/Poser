@@ -64,6 +64,22 @@ final class ShotSpecTests: XCTestCase {
         XCTAssertEqual(distance ?? 0, 2.438, accuracy: 0.001)
     }
 
+    func testFaceSizeProvidesApproximateDistanceForCroppedPortrait() {
+        XCTAssertEqual(FaceDistanceEstimator.distance(focalPixels: 1000, imageWidth: 1000,
+                                                      faceWidthFraction: 0.25) ?? 0,
+                       0.64, accuracy: 0.001)
+        XCTAssertNil(FaceDistanceEstimator.distance(focalPixels: 1000, imageWidth: 1000,
+                                                    faceWidthFraction: 0.01))
+    }
+
+    func testCroppedReferenceStartsWithFaceDistanceAndAdjustableHeightAndTilt() {
+        let setup = ReferenceStartingSetup(spec: ShotSpec(source: .fallback), faceDistanceMeters: 0.64)
+        XCTAssertEqual(setup.distanceMeters, 0.64, accuracy: 0.001)
+        XCTAssertEqual(setup.heightMeters, 1.5, accuracy: 0.001)
+        XCTAssertEqual(setup.tiltDegrees, 0, accuracy: 0.001)
+        XCTAssertTrue(setup.distanceFromFace)
+    }
+
     func testCroppedLegsDoNotSupportCameraPlacement() {
         let cropped: [PoseJoint: CGPoint] = [
             .nose: CGPoint(x: 0.5, y: 0.1),
@@ -98,6 +114,16 @@ final class ShotSpecTests: XCTestCase {
         let estimate = await ShotSpecEstimator.estimate(image: croppedImage)
         XCTAssertNotEqual(estimate.spec.source, .pose3D, estimate.diagnostics.text)
     }
+
+    #if !targetEnvironment(simulator)
+    func testBundledFullBodyReferenceProvidesCameraMeasurementsOnDevice() async throws {
+        let portrait = try XCTUnwrap(UIImage(named: "InspirationPortrait"))
+        let estimate = await ShotSpecEstimator.estimate(image: portrait)
+        XCTAssertNotNil(estimate.spec.distanceMeters, estimate.diagnostics.text)
+        XCTAssertNotNil(estimate.spec.cameraHeightRatio, estimate.diagnostics.text)
+        XCTAssertNotNil(estimate.spec.pitchDegrees, estimate.diagnostics.text)
+    }
+    #endif
 
     func testSilhouetteSelectsPersonMatchedByPoseInsteadOfLongestContour() {
         let target = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.35, y: 0.1),

@@ -3,10 +3,10 @@ import SwiftUI
 // MARK: - Foundations
 
 enum Palette {
-    static let background = Color.black
-    static let surface = Color(red: 0.075, green: 0.075, blue: 0.075)
-    static let elevated = Color(red: 0.14, green: 0.14, blue: 0.14)
-    static let border = Color(red: 0.22, green: 0.22, blue: 0.22)
+    static let background = Color(red: 0.035, green: 0.04, blue: 0.055)
+    static let surface = Color(uiColor: .secondarySystemGroupedBackground)
+    static let elevated = Color(uiColor: .tertiarySystemGroupedBackground)
+    static let border = Color.white.opacity(0.12)
     static let primaryText = Color.white
     static let secondaryText = Color(red: 0.68, green: 0.68, blue: 0.68)
     static let tertiaryText = Color(red: 0.48, green: 0.48, blue: 0.48)
@@ -30,9 +30,34 @@ enum PoserSpace {
 }
 
 enum PoserRadius {
-    static let control: CGFloat = 4
-    static let image: CGFloat = 0
-    static let surface: CGFloat = 4
+    static let control: CGFloat = 22
+    static let image: CGFloat = 24
+    static let surface: CGFloat = 28
+}
+
+private struct PoserGlassModifier: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    let cornerRadius: CGFloat
+    let interactive: Bool
+    let tint: Color
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if reduceTransparency {
+            content
+                .background(tint == .clear ? Palette.elevated : tint, in: shape)
+                .overlay(shape.stroke(Palette.border, lineWidth: 1))
+        } else {
+            content.glassEffect(.regular.tint(tint).interactive(interactive), in: shape)
+        }
+    }
+}
+
+extension View {
+    func poserGlass(cornerRadius: CGFloat = PoserRadius.control,
+                    interactive: Bool = false, tint: Color = .clear) -> some View {
+        modifier(PoserGlassModifier(cornerRadius: cornerRadius, interactive: interactive, tint: tint))
+    }
 }
 
 enum PoserType {
@@ -80,8 +105,7 @@ struct SecondaryButton: View {
                 .font(PoserType.action)
                 .foregroundStyle(Palette.primaryText)
                 .frame(maxWidth: .infinity, minHeight: 52)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                .overlay(RoundedRectangle(cornerRadius: PoserRadius.control).stroke(Palette.border))
+                .poserGlass(interactive: true)
         }
         .buttonStyle(PoserPressStyle())
     }

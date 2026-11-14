@@ -1,8 +1,24 @@
 import SwiftUI
 import PhotosUI
 
+private struct ReferenceTagFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .null
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
+private struct SavedInspirationFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .null
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
+enum HomePaging {
+    static func allowsSwipe(start: CGPoint, translation: CGSize, excluding frame: CGRect) -> Bool {
+        !frame.contains(start) && abs(translation.width) > abs(translation.height)
+    }
+}
+
 struct HomeView: View {
-    private enum Tab: Hashable { case camera, home, profile }
+    private enum Tab: Int, CaseIterable { case home, camera, profile }
 
     @State private var activeTab: Tab = .camera
     @StateObject private var inspirationStore = InspirationStore()
@@ -10,12 +26,14 @@ struct HomeView: View {
     @StateObject private var profileStore = UserProfileStore()
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var pendingImports: [PendingImport] = []
+    @State private var pendingReferenceDeletion: Set<UUID> = []
     @State private var isEditingInspiration = false
+    @State private var selectedInspiration: Set<UUID> = []
+    @State private var savedInspirationFrame: CGRect = .null
     @State private var referenceImage: UIImage?
     @State private var analysis: PhotoAnalysis?
     @State private var selectedRecipe: ShotRecipe?
     @State private var capturedImage: UIImage?
-    @State private var showingLink = false
     @State private var showingScan = false
     @State private var showingPoseTutorial = false
     @State private var isAnalyzing = false
@@ -24,6 +42,11 @@ struct HomeView: View {
     @State private var isSceneScan = false
     @State private var comparisonNote: String?
     @State private var poseScore: Int?
+    @State private var geminiReferenceNote: String?
+    @State private var geminiShotFeedback: String?
+    @State private var geminiMessage: String?
+    @State private var isDescribingReference = false
+    @State private var isGeneratingFeedback = false
     @State private var scannedScene: UIImage?
     @State private var sceneMatches: [SceneMatch] = []
     @State private var selectedMatches: Set<UUID> = []
@@ -35,29 +58,57 @@ struct HomeView: View {
     @State private var flowID = UUID()
     @State private var showLiveCamera = true
     @State private var showShotDetails = false
+    @State private var selectedReferenceTag: ReferenceTag?
+    @State private var referenceQuery = ""
+    @State private var isReferenceSearchExpanded = false
+    @State private var isSearchKeyboardVisible = false
+    @FocusState private var isReferenceSearchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var referenceTagFrame: CGRect = .null
+    @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.25)))
+    private var pageDragOffset: CGFloat = 0
+
+    private var isBottomNavigationVisible: Bool {
+        !showingPoseTutorial && !isReferenceSearchFocused && !isSearchKeyboardVisible
+    }
+    @State private var startingSetup = ReferenceStartingSetup()
 
     var body: some View {
         NavigationStack {
-            TabView(selection: $activeTab) {
-                cameraPage
-                    .tag(Tab.camera)
-                homePage
-                    .tag(Tab.home)
-                profilePage
-                    .tag(Tab.profile)
+            ZStack(alignment: .bottom) {
+                // Extend the pages themselves, not just their background, below
+                // the home indicator. Navigation keeps the normal safe area.
+                pagePager
+                    .ignoresSafeArea(.container, edges: .bottom)
+                // Keep the glass surface mounted so its material is ready
+                // before it fades back in after keyboard dismissal.
+                bottomBar
+                    .opacity(isBottomNavigationVisible ? 1 : 0)
+                    .offset(y: !reduceMotion && !isBottomNavigationVisible ? 12 : 0)
+                    .scaleEffect(!reduceMotion && !isBottomNavigationVisible ? 0.98 : 1, anchor: .bottom)
+                    .allowsHitTesting(isBottomNavigationVisible)
+                    .accessibilityHidden(!isBottomNavigationVisible)
+                    .animation(reduceMotion ? .easeOut(duration: 0.18)
+                               : .spring(response: 0.42, dampingFraction: 1),
+                               value: isBottomNavigationVisible)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
             .background(Palette.background.ignoresSafeArea())
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !showingPoseTutorial { bottomBar }
-            }
             .toolbar(.hidden, for: .navigationBar)
         }
         .tint(.white)
         .preferredColorScheme(.dark)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            if isReferenceSearchFocused { isSearchKeyboardVisible = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+            // Wait until dismissal completes so navigation never rises above
+            // a keyboard that is still moving off screen.
+            isSearchKeyboardVisible = false
+        }
         .overlay {
             if showingPoseTutorial, let selectedRecipe {
-                PoseTutorialView(analysis: analysis, recipe: selectedRecipe) {
+                PoseTutorialView(analysis: analysis, recipe: selectedRecipe,
+                                 referenceImage: referenceImage, startingSetup: $startingSetup) {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
                 } onClose: {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
@@ -95,13 +146,6 @@ struct HomeView: View {
                 pendingImports = []
             }
         }
-        .sheet(isPresented: $showingLink) {
-            LinkEntryView { image in
-                showingLink = false
-                Task { await importInspiration(image, source: .link) }
-            }
-            .presentationDetents([.medium])
-        }
         .fullScreenCover(isPresented: $showingScan) {
             CameraScreen(mode: .scan, recipe: nil, targetX: 0.5) { image in
                 Task { await scanScene(image) }
@@ -122,6 +166,65 @@ struct HomeView: View {
         )) {
             Button("OK", role: .cancel) { savedMessage = nil }
         } message: { Text(savedMessage ?? "") }
+        .confirmationDialog(pendingReferenceDeletion.count == 1 ? "Delete this reference photo?"
+                            : "Delete \(pendingReferenceDeletion.count) reference photos?", isPresented: Binding(
+            get: { !pendingReferenceDeletion.isEmpty },
+            set: { if !$0 { pendingReferenceDeletion = [] } }
+        ), titleVisibility: .visible, presenting: pendingReferenceDeletion) { ids in
+            Button(ids.count == 1 ? "Delete reference" : "Delete \(ids.count) references",
+                   role: .destructive) {
+                deleteReferences(ids)
+            }
+            Button("Cancel", role: .cancel) { pendingReferenceDeletion = [] }
+        } message: { _ in
+            Text("This removes saved photos from Poser. Your photo library is unchanged.")
+        }
+    }
+
+    private var pagePager: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                homePage.frame(width: geometry.size.width)
+                cameraPage.frame(width: geometry.size.width)
+                profilePage.frame(width: geometry.size.width)
+            }
+            .offset(x: -CGFloat(activeTab.rawValue) * geometry.size.width + pageDragOffset)
+            .frame(width: geometry.size.width, alignment: .leading)
+            .clipped()
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.25), value: activeTab)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20, coordinateSpace: .named("homePager"))
+                    .updating($pageDragOffset) { value, offset, _ in
+                        guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
+                        guard activeTab != .home || !savedInspirationFrame.contains(value.startLocation) else { return }
+                        let excludedFrame = activeTab == .home ? referenceTagFrame : .null
+                        guard HomePaging.allowsSwipe(start: value.startLocation,
+                                                     translation: value.translation,
+                                                     excluding: excludedFrame) else { return }
+                        let translation = value.translation.width
+                        guard !(activeTab == .home && translation > 0),
+                              !(activeTab == .profile && translation < 0) else { return }
+                        offset = translation
+                    }
+                    .onEnded { value in
+                        guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
+                        guard activeTab != .home || !savedInspirationFrame.contains(value.startLocation) else { return }
+                        let excludedFrame = activeTab == .home ? referenceTagFrame : .null
+                        guard HomePaging.allowsSwipe(start: value.startLocation,
+                                                     translation: value.translation,
+                                                     excluding: excludedFrame),
+                              abs(value.translation.width) > 50 else { return }
+                        let step = value.translation.width < 0 ? 1 : -1
+                        if let next = Tab(rawValue: activeTab.rawValue + step) {
+                            activeTab = next
+                        }
+                    }
+            )
+        }
+        .coordinateSpace(name: "homePager")
+        .onPreferenceChange(ReferenceTagFrameKey.self) { referenceTagFrame = $0 }
+        .onPreferenceChange(SavedInspirationFrameKey.self) { savedInspirationFrame = $0 }
     }
 
     @ViewBuilder
@@ -133,7 +236,7 @@ struct HomeView: View {
             targetX: analysis?.subjectPoint?.x ?? 0.5,
             targetPose: analysis?.poseSkeleton,
             shotGeometry: analysis?.geometry,
-            shotSpec: analysis?.shotSpec,
+            shotSpec: analysis.map { $0.shotSpec.withSubjectBox($0.subjectBox) },
             referenceImage: selectedRecipe == nil ? nil : referenceImage,
             referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
             queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
@@ -145,12 +248,16 @@ struct HomeView: View {
                 capturedImage = image
                 comparisonNote = nil
                 poseScore = nil
+                geminiShotFeedback = nil
+                geminiMessage = nil
                 withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
                 Task { await compare(image) }
             } else if selectedRecipe != nil, referenceImage != nil {
                 capturedImage = image
                 comparisonNote = nil
                 poseScore = nil
+                geminiShotFeedback = nil
+                geminiMessage = nil
                 withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
                 Task { await compare(image) }
             } else {
@@ -167,18 +274,35 @@ struct HomeView: View {
     }
 
     private var homePage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
-                header
-                landing
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 32) {
+                    header
+                    landing
+                }
+                .frame(maxWidth: 620)
+                .padding(.horizontal, PoserSpace.large)
+                .padding(.top, PoserSpace.large)
+                .padding(.bottom, 86)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 620)
-            .padding(.horizontal, PoserSpace.large)
-            .padding(.top, PoserSpace.large)
-            .padding(.bottom, PoserSpace.xLarge)
-            .frame(maxWidth: .infinity)
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: isReferenceSearchExpanded) { _, expanded in
+                if expanded { centerReferenceSearch(using: scroll) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                // Center again in the final keyboard-adjusted viewport, rather
+                // than leaving suggestions below the keyboard after expansion.
+                if isReferenceSearchFocused { centerReferenceSearch(using: scroll) }
+            }
         }
         .background(Palette.background)
+    }
+
+    private func centerReferenceSearch(using scroll: ScrollViewProxy) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+            scroll.scrollTo("reference-search-bubble", anchor: .center)
+        }
     }
 
     private var shootPage: some View {
@@ -214,7 +338,7 @@ struct HomeView: View {
             .frame(maxWidth: 620)
             .padding(.horizontal, PoserSpace.large)
             .padding(.top, PoserSpace.large)
-            .padding(.bottom, PoserSpace.xLarge)
+            .padding(.bottom, 148)
             .frame(maxWidth: .infinity)
         }
         .id(capturedImage == nil ? "shot-plan" : "shot-review")
@@ -248,53 +372,42 @@ struct HomeView: View {
                 .opacity(selectedMatches.isEmpty ? 0.4 : 1)
                 .padding(.horizontal, PoserSpace.large)
                 .padding(.top, 10)
+                .padding(.bottom, 8)
             }
-            HStack(spacing: 0) {
-            Button { withAnimation(.easeOut(duration: 0.32)) { activeTab = .home } } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: activeTab == .home ? "house.fill" : "house")
-                        .font(.system(size: 20))
-                    Text("Home")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(activeTab == .home ? .white : .white.opacity(0.55))
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 4) {
+                navigationItem(.home, title: "Home", symbol: "house", selectedSymbol: "house.fill")
+                navigationItem(.camera, title: "Camera", symbol: "camera", selectedSymbol: "camera.fill")
+                navigationItem(.profile, title: "Profile", symbol: "person.crop.circle", selectedSymbol: "person.crop.circle.fill")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Home")
-            Button {
-                withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
-            } label: {
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(width: 52, height: 52)
-                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                    .overlay(RoundedRectangle(cornerRadius: PoserRadius.control).stroke(.white.opacity(activeTab == .camera ? 0.8 : 0), lineWidth: 2).padding(-5))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Camera")
-            Button { withAnimation(.easeOut(duration: 0.32)) { activeTab = .profile } } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: activeTab == .profile ? "person.crop.circle.fill" : "person.crop.circle")
-                        .font(.system(size: 21))
-                    Text("Profile")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(activeTab == .profile ? .white : .white.opacity(0.55))
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Profile")
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 70)
+            .padding(6)
+            .poserGlass(cornerRadius: 36)
+            .frame(maxWidth: 420)
+            .padding(.horizontal, PoserSpace.large)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
         }
-        .background {
-            Palette.background.opacity(0.92)
-                .ignoresSafeArea(edges: .bottom)
+    }
+
+    private func navigationItem(_ tab: Tab, title: String, symbol: String, selectedSymbol: String) -> some View {
+        let selected = activeTab == tab
+        return Button {
+            withAnimation(.easeOut(duration: 0.32)) { activeTab = tab }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: selected ? selectedSymbol : symbol)
+                    .font(.system(size: 21, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(selected ? .white : Palette.secondaryText)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(.white.opacity(selected ? 0.16 : 0), in: Capsule())
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private var header: some View {
@@ -330,9 +443,6 @@ struct HomeView: View {
                              selectionBehavior: .ordered, matching: .images) {
                     feedAction(symbol: "plus", title: "Add photos")
                 }
-                Button { showingLink = true } label: {
-                    feedAction(symbol: "link", title: "Paste link")
-                }
             }
             .buttonStyle(.plain)
 
@@ -344,16 +454,150 @@ struct HomeView: View {
                 Text("For you")
                     .font(.system(size: 21, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
+                Spacer()
+                Text("\(filteredReferences.count) photos")
+                    .font(PoserType.caption)
+                    .foregroundStyle(Palette.secondaryText)
+            }
+
+            referenceSearchBubble
+                .padding(.top, -12)
+                .id("reference-search-bubble")
+
+            if filteredReferences.isEmpty {
+                ContentUnavailableView {
+                    Label("No references found", systemImage: "magnifyingglass")
+                } description: {
+                    Text("Try another search or category.")
+                } actions: {
+                    Button("Clear search and filters") {
+                        referenceQuery = ""
+                        selectedReferenceTag = nil
+                    }
+                }
             }
 
             LazyVStack(alignment: .leading, spacing: 28) {
-                ForEach(ReferenceCatalog.items) { asset in
+                ForEach(filteredReferences) { asset in
                     if let image = asset.preview {
                         feedCard(asset, image: image)
                     }
                 }
             }
         }
+    }
+
+    private var filteredReferences: [ReferenceAsset] {
+        ReferenceCatalog.items(matching: selectedReferenceTag, query: referenceQuery)
+    }
+
+    private var referenceSearchBubble: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Palette.secondaryText)
+                    .frame(width: 24, height: 52)
+                    .contentShape(Rectangle())
+                    .onTapGesture { isReferenceSearchFocused = true }
+                TextField("Search references", text: $referenceQuery)
+                    .font(PoserType.body)
+                    .frame(minHeight: 52)
+                    .focused($isReferenceSearchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("referenceSearchField")
+                    .onSubmit { closeReferenceSearch() }
+                if !referenceQuery.isEmpty {
+                    Button { referenceQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Palette.secondaryText)
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Clear search")
+                }
+                if isReferenceSearchExpanded {
+                    Button(action: closeReferenceSearch) {
+                        Image(systemName: "chevron.up")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Collapse search")
+                }
+            }
+            .frame(minHeight: 52)
+
+            if isReferenceSearchExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    Divider().overlay(Palette.border)
+                    Text("Explore categories")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                    ScrollView(.vertical) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8)], spacing: 8) {
+                            referenceTagButton(nil)
+                            ForEach(ReferenceCatalog.tags) { tag in
+                                referenceTagButton(tag)
+                            }
+                        }
+                        .padding(.bottom, 4)
+                    }
+                    .frame(height: 188)
+                    .scrollIndicators(.hidden)
+                    .accessibilityIdentifier("referenceCategorySuggestions")
+                }
+                .padding(.bottom, 16)
+                .transition(.opacity)
+            } else if let tag = selectedReferenceTag {
+                Button { selectedReferenceTag = nil } label: {
+                    Label(tag.title, systemImage: "xmark.circle.fill")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                        .frame(minHeight: 44)
+                }
+                .accessibilityLabel("Remove \(tag.title) filter")
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .foregroundStyle(Palette.primaryText)
+        .poserGlass(cornerRadius: isReferenceSearchExpanded ? 28 : 26)
+        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86),
+                   value: isReferenceSearchExpanded)
+        .onChange(of: isReferenceSearchFocused) { _, focused in
+            if focused { isReferenceSearchExpanded = true }
+        }
+        .onChange(of: activeTab) { _, tab in
+            if tab != .home { closeReferenceSearch() }
+        }
+        .accessibilityIdentifier("referenceSearchBubble")
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: ReferenceTagFrameKey.self,
+                                       value: geometry.frame(in: .named("homePager")))
+            }
+        }
+    }
+
+    private func closeReferenceSearch() {
+        isReferenceSearchFocused = false
+        isReferenceSearchExpanded = false
+    }
+
+    private func referenceTagButton(_ tag: ReferenceTag?) -> some View {
+        let isSelected = selectedReferenceTag == tag
+        return Button {
+            selectedReferenceTag = tag
+            isReferenceSearchFocused = false
+        } label: {
+            Text(tag?.title ?? "All")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(isSelected ? Palette.background : Palette.primaryText)
+                .background(isSelected ? .white : .white.opacity(0.08), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(tag.map { "Filter reference photos by \($0.title)" } ?? "Show all categories")
     }
 
     private func feedAction(symbol: String, title: String) -> some View {
@@ -367,8 +611,7 @@ struct HomeView: View {
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, minHeight: 44)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-        .overlay(RoundedRectangle(cornerRadius: PoserRadius.control).stroke(Palette.border, lineWidth: 1))
+        .poserGlass(interactive: true)
     }
 
     private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
@@ -387,30 +630,22 @@ struct HomeView: View {
                 }
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                // Cropping the image does not constrain its hit-testing area.
+                // Keep the photo button inside its visible tile, away from the filters.
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(asset.title) inspiration")
 
-            HStack(alignment: .center) {
-                Text(asset.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                Spacer()
-                if let source = asset.source {
-                    Link(destination: source) {
-                        Image(systemName: "link")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Palette.secondaryText)
-                            .frame(width: 38, height: 38)
-                    }
-                    .accessibilityLabel("Open original Pin")
-                }
-            }
-            Rectangle().fill(Palette.border).frame(height: 1).padding(.top, 9)
+            Text(asset.title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+            .padding(.horizontal, 4)
         }
+        .padding(12)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface, style: .continuous))
     }
 
-    @ViewBuilder
     private var savedInspiration: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
@@ -418,75 +653,128 @@ struct HomeView: View {
                     .font(PoserType.title)
                     .foregroundStyle(.white)
                 Spacer()
-                Text("\(inspirationStore.items.count) saved")
+                Text(isEditingInspiration ? "\(selectedInspiration.count) selected" : "\(inspirationStore.items.count) saved")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.secondaryText)
                 Button(isEditingInspiration ? "Done" : "Edit") {
-                    withAnimation(.easeOut(duration: 0.2)) { isEditingInspiration.toggle() }
+                    isEditingInspiration.toggle()
+                    selectedInspiration = []
                 }
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .font(.system(size: 14, weight: .semibold))
                 .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
             }
-            if inspirationStore.items.isEmpty {
-                Text("Photos you import will appear here for future shoots and scene matching.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Palette.secondaryText)
-                    .padding(.vertical, 12)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 11) {
-                        ForEach(inspirationStore.items) { item in
-                            if let image = inspirationStore.image(for: item) {
-                                Button {
-                                    if isEditingInspiration {
-                                        deleteInspiration(item)
-                                        return
-                                    }
-                                    Task {
-                                        let original = inspirationStore.originalData(for: item)
-                                        await analyze(original.flatMap(UIImage.init(data:)) ?? image,
-                                                      scene: false, imageData: original)
-                                    }
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 132, height: 132)
-                                            .clipped()
-                                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                                            .opacity(isEditingInspiration ? 0.7 : 1)
-                                            .overlay(alignment: .topTrailing) {
-                                                if isEditingInspiration {
-                                                    Image(systemName: "xmark.circle.fill")
-                                                        .font(.system(size: 22, weight: .semibold))
-                                                        .symbolRenderingMode(.palette)
-                                                        .foregroundStyle(.black, .white)
-                                                        .padding(6)
-                                                        .transition(.scale.combined(with: .opacity))
-                                                }
-                                            }
-                                        Text(item.title)
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundStyle(.white)
-                                            .lineLimit(1)
-                                    }
-                                    .frame(width: 132, alignment: .leading)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(isEditingInspiration ? "Delete \(item.title)" : "Open \(item.title)")
-                                .contextMenu {
-                                    Button(role: .destructive) { deleteInspiration(item) } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                            }
+            if isEditingInspiration {
+                HStack {
+                    Button(selectedInspiration.count == inspirationStore.items.count ? "Deselect all" : "Select all") {
+                        selectedInspiration = selectedInspiration.count == inspirationStore.items.count
+                            ? [] : Set(inspirationStore.items.map(\.id))
+                    }
+                    Spacer()
+                    Button("Delete (\(selectedInspiration.count))", role: .destructive) {
+                        pendingReferenceDeletion = selectedInspiration
+                    }
+                    .disabled(selectedInspiration.isEmpty)
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .frame(minHeight: 44)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 11) {
+                    ForEach(inspirationStore.items) { item in
+                        if let image = inspirationStore.image(for: item) {
+                            savedInspirationCard(item, image: image)
                         }
                     }
                 }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 3)
+            }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: SavedInspirationFrameKey.self,
+                                           value: geometry.frame(in: .named("homePager")))
+                }
             }
         }
+    }
+
+    private func savedInspirationCard(_ item: InspirationItem, image: UIImage) -> some View {
+        let selected = selectedInspiration.contains(item.id)
+        return Button {
+            if isEditingInspiration {
+                if selected { selectedInspiration.remove(item.id) }
+                else { selectedInspiration.insert(item.id) }
+            } else {
+                Task {
+                    let original = inspirationStore.originalData(for: item)
+                    await analyze(original.flatMap(UIImage.init(data:)) ?? image,
+                                  scene: false, imageData: original)
+                }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 132, height: 132)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                    .contentShape(Rectangle())
+                    .overlay {
+                        if isEditingInspiration && selected {
+                            RoundedRectangle(cornerRadius: PoserRadius.image)
+                                .stroke(.white, lineWidth: 3)
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if isEditingInspiration {
+                            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 23, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(7)
+                                .background(.black.opacity(0.6), in: Circle())
+                                .padding(6)
+                        }
+                    }
+                Text(item.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+            .frame(width: 132, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isEditingInspiration ? "Select \(item.title)" : "Open \(item.title)")
+        .accessibilityAddTraits(selected && isEditingInspiration ? [.isSelected] : [])
+        .contextMenu {
+            if !isEditingInspiration {
+                Button("Delete reference", systemImage: "trash", role: .destructive) {
+                    pendingReferenceDeletion = [item.id]
+                }
+            }
+        }
+    }
+
+    private func deleteReferences(_ ids: Set<UUID>) {
+        pendingReferenceDeletion = []
+        let previousIDs = Set(inspirationStore.items.map(\.id))
+        do {
+            try inspirationStore.remove(ids: ids)
+        } catch {
+            errorMessage = "Could not delete reference photos. \(error.localizedDescription)"
+        }
+        let removed = previousIDs.subtracting(inspirationStore.items.map(\.id))
+        if !removed.isDisjoint(with: shootQueue) {
+            let tab = activeTab
+            reset()
+            activeTab = tab
+        }
+        selectedMatches.subtract(removed)
+        sceneMatches.removeAll { removed.contains($0.id) }
+        selectedInspiration.subtract(removed)
+        if inspirationStore.items.isEmpty { isEditingInspiration = false }
     }
 
     private var sceneMatchResults: some View {
@@ -586,22 +874,60 @@ struct HomeView: View {
                     .foregroundStyle(.white.opacity(0.55))
             }
             if let referenceImage {
-                GeometryReader { tile in
-                    Image(uiImage: referenceImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: tile.size.width, height: tile.size.height)
-                        .background(Palette.surface)
-                        .overlay(alignment: .topLeading) {
-                            imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
-                        }
-                    }
+                Image(uiImage: referenceImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
                     .aspectRatio(1, contentMode: .fit)
+                    .background(Palette.surface)
+                    .overlay(alignment: .topLeading) {
+                        imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
+                    }
             }
             VStack(spacing: 0) {
-                instruction(symbol: "iphone", title: "Camera", body: analysis?.geometry.distanceLabel ?? recipe.camera)
+                instruction(symbol: "arrow.left.and.right", title: "Distance", body: analysis.map {
+                    $0.shotSpec.distanceMeters != nil ? $0.geometry.distanceLabel :
+                    "Start \(ShotSpec.formatDistance(startingSetup.distanceMeters)) away" +
+                    ($0.faceDistanceMeters != nil ? " (face estimate)" : " (adjustable)")
+                } ?? recipe.camera)
+                rowDivider
+                instruction(symbol: "iphone", title: "Phone height", body: analysis.map {
+                    $0.shotSpec.cameraHeightRatio != nil ? $0.geometry.adjustmentLabel :
+                    "Start ≈\(startingSetup.heightMeters.formatted(.number.precision(.fractionLength(1)))) m high (adjustable)"
+                } ?? "Analyzing reference")
+                rowDivider
+                instruction(symbol: "angle", title: "Camera tilt", body: analysis.map {
+                    $0.shotSpec.pitchDegrees != nil ? $0.geometry.angleLabel :
+                    "Start at \(Int(startingSetup.tiltDegrees))° (adjustable)"
+                } ?? "Analyzing reference")
                 rowDivider
                 instruction(symbol: "figure.stand", title: "Pose", body: analysis.map { $0.poseSkeleton?.shortCue ?? "Pose not measured; use the photo as your guide." } ?? recipe.pose)
+            }
+            if let analysis, analysis.shotSpec.source != .pose3D {
+                Text("These starting values are adjustable in the pose guide. Height and tilt are not measured from this photo.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if GeminiImageCoach.isConfigured, let referenceImage {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button {
+                        Task { await describeReference(referenceImage) }
+                    } label: {
+                        Label(isDescribingReference ? "Describing pose…" : "Describe pose with Gemini",
+                              systemImage: "sparkles")
+                    }
+                    .disabled(isDescribingReference)
+                    Text("Sends the reference photo to Gemini when you tap.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.secondaryText)
+                    if isDescribingReference { ProgressView().tint(.white) }
+                    if let geminiReferenceNote { Text(geminiReferenceNote).font(.system(size: 14)) }
+                    if let geminiMessage { Text(geminiMessage).font(.system(size: 13)).foregroundStyle(Palette.secondaryText) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
             }
             Button {
                 openPoseGuide()
@@ -657,6 +983,26 @@ struct HomeView: View {
                     .font(.system(size: 15))
                     .foregroundStyle(.white.opacity(0.58))
             }
+            if GeminiImageCoach.isConfigured, let referenceImage {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button {
+                        Task { await generateFeedback(reference: referenceImage, shot: image) }
+                    } label: {
+                        Label(isGeneratingFeedback ? "Comparing photos…" : "Get Gemini feedback",
+                              systemImage: "sparkles")
+                    }
+                    .disabled(isGeneratingFeedback)
+                    Text("Sends both photos to Gemini when you tap.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.secondaryText)
+                    if isGeneratingFeedback { ProgressView().tint(.white) }
+                    if let geminiShotFeedback { Text(geminiShotFeedback).font(.system(size: 14)) }
+                    if let geminiMessage { Text(geminiMessage).font(.system(size: 13)).foregroundStyle(Palette.secondaryText) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
+            }
             if let poseScore {
                 HStack {
                     Text("Pose match")
@@ -704,6 +1050,8 @@ struct HomeView: View {
                     capturedImage = nil
                     comparisonNote = nil
                     poseScore = nil
+                    geminiShotFeedback = nil
+                    geminiMessage = nil
                     withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = true; activeTab = .camera }
                 }
                 .disabled(isSavingShot)
@@ -779,12 +1127,17 @@ struct HomeView: View {
         capturedImage = nil
         comparisonNote = nil
         poseScore = nil
+        geminiReferenceNote = nil
+        geminiShotFeedback = nil
+        geminiMessage = nil
         selectedRecipe = nil
         isAnalyzing = true
         do {
             let result = try await AnalysisService.analyze(image, imageData: imageData)
             guard requestID == flowID else { return }
             analysis = result
+            startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
+                                                   faceDistanceMeters: result.faceDistanceMeters)
             selectedRecipe = result.recipe
         } catch {
             guard requestID == flowID else { return }
@@ -823,18 +1176,6 @@ struct HomeView: View {
                 errorMessage = error.localizedDescription
                 return
             }
-        }
-    }
-
-    private func deleteInspiration(_ item: InspirationItem) {
-        do {
-            try withAnimation(.easeOut(duration: 0.2)) {
-                try inspirationStore.remove([item.id])
-            }
-            selectedMatches.remove(item.id)
-            if inspirationStore.items.isEmpty { isEditingInspiration = false }
-        } catch {
-            errorMessage = "This photo could not be deleted. Try again."
         }
     }
 
@@ -922,6 +1263,11 @@ struct HomeView: View {
             guard requestID == flowID else { return }
             referenceImage = image
             analysis = result
+            geminiReferenceNote = nil
+            geminiShotFeedback = nil
+            geminiMessage = nil
+            startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
+                                                   faceDistanceMeters: result.faceDistanceMeters)
             selectedRecipe = result.recipe
             capturedImage = nil
             showLiveCamera = true
@@ -1004,8 +1350,15 @@ struct HomeView: View {
     private func compare(_ image: UIImage) async {
         guard let result = try? await AnalysisService.analyze(image) else { return }
         guard capturedImage === image else { return }
-        if let reference = analysis,
-           let match = PoseMatcher.compare(reference: reference.poseSkeleton, live: result.poseSkeleton,
+        guard let reference = analysis, reference.poseSkeleton != nil else {
+            comparisonNote = "No measurable person pose was found in the reference photo. Choose a clearer reference to get a pose score."
+            return
+        }
+        guard result.poseSkeleton != nil else {
+            comparisonNote = "No measurable person pose was found in your photo. Keep your arms and legs in view, then try again."
+            return
+        }
+        if let match = PoseMatcher.compare(reference: reference.poseSkeleton, live: result.poseSkeleton,
                                            referenceOutline: reference.shotSpec.silhouette,
                                            liveOutline: result.shotSpec.silhouette) {
             poseScore = match.score
@@ -1023,19 +1376,41 @@ struct HomeView: View {
             let overlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
                                                          live: result.shotSpec.silhouette)
             comparisonNote = match.score >= 85 && (overlap ?? 100) < 70
-                ? "Your pose shape is close. Move or reframe until your outline sits on the guide."
+                ? "Your pose shape is close. Move or reframe to match the reference."
                 : match.cue
             return
         }
-        guard let referencePoint = analysis?.subjectPoint,
-              let capturedPoint = result.subjectPoint else { return }
-        let offset = capturedPoint.x - referencePoint.x
-        if abs(offset) < 0.08 {
-            comparisonNote = "Your subject is close to the reference position. Check the light and background next."
-        } else if offset < 0 {
-            comparisonNote = "Your subject sits farther left than in the reference. Shift the frame a little right."
-        } else {
-            comparisonNote = "Your subject sits farther right than in the reference. Shift the frame a little left."
+        comparisonNote = "Not enough matching arm and leg joints were visible to score this pose. Try a clearer full-body shot."
+    }
+
+    private func describeReference(_ image: UIImage) async {
+        guard !isDescribingReference else { return }
+        isDescribingReference = true
+        geminiMessage = nil
+        defer { isDescribingReference = false }
+        do {
+            let note = try await GeminiImageCoach.describeReference(image, hasMeasuredPose: analysis?.poseSkeleton != nil)
+            guard referenceImage === image else { return }
+            geminiReferenceNote = note
+        } catch {
+            guard referenceImage === image else { return }
+            geminiMessage = error.localizedDescription
+        }
+    }
+
+    private func generateFeedback(reference: UIImage, shot: UIImage) async {
+        guard !isGeneratingFeedback else { return }
+        isGeneratingFeedback = true
+        geminiMessage = nil
+        defer { isGeneratingFeedback = false }
+        do {
+            let note = try await GeminiImageCoach.compare(reference: reference, shot: shot,
+                                                           measuredScore: poseScore, measuredCue: comparisonNote)
+            guard referenceImage === reference, capturedImage === shot else { return }
+            geminiShotFeedback = note
+        } catch {
+            guard capturedImage === shot else { return }
+            geminiMessage = error.localizedDescription
         }
     }
 
@@ -1052,6 +1427,9 @@ struct HomeView: View {
         isSceneScan = false
         comparisonNote = nil
         poseScore = nil
+        geminiReferenceNote = nil
+        geminiShotFeedback = nil
+        geminiMessage = nil
         scannedScene = nil
         sceneMatches = []
         selectedMatches = []
@@ -1062,87 +1440,7 @@ struct HomeView: View {
         showingPoseTutorial = false
         isAnalyzing = false
         showShotDetails = false
-    }
-}
-
-struct LinkEntryView: View {
-    let onImage: (UIImage) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var link = ""
-    @State private var loading = false
-    @State private var errorMessage: String?
-    @State private var preview: UIImage?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text(preview == nil ? "Paste a link" : "Is this the one?")
-                    .font(.system(size: 25, weight: .bold, design: .rounded))
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                    .accessibilityLabel("Close")
-            }
-            if let preview {
-                Image(uiImage: preview)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: 320)
-                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                    .accessibilityLabel("Photo from the link")
-                Button { onImage(preview) } label: {
-                    Text("Use this photo")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                }
-                .buttonStyle(.plain)
-                Button("Try another link") {
-                    self.preview = nil
-                    link = ""
-                }
-                .font(.system(size: 15, weight: .medium))
-                .frame(maxWidth: .infinity, minHeight: 44)
-            } else {
-                Text("Use a public Pinterest or Instagram post, or a direct image URL.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white.opacity(0.56))
-                TextField("https://…", text: $link)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                    .padding(15)
-                    .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-                Button {
-                    loading = true
-                    errorMessage = nil
-                    Task {
-                        do { preview = try await LinkImageLoader.image(from: link) }
-                        catch { errorMessage = error.localizedDescription }
-                        loading = false
-                    }
-                } label: {
-                    Text(loading ? "Loading preview…" : "Load photo")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 17)
-                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                }
-                .buttonStyle(.plain)
-                .disabled(loading || link.isEmpty)
-            }
-            Spacer()
-        }
-        .padding(24)
-        .background(Palette.background.ignoresSafeArea())
-        .foregroundStyle(.white)
+        startingSetup = ReferenceStartingSetup()
     }
 }
 

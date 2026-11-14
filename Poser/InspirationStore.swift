@@ -85,18 +85,6 @@ final class InspirationStore: ObservableObject {
         return item
     }
 
-    func remove(_ ids: Set<UUID>) throws {
-        let removed = items.filter { ids.contains($0.id) }
-        guard !removed.isEmpty else { return }
-        let updated = items.filter { !ids.contains($0.id) }
-        try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
-        items = updated
-        for item in removed {
-            try? FileManager.default.removeItem(at: folder.appendingPathComponent(item.filename))
-            try? FileManager.default.removeItem(at: folder.appendingPathComponent("\(item.id.uuidString).original"))
-        }
-    }
-
     func image(for item: InspirationItem) -> UIImage? {
         UIImage(contentsOfFile: folder.appendingPathComponent(item.filename).path)
     }
@@ -104,5 +92,25 @@ final class InspirationStore: ObservableObject {
     /// Original bytes preserve EXIF lens and depth metadata for later shot analysis.
     func originalData(for item: InspirationItem) -> Data? {
         try? Data(contentsOf: folder.appendingPathComponent("\(item.id.uuidString).original"))
+    }
+
+    func remove(_ item: InspirationItem) throws {
+        try remove(ids: [item.id])
+    }
+
+    func remove(ids: Set<UUID>) throws {
+        let removed = items.filter { ids.contains($0.id) }
+        guard !removed.isEmpty else { return }
+        let updated = items.filter { !ids.contains($0.id) }
+        // Commit the index once for the whole selection before deleting files.
+        try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
+        items = updated
+        for item in removed {
+            let imageURL = folder.appendingPathComponent(item.filename)
+            let originalURL = folder.appendingPathComponent("\(item.id.uuidString).original")
+            for url in [imageURL, originalURL] where FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
     }
 }

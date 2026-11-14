@@ -1,8 +1,25 @@
 import SwiftUI
 
+struct ReferenceStartingSetup {
+    var distanceMeters: Double
+    var heightMeters: Double
+    var tiltDegrees: Double
+    let distanceFromFace: Bool
+
+    init(spec: ShotSpec? = nil, faceDistanceMeters: Double? = nil) {
+        let faceEstimate = spec?.distanceMeters == nil ? faceDistanceMeters : nil
+        distanceMeters = min(8, max(0.3, spec?.distanceMeters ?? faceEstimate ?? 2.5))
+        heightMeters = min(2.2, max(0.3, spec?.cameraHeightMeters ?? 1.5))
+        tiltDegrees = min(35, max(-35, spec?.pitchDegrees ?? 0))
+        distanceFromFace = faceEstimate != nil
+    }
+}
+
 struct PoseTutorialView: View {
     let analysis: PhotoAnalysis?
     let recipe: ShotRecipe
+    let referenceImage: UIImage?
+    @Binding var startingSetup: ReferenceStartingSetup
     let onContinue: () -> Void
     let onClose: () -> Void
 
@@ -11,7 +28,11 @@ struct PoseTutorialView: View {
     }
 
     private var shotGeometry: ShotGeometry {
-        analysis?.geometry ?? ShotGeometryEstimator.fallback(for: recipe)
+        if let analysis, analysis.shotSpec.source == .pose3D { return analysis.geometry }
+        return ShotGeometry(cameraHeightMeters: startingSetup.heightMeters,
+                            distanceMeters: startingSetup.distanceMeters,
+                            tiltDegrees: Int(startingSetup.tiltDegrees.rounded()),
+                            inferredFromPose: false, spec: analysis?.shotSpec)
     }
 
     var body: some View {
@@ -25,7 +46,7 @@ struct PoseTutorialView: View {
                             Image(systemName: "xmark")
                                 .font(.system(size: 18, weight: .semibold))
                                 .frame(width: 44, height: 44)
-                                .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                                .poserGlass(interactive: true)
                         }
                         .accessibilityLabel("Close pose guide")
                         Spacer()
@@ -43,8 +64,38 @@ struct PoseTutorialView: View {
                                 .tracking(2)
                                 .multilineTextAlignment(.center)
 
-                            PoseDiagramView(skeleton: skeleton, geometry: shotGeometry)
+                            if let referenceImage, analysis?.poseSkeleton == nil {
+                                Image(uiImage: referenceImage)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxHeight: 170)
+                                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                                    .accessibilityLabel("Reference photo")
+                            }
+
+                            PoseDiagramView(skeleton: skeleton, geometry: shotGeometry,
+                                            startingSetup: analysis?.shotSpec.source == .pose3D ? nil : startingSetup)
                                 .frame(height: min(400, max(320, screen.size.height * 0.46)))
+
+                            if analysis?.shotSpec.source != .pose3D {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("Adjustable starting setup")
+                                        .font(.system(size: 17, weight: .semibold))
+                                    Text(startingSetup.distanceFromFace
+                                         ? "Distance starts from face size and assumed lens and face width. Height and tilt are starting points, not measurements from the photo."
+                                         : "These are starting points, not measurements from the photo. Adjust them to match the reference.")
+                                        .font(PoserType.supporting)
+                                        .foregroundStyle(Palette.secondaryText)
+                                    setupSlider("Distance", value: $startingSetup.distanceMeters,
+                                                range: 0.3...8, step: 0.1, unit: "m")
+                                    setupSlider("Phone height", value: $startingSetup.heightMeters,
+                                                range: 0.3...2.2, step: 0.1, unit: "m")
+                                    setupSlider("Phone tilt", value: $startingSetup.tiltDegrees,
+                                                range: -35...35, step: 5, unit: "°")
+                                }
+                                .padding(16)
+                                .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
+                            }
 
                             if let cue = analysis?.poseSkeleton?.shortCue {
                                 Text(cue)
@@ -95,11 +146,27 @@ struct PoseTutorialView: View {
             }
         }
     }
+
+    private func setupSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,
+                             step: Double, unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(value.wrappedValue.formatted(.number.precision(.fractionLength(0...1))))\(unit)")
+                    .monospacedDigit()
+            }
+            .font(.system(size: 14, weight: .medium))
+            Slider(value: value, in: range, step: step)
+                .tint(.white)
+        }
+    }
 }
 
 private struct PoseDiagramView: View {
     let skeleton: PoseSkeleton
     let geometry: ShotGeometry
+    let startingSetup: ReferenceStartingSetup?
 
     var body: some View {
         GeometryReader { canvas in
@@ -125,7 +192,7 @@ private struct PoseDiagramView: View {
                     path.move(to: layout.phonePoint)
                     path.addLine(to: layout.aimPoint)
                 }
-                .stroke(.white.opacity(geometry.spec?.pitchDegrees == nil ? 0.35 : 0.8),
+                .stroke(.white.opacity(startingSetup == nil && geometry.spec?.pitchDegrees == nil ? 0.35 : 0.8),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
@@ -133,7 +200,7 @@ private struct PoseDiagramView: View {
                     path.move(to: CGPoint(x: x, y: layout.floor))
                     path.addLine(to: CGPoint(x: x, y: layout.phonePoint.y))
                 }
-                .stroke(.white.opacity(geometry.spec?.cameraHeightRatio == nil ? 0.35 : 0.8),
+                .stroke(.white.opacity(startingSetup == nil && geometry.spec?.cameraHeightRatio == nil ? 0.35 : 0.8),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 BubblePoseFigure(target: photographer, progress: 1)
@@ -158,11 +225,14 @@ private struct PoseDiagramView: View {
                                   y: layout.floor - layout.figureHeight * 0.53)
                 }
 
-                guideLabel(self.geometry.adjustmentLabel, width: min(116, canvas.size.width * 0.31))
+                guideLabel(startingSetup.map { "Start ≈\($0.heightMeters.formatted(.number.precision(.fractionLength(1)))) m high" }
+                           ?? self.geometry.adjustmentLabel, width: min(116, canvas.size.width * 0.31))
                     .position(x: layout.photographerX, y: layout.floor - layout.figureHeight - 23)
-                guideLabel(self.geometry.angleLabel, width: min(116, canvas.size.width * 0.31))
+                guideLabel(startingSetup.map { "Start tilt \(Int($0.tiltDegrees))°" }
+                           ?? self.geometry.angleLabel, width: min(116, canvas.size.width * 0.31))
                     .position(x: layout.subjectX, y: layout.floor - layout.figureHeight - 23)
-                guideLabel(self.geometry.distanceLabel, width: min(210, canvas.size.width * 0.58))
+                guideLabel(startingSetup.map { "Start \(ShotSpec.formatDistance($0.distanceMeters)) away" }
+                           ?? self.geometry.distanceLabel, width: min(210, canvas.size.width * 0.58))
                     .position(x: canvas.size.width * 0.5, y: canvas.size.height - 25)
                 Text("PHOTOGRAPHER")
                     .position(x: layout.photographerX, y: layout.floor + 22)
@@ -174,7 +244,11 @@ private struct PoseDiagramView: View {
             .shadow(color: .black.opacity(0.85), radius: 5)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Animated setup: photographer at \(geometry.heightLabel), \(geometry.distanceLabel), \(geometry.angleLabel)")
+        .accessibilityLabel(startingSetup.map {
+            "Adjustable setup: phone \($0.heightMeters.formatted(.number.precision(.fractionLength(1)))) meters high, " +
+            "distance \($0.distanceMeters.formatted(.number.precision(.fractionLength(1)))) meters, " +
+            "tilt \(Int($0.tiltDegrees)) degrees"
+        } ?? "Animated setup: photographer at \(geometry.heightLabel), \(geometry.distanceLabel), \(geometry.angleLabel)")
     }
 
     private func guideLabel(_ title: String, width: CGFloat) -> some View {
@@ -263,7 +337,7 @@ struct MiniPoseGuide: View {
                 .frame(width: 48, height: 82)
         }
             .frame(width: 128, height: 110)
-            .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+            .poserGlass()
             .accessibilityLabel("Animated setup: \(geometry.heightLabel), \(geometry.distanceLabel), \(geometry.angleLabel)")
     }
 }

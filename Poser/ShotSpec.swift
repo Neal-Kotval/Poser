@@ -85,6 +85,15 @@ struct ShotSpec: Equatable {
 
     var heightBucket: CameraHeightBucket? { cameraHeightRatio.map(CameraHeightBucket.init(ratio:)) }
 
+    func withSubjectBox(_ box: CGRect?) -> ShotSpec {
+        ShotSpec(source: source, cameraHeightRatio: cameraHeightRatio, distanceMeters: distanceMeters,
+                 distanceIsApproximate: distanceIsApproximate, pitchDegrees: pitchDegrees,
+                 subjectYawDegrees: subjectYawDegrees, horizonDegrees: horizonDegrees,
+                 subjectBox: box ?? subjectBox, silhouette: silhouette,
+                 subjectHeightMeters: subjectHeightMeters, focalSource: focalSource,
+                 imageAspect: imageAspect)
+    }
+
     var cameraHeightMeters: Double? { cameraHeightRatio.map { $0 * subjectHeightMeters } }
 
     var distanceLabel: String? { distanceMeters.map(Self.formatDistance) }

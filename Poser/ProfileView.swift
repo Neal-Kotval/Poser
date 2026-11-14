@@ -13,7 +13,7 @@ struct ProfileView: View {
     @State private var avatarDraft: AvatarDraft?
     @State private var avatarError: String?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 3), count: 3)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 
     var body: some View {
         ScrollView {
@@ -25,7 +25,7 @@ struct ProfileView: View {
             .frame(maxWidth: 620)
             .padding(.horizontal, PoserSpace.large)
             .padding(.top, PoserSpace.large)
-            .padding(.bottom, PoserSpace.xLarge)
+            .padding(.bottom, 86)
             .frame(maxWidth: .infinity)
         }
         .background(Palette.background)
@@ -162,7 +162,7 @@ struct ProfileView: View {
                 }
                 .padding(.top, PoserSpace.large)
             } else {
-                LazyVGrid(columns: columns, spacing: 3) {
+                LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(shootStore.shots) { shot in
                         if let photo = shootStore.photo(for: shot) {
                             Button { onSelectShot(shot) } label: {
@@ -174,6 +174,8 @@ struct ProfileView: View {
                                         .clipped()
                                 }
                                 .aspectRatio(1, contentMode: .fit)
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .contentShape(Rectangle())
                                 .background(Palette.surface)
                             }
                             .buttonStyle(.plain)
