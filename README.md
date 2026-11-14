@@ -20,6 +20,6 @@ Social post previews depend on the metadata a site exposes to iOS. If a post is 
 
 ## Pinterest reference collection
 
-The [Pinterest discovery collection](ReferenceCollection/pinterest/README.md) contains 1,000 current solo-targeted, Instagram-style Pin candidates plus the archived first discovery run. Records include Pin URLs, descriptions, thumbnail URLs, query provenance, and review flags. Originals are not included, and none of these candidates are approved app assets yet.
+The [Pinterest discovery collection](ReferenceCollection/pinterest/README.md) contains 1,000 current solo-targeted, Instagram-style Pin candidates plus the archived first discovery run. A local download pass retrieved 999 images and normalized 997 distinct files. The development app bundles 816 references: 815 had one body detected by Apple Vision, and one more was visually checked. Pin links are retained in the catalog. Creators, original sources, and reuse rights remain unverified, so these assets are not cleared for distribution.
 
 The [collection workflow](Tools/ReferenceLibrary/PINTEREST.md) provides the Playwright collector, local Vision review aids, and approved-image export tools. Browser sessions and credentials stay in the ignored `.reference-work` directory. The collection is separate from the app’s current bundled examples.

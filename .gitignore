@@ -4,5 +4,6 @@ build/
 xcuserdata/
 .DS_Store
 .reference-work/
+.playwright-mcp/
 .venv/
 __pycache__/

@@ -1,0 +1,95 @@
+{
+  "status": "development-only; image rights and original creators unverified",
+  "images": [
+    {
+      "assetName": "InspirationPortrait",
+      "pinURL": "https://www.pinterest.com/pin/759701030938527765/",
+      "imageURL": "https://i.pinimg.com/originals/b4/17/51/b417513c88128c278a35580848cef7a1.jpg",
+      "sha256": "fe0f1f4288c7cb900e7daf959b6ae2f4bedf5e6369dfa89738f3f90f85243d64",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    },
+    {
+      "assetName": "PinterestWall",
+      "pinURL": "https://www.pinterest.com/pin/617063586488148660/",
+      "imageURL": "https://i.pinimg.com/originals/c8/33/87/c83387e029f2c28f4c57b5c295c908be.jpg",
+      "sha256": "d0622a5bd81bea5616cee30afb256ed0c3cd254849e2b22c7bc34a83e90df6c5",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    },
+    {
+      "assetName": "PinterestStairs",
+      "pinURL": "https://www.pinterest.com/pin/41025046602447772/",
+      "imageURL": "https://i.pinimg.com/originals/e8/8b/7e/e88b7e943fe9a56e24894ea2b18165db.jpg",
+      "sha256": "26f0b2685bdafe0b0f3e94c00353e8bc14872361cb872034a4e0a8b418c2caaa",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    },
+    {
+      "assetName": "PinterestCafe",
+      "pinURL": "https://www.pinterest.com/pin/1015561784745211100/",
+      "imageURL": "https://i.pinimg.com/originals/04/b0/19/04b019bd51807ddaa9cc4bce275d8dc8.jpg",
+      "sha256": "12b5538acead3799dd204c8a26bdcb21e13aea9886a7b8a46fe59a6656a10297",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    },
+    {
+      "assetName": "PinterestMirror",
+      "pinURL": "https://www.pinterest.com/pin/650699846203052722/",
+      "imageURL": "https://i.pinimg.com/originals/b5/23/f4/b523f43d15d41b1983a6aa80c2a176ab.jpg",
+      "sha256": "2a5c923e268b8e052132c71b1f4e34f732123ee771b330330ec5355f50cababf",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    },
+    {
+      "assetName": "PinterestPark",
+      "pinURL": "https://www.pinterest.com/pin/1121677850938078397/",
+      "imageURL": "https://i.pinimg.com/originals/c9/46/a2/c946a2ff3106daf9b26aa36dfaa67aaf.jpg",
+      "sha256": "a6a134cad5d0fe9962223d34d47b049d2d872686b3f0b10e83553cd59b99df06",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    },
+    {
+      "assetName": "PinterestGarden",
+      "pinURL": "https://www.pinterest.com/pin/880946377162594883/",
+      "imageURL": "https://i.pinimg.com/originals/65/8e/d1/658ed1908c683f1dcafe26325a601684.jpg",
+      "sha256": "306a717e86a96ebe1e85d132d6be98e18c91f75e87d0d47e4f42f5fa06d76fe7",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    },
+    {
+      "assetName": "PinterestBeach",
+      "pinURL": "https://www.pinterest.com/pin/979392250214721728/",
+      "imageURL": "https://i.pinimg.com/originals/90/dc/75/90dc750cdf3318ec06b5c13899c00d37.jpg",
+      "sha256": "82e635f01ddaedba0459916eb1fa99a121a06739dd5adf5f1e5dcbd58e9e3416",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    },
+    {
+      "assetName": "PinterestWaterfront",
+      "pinURL": "https://www.pinterest.com/pin/915215955536504407/",
+      "imageURL": "https://i.pinimg.com/originals/e4/b8/41/e4b841b268940cb9d45be7ff2b33f907.jpg",
+      "sha256": "bb035fca524ce3ba4a8cdad2aedb21aa2c4d3564bba9a48dbe6c9af5cb6d3f37",
+      "personConfirmed": true,
+      "styleConfirmed": true,
+      "creator": "unverified",
+      "rights": "unverified"
+    }
+  ]
+}

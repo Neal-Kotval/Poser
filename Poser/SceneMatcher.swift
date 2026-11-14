@@ -22,7 +22,8 @@ enum SceneMatcher {
         guard !candidates.isEmpty else { return [] }
         return await Task.detached(priority: .userInitiated) {
             let sceneSignature = SceneSignature(image: scene)
-            let scenePrint = featurePrint(for: scene)
+            // Full Vision feature prints are too slow across a large bundled library.
+            let scenePrint = candidates.count <= 100 ? featurePrint(for: scene) : nil
             return candidates.map { candidate in
                 let signature = SceneSignature(image: candidate.image)
                 let colorScore = sceneSignature.similarity(to: signature)

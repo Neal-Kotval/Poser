@@ -399,7 +399,7 @@ struct HomeView: View {
 
             LazyVStack(alignment: .leading, spacing: 28) {
                 ForEach(Array(ReferenceCatalog.items.enumerated()), id: \.element.id) { index, asset in
-                    if let image = asset.image {
+                    if let image = asset.preview {
                         feedCard(asset, image: image, index: index)
                     }
                 }
@@ -440,7 +440,9 @@ struct HomeView: View {
                 Spacer()
             }
 
-            Button { Task { await analyze(image, scene: false) } } label: {
+            Button {
+                if let fullImage = asset.image { Task { await analyze(fullImage, scene: false) } }
+            } label: {
                 GeometryReader { tile in
                     Image(uiImage: image)
                         .resizable()
@@ -470,7 +472,9 @@ struct HomeView: View {
                     }
                 }
                 Spacer()
-                Button { Task { await analyze(image, scene: false) } } label: {
+                Button {
+                    if let fullImage = asset.image { Task { await analyze(fullImage, scene: false) } }
+                } label: {
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.black)
@@ -912,7 +916,7 @@ struct HomeView: View {
         isAnalyzing = true
 
         var candidates = ReferenceCatalog.items.compactMap { reference -> SceneCandidate? in
-            guard let image = reference.image else { return nil }
+            guard let image = reference.preview else { return nil }
             return SceneCandidate(id: reference.id, image: image)
         }
         for item in inspirationStore.items {

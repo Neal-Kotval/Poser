@@ -9,17 +9,44 @@ struct ReferenceAsset: Identifiable {
     let license: String
     let source: URL?
 
-    var image: UIImage? { UIImage(named: assetName) }
+    var image: UIImage? { loadImage(in: "images") }
+    var preview: UIImage? { loadImage(in: "previews") }
+
+    private func loadImage(in folder: String) -> UIImage? {
+        guard let url = Bundle.main.url(
+            forResource: assetName,
+            withExtension: "jpg",
+            subdirectory: "PinterestLibrary/\(folder)"
+        ) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
 }
 
 enum ReferenceCatalog {
-    static let items: [ReferenceAsset] = [
-        .init(id: UUID(uuidString: "D9355526-A2BC-4941-9EB4-E3F60E85859D")!, title: "Street portrait", assetName: "InspirationPortrait", credit: "Poser sample", license: "Demo image", source: nil),
-        .init(id: UUID(uuidString: "18E9BC57-10C6-41DB-83CE-C72AFFC6DFA1")!, title: "Against the wall", assetName: "ReferenceStreet", credit: "Aaron Burson", license: "CC0", source: URL(string: "https://commons.wikimedia.org/wiki/File:Upcycle_(Unsplash).jpg")),
-        .init(id: UUID(uuidString: "55A65A18-2014-44F9-AD39-71B3E8227C03")!, title: "City light", assetName: "ReferenceWarm", credit: "Kat Hennessey", license: "CC BY-SA 4.0", source: URL(string: "https://commons.wikimedia.org/wiki/File:Sydney_Morton_Street_Portrait_in_camel_top_shot_in_Los_Angeles_by_Kat_Hennessey.jpg")),
-        .init(id: UUID(uuidString: "BFC4B03B-41AD-4927-9FC0-A55CE7481A4A")!, title: "At the doorway", assetName: "ReferenceDoorway", credit: "Giuseppe Milo", license: "CC BY 2.0", source: URL(string: "https://commons.wikimedia.org/wiki/File:Elisa_-_Ostuni,_Italy_-_Portrait_photography_(29565184222).jpg")),
-        .init(id: UUID(uuidString: "CEB015CF-D494-47E1-9F10-43AF89EBCE45")!, title: "Open air", assetName: "ReferenceOutdoor", credit: "Paramanu Sarkar", license: "CC BY-SA 4.0", source: URL(string: "https://commons.wikimedia.org/wiki/File:Shepherd_from_Rajasthan_03.jpg")),
-        .init(id: UUID(uuidString: "256BA99A-7A19-4CA1-B4C3-B95D4B4BF783")!, title: "Market portrait", assetName: "ReferenceMarket", credit: "Wilfredor", license: "CC0", source: URL(string: "https://commons.wikimedia.org/wiki/File:Fishmonger_smiling,_Maracaibo_street_market,_Venezuela.jpg")),
-        .init(id: UUID(uuidString: "CD16D76B-66B0-4D6F-A946-2EB0BB096190")!, title: "Side light", assetName: "ReferenceSide", credit: "Pedro Ribeiro Simões", license: "CC BY 2.0", source: URL(string: "https://commons.wikimedia.org/wiki/File:Girl_Portrait_Photography_(49833359227).jpg"))
-    ]
+    private struct Library: Decodable {
+        let references: [Entry]
+    }
+
+    private struct Entry: Decodable {
+        let id: UUID
+        let pinID: String
+        let title: String
+        let pinURL: URL
+    }
+
+    static let items: [ReferenceAsset] = {
+        guard let url = Bundle.main.url(forResource: "catalog", withExtension: "json", subdirectory: "PinterestLibrary"),
+              let data = try? Data(contentsOf: url),
+              let library = try? JSONDecoder().decode(Library.self, from: data) else { return [] }
+        return library.references.map { entry in
+            ReferenceAsset(
+                id: entry.id,
+                title: entry.title,
+                assetName: entry.pinID,
+                credit: "Creator unverified",
+                license: "Rights unverified",
+                source: entry.pinURL
+            )
+        }
+    }()
 }
