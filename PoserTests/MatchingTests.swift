@@ -173,7 +173,7 @@ final class MatchingTests: XCTestCase {
         XCTAssertLessThan(score!.score, 85, "Matching joints should not hide a mismatched outline")
         XCTAssertEqual(PoseMatcher.compare(reference: pose, live: pose,
                                            referenceOutline: full, liveOutline: full)?.score, 100)
-        XCTAssertEqual(score?.cue, "Match your outline to the guide")
+        XCTAssertEqual(score?.cue, "Adjust your body shape to match the reference")
     }
 
     func testMatchingOutlineCannotHideWrongArm() {

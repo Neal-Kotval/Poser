@@ -20,10 +20,34 @@ struct LiveReading {
     var measuredSubjectHeight: Double?
 }
 
+/// Chooses one person to follow when Vision finds several. The reference position
+/// starts the selection; proximity to the previous frame prevents score hopping.
+enum LiveSubjectSelector {
+    static func select(boxes: [CGRect], targetX: CGFloat, previousBox: CGRect?) -> Int? {
+        boxes.indices.filter { index in
+            let box = boxes[index]
+            return box.width > 0.03 && box.height > 0.06 && box.midX.isFinite && box.midY.isFinite
+        }.min { lhs, rhs in
+            cost(boxes[lhs], targetX: targetX, previousBox: previousBox) <
+                cost(boxes[rhs], targetX: targetX, previousBox: previousBox)
+        }
+    }
+
+    private static func cost(_ box: CGRect, targetX: CGFloat, previousBox: CGRect?) -> CGFloat {
+        let referenceOffset = abs(box.midX - targetX)
+        let prominence = min(box.width * box.height, 1)
+        guard let previousBox else { return referenceOffset - prominence * 0.2 }
+        let movement = hypot(box.midX - previousBox.midX, box.midY - previousBox.midY)
+        let sizeChange = abs(box.height - previousBox.height)
+        return movement * 3 + sizeChange + referenceOffset * 0.3 - prominence * 0.1
+    }
+}
+
 final class LiveFrameAnalyzer {
     let subjectHeightMeters: Double
     let minimumInterval: TimeInterval
     private var lastRun = Date.distantPast
+    private var previousSubjectBox: CGRect?
 
     init(subjectHeightMeters: Double = ShotSpecEstimator.defaultSubjectHeight, minimumInterval: TimeInterval = 0.25) {
         self.subjectHeightMeters = subjectHeightMeters
@@ -32,7 +56,8 @@ final class LiveFrameAnalyzer {
 
     /// Returns nil when throttled. Enable `isCameraIntrinsicMatrixDeliveryEnabled` on the video
     /// connection so distances use the real lens instead of an assumed one.
-    func analyze(_ sampleBuffer: CMSampleBuffer, orientation: CGImagePropertyOrientation = .right) -> LiveReading? {
+    func analyze(_ sampleBuffer: CMSampleBuffer, targetX: CGFloat = 0.5,
+                 orientation: CGImagePropertyOrientation = .right) -> LiveReading? {
         let now = Date()
         guard now.timeIntervalSince(lastRun) >= minimumInterval,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
@@ -50,12 +75,16 @@ final class LiveFrameAnalyzer {
         // the delivered intrinsics and any depth attachment directly.
         let options: [VNImageOption: Any] = delivered == nil ? [.cameraIntrinsics: intrinsics as CFData] : [:]
         let handler = VNImageRequestHandler(cmSampleBuffer: sampleBuffer, orientation: orientation, options: options)
-        return Self.reading(using: handler, frameSize: frameSize, focalPixels: focalPixels,
-                            subjectHeightMeters: subjectHeightMeters)
+        let reading = Self.reading(using: handler, frameSize: frameSize, focalPixels: focalPixels,
+                                   subjectHeightMeters: subjectHeightMeters, targetX: targetX,
+                                   previousSubjectBox: previousSubjectBox)
+        previousSubjectBox = reading.subjectBox
+        return reading
     }
 
     static func reading(using handler: VNImageRequestHandler, frameSize: CGSize, focalPixels: Double,
-                        subjectHeightMeters: Double) -> LiveReading {
+                        subjectHeightMeters: Double, targetX: CGFloat = 0.5,
+                        previousSubjectBox: CGRect? = nil) -> LiveReading {
         let pose2D = VNDetectHumanBodyPoseRequest()
         let pose3D = VNDetectHumanBodyPose3DRequest()
         try? handler.perform([pose2D])
@@ -63,11 +92,15 @@ final class LiveFrameAnalyzer {
 
         var reading = LiveReading()
         reading.frameAspect = frameSize.width / max(frameSize.height, 1)
-        let observation2D = pose2D.results?.first
+        let observations = pose2D.results ?? []
+        let boxes = observations.map { Pose2DReader.box(Pose2DReader.points($0)) ?? .null }
+        let selectedIndex = LiveSubjectSelector.select(boxes: boxes, targetX: targetX,
+                                                        previousBox: previousSubjectBox)
+        let observation2D = selectedIndex.map { observations[$0] }
         let points = observation2D.map(Pose2DReader.points) ?? [:]
         reading.subjectBox = Pose2DReader.box(points)
         reading.pose = observation2D.flatMap(PoseSkeleton.detected)
-        if observation2D != nil {
+        if observation2D != nil && observations.count == 1 {
             let segmentation = VNGeneratePersonSegmentationRequest()
             segmentation.qualityLevel = .balanced
             segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
@@ -78,6 +111,18 @@ final class LiveFrameAnalyzer {
             // Both framing boxes now describe the visible outline when it is available.
             // Joint boxes omit hair, clothes, and hands outside the detected skeleton.
             reading.subjectBox = FrameMapping.boundingBox(of: reading.silhouette) ?? reading.subjectBox
+        }
+        if observation2D == nil {
+            let faces = VNDetectFaceRectanglesRequest()
+            try? handler.perform([faces])
+            let faceBoxes = (faces.results ?? []).map {
+                CGRect(x: $0.boundingBox.minX, y: 1 - $0.boundingBox.maxY,
+                       width: $0.boundingBox.width, height: $0.boundingBox.height)
+            }
+            if let index = LiveSubjectSelector.select(boxes: faceBoxes, targetX: targetX,
+                                                       previousBox: previousSubjectBox) {
+                reading.subjectBox = faceBoxes[index]
+            }
         }
         if let span = Pose2DReader.noseToAnkle(points) {
             reading.distanceMeters = BodyFrameGeometry.pinholeDistance(
@@ -303,7 +348,7 @@ final class LiveCoach {
             }
             if let overlap = SilhouetteMatcher.frameOverlap(reference: mapped, live: smoothed.silhouette),
                overlap < 65 {
-                return .adjustPose("Align your outline with the guide")
+                return .adjustPose("Adjust your position to match the reference")
             }
         }
         if let target = spec.subjectYawDegrees, let live = smoothed.subjectYawDegrees {

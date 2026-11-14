@@ -216,7 +216,7 @@ struct HomeView: View {
             targetX: analysis?.subjectPoint?.x ?? 0.5,
             targetPose: analysis?.poseSkeleton,
             shotGeometry: analysis?.geometry,
-            shotSpec: analysis?.shotSpec,
+            shotSpec: analysis.map { $0.shotSpec.withSubjectBox($0.subjectBox) },
             referenceImage: selectedRecipe == nil ? nil : referenceImage,
             referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
             queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
@@ -849,38 +849,15 @@ struct HomeView: View {
                     .foregroundStyle(.white.opacity(0.55))
             }
             if let referenceImage {
-                GeometryReader { tile in
-                    ZStack {
-                        Image(uiImage: referenceImage)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: tile.size.width, height: tile.size.height)
-                        if let box = analysis?.subjectBox {
-                            let scale = min(tile.size.width / max(referenceImage.size.width, 1),
-                                            tile.size.height / max(referenceImage.size.height, 1))
-                            let shown = CGSize(width: referenceImage.size.width * scale,
-                                               height: referenceImage.size.height * scale)
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(.white, lineWidth: 2)
-                                .frame(width: box.width * shown.width, height: box.height * shown.height)
-                                .position(x: (tile.size.width - shown.width) / 2 + box.midX * shown.width,
-                                          y: (tile.size.height - shown.height) / 2 + box.midY * shown.height)
-                                .accessibilityHidden(true)
-                        }
-                    }
+                Image(uiImage: referenceImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
                     .background(Palette.surface)
                     .overlay(alignment: .topLeading) {
                         imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
                     }
-                    }
-                    .aspectRatio(1, contentMode: .fit)
-            }
-            if let analysis {
-                Text(analysis.poseSkeleton != nil ? "Subject identified: body pose" :
-                     analysis.faceDistanceMeters != nil ? "Subject identified: face" :
-                     analysis.hasPerson ? "Person detected; pose unavailable" : "No person identified")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Palette.secondaryText)
             }
             VStack(spacing: 0) {
                 instruction(symbol: "arrow.left.and.right", title: "Distance", body: analysis.map {
@@ -1309,7 +1286,7 @@ struct HomeView: View {
             let overlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
                                                          live: result.shotSpec.silhouette)
             comparisonNote = match.score >= 85 && (overlap ?? 100) < 70
-                ? "Your pose shape is close. Move or reframe until your outline sits on the guide."
+                ? "Your pose shape is close. Move or reframe to match the reference."
                 : match.cue
             return
         }

@@ -50,12 +50,12 @@ enum PoseMatcher {
             return PoseMatch(score: score, cue: "Pose is close to the reference", comparedJoints: differences.count)
         }
         if let outlineScore, outlineScore < 85, jointScore >= 85 {
-            return PoseMatch(score: score, cue: "Match your outline to the guide", comparedJoints: differences.count)
+            return PoseMatch(score: score, cue: "Adjust your body shape to match the reference", comparedJoints: differences.count)
         }
         if let worst = differences.max(by: { $0.1 < $1.1 }) {
             return PoseMatch(score: score, cue: cue(for: worst.0, dx: worst.2, dy: worst.3), comparedJoints: differences.count)
         }
-        return PoseMatch(score: score, cue: "Match your outline to the guide", comparedJoints: 0)
+        return PoseMatch(score: score, cue: "Match the reference pose", comparedJoints: 0)
     }
 
     private static func cue(for joint: PoseJoint, dx: CGFloat, dy: CGFloat) -> String {
