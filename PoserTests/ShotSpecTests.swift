@@ -305,35 +305,3 @@ final class ShotSpecTests: XCTestCase {
         ))
     }
 }
-
-// BEGIN TEMPORARY PICTOGRAM VISUAL QA
-import SwiftUI
-extension ShotSpecTests {
-    @MainActor func testRenderPictogramReview() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("poser-pictogram-qa")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        for width in [375, 768, 1440] {
-            for height in [0.6, 1.5, 2.2] {
-                let content = PoseTutorialView(analysis: nil, recipe: ShotRecipe.presets[1],
-                    referenceImage: nil, referencePlan: nil,
-                    startingSetup: .constant(ReferenceStartingSetup(spec: ShotSpec(source: .pose3D,
-                        cameraHeightRatio: height / 1.7, distanceMeters: 2, pitchDegrees: 10,
-                        subjectHeightMeters: 1.7))), onContinue: {}, onClose: {})
-                    .environment(\.colorScheme, .dark)
-                let host = UIHostingController(rootView: content)
-                let window = UIWindow(frame: CGRect(x: 0, y: 0, width: width, height: 1000))
-                window.rootViewController = host
-                window.makeKeyAndVisible()
-                host.view.frame = window.bounds
-                host.view.layoutIfNeeded()
-                try await Task.sleep(for: .seconds(1))
-                let renderer = UIGraphicsImageRenderer(bounds: host.view.bounds)
-                let image = renderer.image { _ in host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true) }
-                try XCTUnwrap(image.pngData()).write(to: directory.appendingPathComponent("guide-\(width)-\(height).png"))
-                window.isHidden = true
-            }
-        }
-        print("PICTOGRAM_QA: \(directory.path)")
-    }
-}
-// END TEMPORARY PICTOGRAM VISUAL QA

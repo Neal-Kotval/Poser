@@ -476,8 +476,12 @@ struct BubblePoseFigure: View, Animatable {
                                     y: end.y + (rest.y - end.y) * 0.22)
                 let x = start.x + (end.x - start.x) * progress
                 let y = start.y + (end.y - start.y) * progress
+                let drawingY = (0.95 + (y - 0.95) * 0.9) * size.height
+                // Keep the entire round foot inside the canvas at every figure size.
+                let footInset = max(4, size.width * 0.145) * 0.56 + 1
+                let isAnkle = joint == .leftAnkle || joint == .rightAnkle
                 return CGPoint(x: (0.5 + (x - 0.5) * 1.3) * size.width,
-                               y: (0.95 + (y - 0.95) * 0.9) * size.height)
+                               y: isAnkle ? min(drawingY, size.height - footInset) : drawingY)
             }
             let white = GraphicsContext.Shading.color(.white)
             func limb(_ start: PoseJoint, _ bend: PoseJoint, _ end: PoseJoint, width: CGFloat) {
