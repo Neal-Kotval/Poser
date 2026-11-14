@@ -95,17 +95,22 @@ final class InspirationStore: ObservableObject {
     }
 
     func remove(_ item: InspirationItem) throws {
-        guard items.contains(where: { $0.id == item.id }) else { return }
-        let updated = items.filter { $0.id != item.id }
-        let imageURL = folder.appendingPathComponent(item.filename)
-        let originalURL = folder.appendingPathComponent("\(item.id.uuidString).original")
+        try remove(ids: [item.id])
+    }
+
+    func remove(ids: Set<UUID>) throws {
+        let removed = items.filter { ids.contains($0.id) }
+        guard !removed.isEmpty else { return }
+        let updated = items.filter { !ids.contains($0.id) }
+        // Commit the index once for the whole selection before deleting files.
         try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
         items = updated
-        if FileManager.default.fileExists(atPath: imageURL.path) {
-            try FileManager.default.removeItem(at: imageURL)
-        }
-        if FileManager.default.fileExists(atPath: originalURL.path) {
-            try FileManager.default.removeItem(at: originalURL)
+        for item in removed {
+            let imageURL = folder.appendingPathComponent(item.filename)
+            let originalURL = folder.appendingPathComponent("\(item.id.uuidString).original")
+            for url in [imageURL, originalURL] where FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
         }
     }
 }

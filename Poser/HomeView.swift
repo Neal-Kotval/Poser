@@ -6,6 +6,11 @@ private struct ReferenceTagFrameKey: PreferenceKey {
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
+private struct SavedInspirationFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .null
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
 enum HomePaging {
     static func allowsSwipe(start: CGPoint, translation: CGSize, excluding frame: CGRect) -> Bool {
         !frame.contains(start) && abs(translation.width) > abs(translation.height)
@@ -20,7 +25,10 @@ struct HomeView: View {
     @StateObject private var shootStore = ShootStore()
     @StateObject private var profileStore = UserProfileStore()
     @State private var selectedPhoto: PhotosPickerItem?
-    @State private var deletingReference: InspirationItem?
+    @State private var pendingReferenceDeletion: Set<UUID> = []
+    @State private var isEditingInspiration = false
+    @State private var selectedInspiration: Set<UUID> = []
+    @State private var savedInspirationFrame: CGRect = .null
     @State private var referenceImage: UIImage?
     @State private var analysis: PhotoAnalysis?
     @State private var selectedRecipe: ShotRecipe?
@@ -136,24 +144,18 @@ struct HomeView: View {
         )) {
             Button("OK", role: .cancel) { savedMessage = nil }
         } message: { Text(savedMessage ?? "") }
-        .confirmationDialog("Delete this reference photo?", isPresented: Binding(
-            get: { deletingReference != nil },
-            set: { if !$0 { deletingReference = nil } }
-        ), titleVisibility: .visible) {
-            Button("Delete reference", role: .destructive) {
-                guard let item = deletingReference else { return }
-                deletingReference = nil
-                do {
-                    try inspirationStore.remove(item)
-                    if shootQueue.contains(item.id) { reset() }
-                    selectedMatches.remove(item.id)
-                    sceneMatches.removeAll { $0.id == item.id }
-                } catch {
-                    errorMessage = "Could not delete this reference photo. \(error.localizedDescription)"
-                }
+        .confirmationDialog(pendingReferenceDeletion.count == 1 ? "Delete this reference photo?"
+                            : "Delete \(pendingReferenceDeletion.count) reference photos?", isPresented: Binding(
+            get: { !pendingReferenceDeletion.isEmpty },
+            set: { if !$0 { pendingReferenceDeletion = [] } }
+        ), titleVisibility: .visible, presenting: pendingReferenceDeletion) { ids in
+            Button(ids.count == 1 ? "Delete reference" : "Delete \(ids.count) references",
+                   role: .destructive) {
+                deleteReferences(ids)
             }
-        } message: {
-            Text("This removes the saved photo from Poser.")
+            Button("Cancel", role: .cancel) { pendingReferenceDeletion = [] }
+        } message: { _ in
+            Text("This removes saved photos from Poser. Your photo library is unchanged.")
         }
     }
 
@@ -173,6 +175,7 @@ struct HomeView: View {
                 DragGesture(minimumDistance: 20, coordinateSpace: .named("homePager"))
                     .updating($pageDragOffset) { value, offset, _ in
                         guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
+                        guard activeTab != .home || !savedInspirationFrame.contains(value.startLocation) else { return }
                         let excludedFrame = activeTab == .home ? referenceTagFrame : .null
                         guard HomePaging.allowsSwipe(start: value.startLocation,
                                                      translation: value.translation,
@@ -184,6 +187,7 @@ struct HomeView: View {
                     }
                     .onEnded { value in
                         guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return }
+                        guard activeTab != .home || !savedInspirationFrame.contains(value.startLocation) else { return }
                         let excludedFrame = activeTab == .home ? referenceTagFrame : .null
                         guard HomePaging.allowsSwipe(start: value.startLocation,
                                                      translation: value.translation,
@@ -198,6 +202,7 @@ struct HomeView: View {
         }
         .coordinateSpace(name: "homePager")
         .onPreferenceChange(ReferenceTagFrameKey.self) { referenceTagFrame = $0 }
+        .onPreferenceChange(SavedInspirationFrameKey.self) { savedInspirationFrame = $0 }
     }
 
     @ViewBuilder
@@ -614,7 +619,6 @@ struct HomeView: View {
         .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface, style: .continuous))
     }
 
-    @ViewBuilder
     private var savedInspiration: some View {
         VStack(alignment: .leading, spacing: 13) {
             HStack {
@@ -622,60 +626,128 @@ struct HomeView: View {
                     .font(PoserType.title)
                     .foregroundStyle(.white)
                 Spacer()
-                Text("\(inspirationStore.items.count) saved")
+                Text(isEditingInspiration ? "\(selectedInspiration.count) selected" : "\(inspirationStore.items.count) saved")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.secondaryText)
+                Button(isEditingInspiration ? "Done" : "Edit") {
+                    isEditingInspiration.toggle()
+                    selectedInspiration = []
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
             }
-            if inspirationStore.items.isEmpty {
-                Text("Photos you import will appear here for future shoots and scene matching.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Palette.secondaryText)
-                    .padding(.vertical, 12)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 11) {
-                        ForEach(inspirationStore.items) { item in
-                            if let image = inspirationStore.image(for: item) {
-                                ZStack(alignment: .topTrailing) {
-                                    Button {
-                                        Task {
-                                            let original = inspirationStore.originalData(for: item)
-                                            await analyze(original.flatMap(UIImage.init(data:)) ?? image,
-                                                          scene: false, imageData: original)
-                                        }
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 7) {
-                                            Image(uiImage: image)
-                                                .resizable()
-                                                .scaledToFill()
-                                                .frame(width: 132, height: 132)
-                                                .clipped()
-                                                .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                                            Text(item.title)
-                                                .font(.system(size: 12, weight: .medium))
-                                                .foregroundStyle(.white)
-                                                .lineLimit(1)
-                                        }
-                                        .frame(width: 132, alignment: .leading)
-                                    }
-                                    .buttonStyle(.plain)
-                                    Button { deletingReference = item } label: {
-                                        Image(systemName: "trash")
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 36, height: 36)
-                                            .background(.black.opacity(0.78), in: Circle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("Delete \(item.title)")
-                                    .padding(6)
-                                }
-                            }
+            if isEditingInspiration {
+                HStack {
+                    Button(selectedInspiration.count == inspirationStore.items.count ? "Deselect all" : "Select all") {
+                        selectedInspiration = selectedInspiration.count == inspirationStore.items.count
+                            ? [] : Set(inspirationStore.items.map(\.id))
+                    }
+                    Spacer()
+                    Button("Delete (\(selectedInspiration.count))", role: .destructive) {
+                        pendingReferenceDeletion = selectedInspiration
+                    }
+                    .disabled(selectedInspiration.isEmpty)
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .frame(minHeight: 44)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 11) {
+                    ForEach(inspirationStore.items) { item in
+                        if let image = inspirationStore.image(for: item) {
+                            savedInspirationCard(item, image: image)
                         }
                     }
                 }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 3)
+            }
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: SavedInspirationFrameKey.self,
+                                           value: geometry.frame(in: .named("homePager")))
+                }
             }
         }
+    }
+
+    private func savedInspirationCard(_ item: InspirationItem, image: UIImage) -> some View {
+        let selected = selectedInspiration.contains(item.id)
+        return Button {
+            if isEditingInspiration {
+                if selected { selectedInspiration.remove(item.id) }
+                else { selectedInspiration.insert(item.id) }
+            } else {
+                Task {
+                    let original = inspirationStore.originalData(for: item)
+                    await analyze(original.flatMap(UIImage.init(data:)) ?? image,
+                                  scene: false, imageData: original)
+                }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 132, height: 132)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                    .contentShape(Rectangle())
+                    .overlay {
+                        if isEditingInspiration && selected {
+                            RoundedRectangle(cornerRadius: PoserRadius.image)
+                                .stroke(.white, lineWidth: 3)
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if isEditingInspiration {
+                            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 23, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(7)
+                                .background(.black.opacity(0.6), in: Circle())
+                                .padding(6)
+                        }
+                    }
+                Text(item.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+            .frame(width: 132, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isEditingInspiration ? "Select \(item.title)" : "Open \(item.title)")
+        .accessibilityAddTraits(selected && isEditingInspiration ? [.isSelected] : [])
+        .contextMenu {
+            if !isEditingInspiration {
+                Button("Delete reference", systemImage: "trash", role: .destructive) {
+                    pendingReferenceDeletion = [item.id]
+                }
+            }
+        }
+    }
+
+    private func deleteReferences(_ ids: Set<UUID>) {
+        pendingReferenceDeletion = []
+        let previousIDs = Set(inspirationStore.items.map(\.id))
+        do {
+            try inspirationStore.remove(ids: ids)
+        } catch {
+            errorMessage = "Could not delete reference photos. \(error.localizedDescription)"
+        }
+        let removed = previousIDs.subtracting(inspirationStore.items.map(\.id))
+        if !removed.isDisjoint(with: shootQueue) {
+            let tab = activeTab
+            reset()
+            activeTab = tab
+        }
+        selectedMatches.subtract(removed)
+        sceneMatches.removeAll { removed.contains($0.id) }
+        selectedInspiration.subtract(removed)
+        if inspirationStore.items.isEmpty { isEditingInspiration = false }
     }
 
     private var sceneMatchResults: some View {

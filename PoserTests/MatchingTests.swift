@@ -252,6 +252,49 @@ final class MatchingTests: XCTestCase {
     }
 
     @MainActor
+    func testBulkDeletionPreservesUnselectedReferencesAndSurvivesReload() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let image = solidImage(.systemGreen)
+        let original = try XCTUnwrap(image.pngData())
+        let store = InspirationStore(folder: folder)
+        let first = try store.add(image, source: .photoLibrary, originalData: original)
+        let retained = try store.add(image, source: .photoLibrary, originalData: original)
+        let last = try store.add(image, source: .photoLibrary, originalData: original)
+
+        try store.remove(ids: [first.id, last.id, UUID()])
+
+        let reopened = InspirationStore(folder: folder)
+        XCTAssertEqual(reopened.items, [retained])
+        XCTAssertNotNil(reopened.image(for: retained))
+        XCTAssertEqual(reopened.originalData(for: retained), original)
+        for deleted in [first, last] {
+            XCTAssertNil(reopened.image(for: deleted))
+            XCTAssertNil(reopened.originalData(for: deleted))
+        }
+        try store.remove(ids: [])
+        try store.remove(ids: [first.id])
+        XCTAssertEqual(store.items, [retained])
+    }
+
+    @MainActor
+    func testBulkDeletionDoesNotRemovePhotosIfIndexCannotBeWritten() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = InspirationStore(folder: folder)
+        let first = try store.add(solidImage(.systemGreen), source: .photoLibrary)
+        let second = try store.add(solidImage(.systemBlue), source: .photoLibrary)
+        let index = folder.appendingPathComponent("library.json")
+        try FileManager.default.removeItem(at: index)
+        try FileManager.default.createDirectory(at: index, withIntermediateDirectories: false)
+
+        XCTAssertThrowsError(try store.remove(ids: [first.id, second.id]))
+        XCTAssertEqual(store.items.map(\.id), [second.id, first.id])
+        XCTAssertNotNil(store.image(for: first))
+        XCTAssertNotNil(store.image(for: second))
+    }
+
+    @MainActor
     func testOriginalReferenceDataSurvivesLibraryReload() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
