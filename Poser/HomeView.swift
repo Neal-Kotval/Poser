@@ -457,21 +457,19 @@ struct HomeView: View {
             .accessibilityLabel("Open \(asset.title) inspiration")
 
             HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Try this shot")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                    if let source = asset.source {
-                        Link("\(asset.credit) · \(asset.license)", destination: source)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.secondaryText)
-                    } else {
-                        Text("\(asset.credit) · \(asset.license)")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.secondaryText)
-                    }
-                }
+                Text("Try this shot")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
                 Spacer()
+                if let source = asset.source {
+                    Link(destination: source) {
+                        Image(systemName: "link")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Palette.secondaryText)
+                            .frame(width: 38, height: 38)
+                    }
+                    .accessibilityLabel("Open original Pin")
+                }
                 Button {
                     if let fullImage = asset.image { Task { await analyze(fullImage, scene: false) } }
                 } label: {
@@ -595,12 +593,6 @@ struct HomeView: View {
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
-                                if let source = ReferenceCatalog.items.first(where: { $0.id == match.id }) {
-                                    Text("\(source.credit) · \(source.license)")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(Palette.secondaryText)
-                                        .lineLimit(1)
-                                }
                             }
                         }
                         .buttonStyle(.plain)
@@ -608,27 +600,6 @@ struct HomeView: View {
                     }
                 }
             }
-            DisclosureGroup("Photo credits") {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(ReferenceCatalog.items) { asset in
-                        if let source = asset.source {
-                            Link(destination: source) {
-                                HStack {
-                                    Text("\(asset.title) · \(asset.credit) · \(asset.license)")
-                                    Spacer()
-                                    Image(systemName: "arrow.up.right")
-                                }
-                                .font(.system(size: 12))
-                                .foregroundStyle(Palette.secondaryText)
-                            }
-                        }
-                    }
-                }
-                .padding(.top, 12)
-            }
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Palette.secondaryText)
-            .padding(.vertical, 12)
         }
     }
 
