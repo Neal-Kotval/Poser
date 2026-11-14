@@ -52,7 +52,7 @@ struct HomeView: View {
         NavigationStack {
             pagePager
             .background(Palette.background.ignoresSafeArea())
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottom) {
                 if !showingPoseTutorial { bottomBar }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -206,7 +206,7 @@ struct HomeView: View {
             .frame(maxWidth: 620)
             .padding(.horizontal, PoserSpace.large)
             .padding(.top, PoserSpace.large)
-            .padding(.bottom, PoserSpace.xLarge)
+            .padding(.bottom, 110)
             .frame(maxWidth: .infinity)
         }
         .background(Palette.background)
@@ -245,7 +245,7 @@ struct HomeView: View {
             .frame(maxWidth: 620)
             .padding(.horizontal, PoserSpace.large)
             .padding(.top, PoserSpace.large)
-            .padding(.bottom, PoserSpace.xLarge)
+            .padding(.bottom, 180)
             .frame(maxWidth: .infinity)
         }
         .id(capturedImage == nil ? "shot-plan" : "shot-review")
@@ -304,7 +304,7 @@ struct HomeView: View {
             .foregroundStyle(.white)
             .frame(maxWidth: 620)
             .padding(.horizontal, PoserSpace.large)
-            .padding(.bottom, PoserSpace.xLarge)
+            .padding(.bottom, 110)
             .frame(maxWidth: .infinity)
         }
         .background(Palette.background)
