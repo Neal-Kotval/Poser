@@ -252,13 +252,13 @@ struct HomeView: View {
     private var homePage: some View {
         ScrollViewReader { scroll in
             ScrollView {
-                VStack(alignment: .leading, spacing: 32) {
+                VStack(alignment: .leading, spacing: 16) {
                     header
                     landing
                 }
                 .frame(maxWidth: 620)
                 .padding(.horizontal, PoserSpace.large)
-                .padding(.top, PoserSpace.large)
+                .padding(.top, PoserSpace.medium)
                 .padding(.bottom, 86)
                 .frame(maxWidth: .infinity)
             }
@@ -415,7 +415,7 @@ struct HomeView: View {
     }
 
     private var landing: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 16) {
             savedInspiration
 
             HStack {
@@ -429,7 +429,7 @@ struct HomeView: View {
             }
 
             referenceSearchBubble
-                .padding(.top, -12)
+                .padding(.top, -4)
                 .id("reference-search-bubble")
 
             if filteredReferences.isEmpty {
@@ -445,7 +445,7 @@ struct HomeView: View {
                 }
             }
 
-            LazyVStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 20) {
                 ForEach(filteredReferences) { asset in
                     if let image = asset.preview {
                         feedCard(asset, image: image)
@@ -601,58 +601,53 @@ struct HomeView: View {
     }
 
     private var savedInspiration: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Your inspiration")
-                            .font(.system(size: 24, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-                        if !inspirationStore.items.isEmpty {
-                            HStack(spacing: 8) {
-                                Text(isEditingInspiration ? "\(selectedInspiration.count) selected"
-                                     : "\(inspirationStore.items.count) saved")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Palette.secondaryText)
-                                Button(isEditingInspiration ? "Done" : "Edit") {
-                                    isEditingInspiration.toggle()
-                                    selectedInspiration = []
-                                }
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(minWidth: 44, minHeight: 44)
-                                .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
-                            }
-                        }
-                    }
-                    Spacer(minLength: 4)
+        VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: -12) {
+                HStack {
+                    Text("Your inspiration")
+                        .font(.system(size: 24, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Spacer()
                     if !isEditingInspiration {
                         PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            Label("Add photos", systemImage: "plus")
-                                .font(.system(size: 13, weight: .semibold))
-                                .padding(.horizontal, 14)
-                                .frame(minHeight: 44)
+                            Image(systemName: "plus")
+                                .font(.system(size: 17, weight: .semibold))
+                                .frame(width: 44, height: 44)
                                 .poserGlass(interactive: true)
                         }
-                        .fixedSize(horizontal: true, vertical: false)
                         .buttonStyle(.plain)
                         .accessibilityLabel("Add reference photos")
                     }
                 }
-                if isEditingInspiration {
-                    HStack {
-                        Button(selectedInspiration.count == inspirationStore.items.count ? "Deselect all" : "Select all") {
-                            selectedInspiration = selectedInspiration.count == inspirationStore.items.count
-                                ? [] : Set(inspirationStore.items.map(\.id))
+                .frame(minHeight: 44)
+                if !inspirationStore.items.isEmpty {
+                    HStack(spacing: 8) {
+                        Text(isEditingInspiration ? "\(selectedInspiration.count) selected"
+                             : "\(inspirationStore.items.count) saved")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondaryText)
+                        Button(isEditingInspiration ? "Done" : "Edit") {
+                            isEditingInspiration.toggle()
+                            selectedInspiration = []
                         }
-                        .frame(minHeight: 44)
-                        Spacer()
-                        Button("Delete (\(selectedInspiration.count))", role: .destructive) {
-                            pendingReferenceDeletion = selectedInspiration
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
+                        Spacer(minLength: 0)
+                        if isEditingInspiration {
+                            Button(selectedInspiration.count == inspirationStore.items.count ? "Deselect all" : "Select all") {
+                                selectedInspiration = selectedInspiration.count == inspirationStore.items.count
+                                    ? [] : Set(inspirationStore.items.map(\.id))
+                            }
+                            .frame(minHeight: 44)
+                            Button("Delete (\(selectedInspiration.count))", role: .destructive) {
+                                pendingReferenceDeletion = selectedInspiration
+                            }
+                            .frame(minHeight: 44)
+                            .disabled(selectedInspiration.isEmpty)
                         }
-                        .frame(minHeight: 44)
-                        .disabled(selectedInspiration.isEmpty)
                     }
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 }
             }
             if inspirationStore.items.isEmpty {
