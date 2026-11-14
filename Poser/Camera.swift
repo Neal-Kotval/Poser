@@ -281,6 +281,7 @@ struct CameraScreen: View {
     let isGuideOverlayVisible: Bool
     let onCapture: (UIImage) -> Void
     let onPoseGuide: (() -> Void)?
+    let onStartOver: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var camera = CameraModel()
@@ -288,7 +289,7 @@ struct CameraScreen: View {
     @State private var showPose = true
     @State private var tutorialStep = 0
 
-    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, shotSpec: ShotSpec? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil) {
+    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, shotSpec: ShotSpec? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil, onStartOver: (() -> Void)? = nil) {
         self.mode = mode
         self.recipe = recipe
         self.targetX = targetX
@@ -303,6 +304,7 @@ struct CameraScreen: View {
         self.isGuideOverlayVisible = isGuideOverlayVisible
         self.onCapture = onCapture
         self.onPoseGuide = onPoseGuide
+        self.onStartOver = onStartOver
     }
 
     var body: some View {
@@ -387,6 +389,12 @@ struct CameraScreen: View {
                         .accessibilityLabel("Close camera")
                     }
                     Spacer()
+                    if embedded, recipe != nil, let onStartOver {
+                        Button("Start over", action: onStartOver)
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(minHeight: 44)
+                            .accessibilityHint("Discard the current shoot and return to the camera")
+                    }
                     if !embedded {
                         Text(mode == .scan ? "Scan surroundings" : "Live coach")
                             .font(.system(size: 16, weight: .semibold))

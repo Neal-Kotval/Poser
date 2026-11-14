@@ -101,8 +101,8 @@ private struct PoseDiagramView: View {
             let crouched = self.geometry.cameraHeightMeters < 1.1
             let figureWidth = min(128, canvas.size.width * 0.30)
             let figureHeight = min(206, canvas.size.height * 0.57)
-            let phonePoint = CGPoint(x: photographerX + figureWidth * 0.22 + 10,
-                                     y: floor - figureHeight * (crouched ? 0.39 : 0.57))
+            let phonePoint = CGPoint(x: photographerX + figureWidth * 0.36,
+                                     y: floor - figureHeight * (crouched ? 0.36 : 0.51))
             let subjectPoint = CGPoint(x: subjectX - figureWidth * 0.20,
                                        y: floor - figureHeight * 0.71)
             ZStack {
@@ -145,9 +145,9 @@ private struct PoseDiagramView: View {
                     .position(x: subjectX, y: floor - figureHeight / 2)
 
                 guideLabel(self.geometry.adjustmentLabel, width: min(116, canvas.size.width * 0.31))
-                    .position(x: photographerX, y: floor - 230)
+                    .position(x: photographerX, y: floor - figureHeight - 23)
                 guideLabel(self.geometry.angleLabel, width: min(116, canvas.size.width * 0.31))
-                    .position(x: subjectX, y: floor - 230)
+                    .position(x: subjectX, y: floor - figureHeight - 23)
                 guideLabel(self.geometry.distanceLabel, width: min(132, canvas.size.width * 0.42))
                     .position(x: canvas.size.width * 0.5, y: canvas.size.height - 25)
                 Text("PHOTOGRAPHER")
@@ -177,19 +177,19 @@ private extension PoseSkeleton {
         if crouched {
             return PoseSkeleton(points: [
                 .nose: CGPoint(x: 0.41, y: 0.31), .neck: CGPoint(x: 0.42, y: 0.42),
-                .leftShoulder: CGPoint(x: 0.31, y: 0.47), .rightShoulder: CGPoint(x: 0.54, y: 0.47),
-                .leftElbow: CGPoint(x: 0.55, y: 0.51), .leftWrist: CGPoint(x: 0.73, y: 0.60),
-                .rightElbow: CGPoint(x: 0.51, y: 0.64), .rightWrist: CGPoint(x: 0.72, y: 0.62),
+                .leftShoulder: CGPoint(x: 0.35, y: 0.47), .rightShoulder: CGPoint(x: 0.55, y: 0.47),
+                .leftElbow: CGPoint(x: 0.53, y: 0.54), .leftWrist: CGPoint(x: 0.78, y: 0.59),
+                .rightElbow: CGPoint(x: 0.66, y: 0.55), .rightWrist: CGPoint(x: 0.78, y: 0.62),
                 .leftHip: CGPoint(x: 0.43, y: 0.67), .rightHip: CGPoint(x: 0.57, y: 0.67),
                 .leftKnee: CGPoint(x: 0.28, y: 0.78), .rightKnee: CGPoint(x: 0.72, y: 0.81),
                 .leftAnkle: CGPoint(x: 0.16, y: 0.96), .rightAnkle: CGPoint(x: 0.63, y: 0.97)
             ])
         }
         return PoseSkeleton(points: [
-            .nose: CGPoint(x: 0.41, y: 0.13), .neck: CGPoint(x: 0.42, y: 0.25),
-            .leftShoulder: CGPoint(x: 0.31, y: 0.30), .rightShoulder: CGPoint(x: 0.54, y: 0.30),
-            .leftElbow: CGPoint(x: 0.57, y: 0.36), .leftWrist: CGPoint(x: 0.72, y: 0.40),
-            .rightElbow: CGPoint(x: 0.55, y: 0.46), .rightWrist: CGPoint(x: 0.72, y: 0.45),
+            .nose: CGPoint(x: 0.43, y: 0.13), .neck: CGPoint(x: 0.44, y: 0.25),
+            .leftShoulder: CGPoint(x: 0.35, y: 0.30), .rightShoulder: CGPoint(x: 0.55, y: 0.30),
+            .leftElbow: CGPoint(x: 0.53, y: 0.38), .leftWrist: CGPoint(x: 0.78, y: 0.43),
+            .rightElbow: CGPoint(x: 0.66, y: 0.40), .rightWrist: CGPoint(x: 0.78, y: 0.46),
             .leftHip: CGPoint(x: 0.37, y: 0.56), .rightHip: CGPoint(x: 0.54, y: 0.56),
             .leftKnee: CGPoint(x: 0.30, y: 0.76), .rightKnee: CGPoint(x: 0.60, y: 0.76),
             .leftAnkle: CGPoint(x: 0.21, y: 0.97), .rightAnkle: CGPoint(x: 0.65, y: 0.97)
@@ -230,7 +230,7 @@ private struct AnimatedPoseFigure: View {
                     progress = 1
                 } else {
                     progress = 0
-                    withAnimation(.smooth(duration: 1.25)) { progress = 1 }
+                    withAnimation(.easeOut(duration: 0.85)) { progress = 1 }
                 }
             }
             .onChange(of: reduceMotion) { _, enabled in
@@ -252,37 +252,52 @@ struct BubblePoseFigure: View, Animatable {
         Canvas { context, size in
             let neutral = PoseSkeleton.example(for: ShotRecipe.presets[1])
             let completeTarget = target.displayingMissingJoints()
+            let hipY = ((completeTarget[.leftHip]?.y ?? 0.55) + (completeTarget[.rightHip]?.y ?? 0.55)) / 2
+            let ankleY = ((completeTarget[.leftAnkle]?.y ?? 0.94) + (completeTarget[.rightAnkle]?.y ?? 0.94)) / 2
+            let legOffset = min(0.08, max(0, (ankleY - hipY) * 0.2))
             func point(_ joint: PoseJoint) -> CGPoint? {
                 guard let end = completeTarget[joint] else { return nil }
-                let start = neutral[joint] ?? end
-                return CGPoint(x: (start.x + (end.x - start.x) * progress) * size.width,
-                               y: (start.y + (end.y - start.y) * progress) * size.height)
+                let rest = neutral[joint] ?? end
+                let start = CGPoint(x: end.x + (rest.x - end.x) * 0.22,
+                                    y: end.y + (rest.y - end.y) * 0.22)
+                let x = start.x + (end.x - start.x) * progress
+                let y = start.y + (end.y - start.y) * progress
+                let bodyOffset: CGFloat
+                switch joint {
+                case .leftHip, .rightHip: bodyOffset = legOffset
+                case .leftKnee, .rightKnee: bodyOffset = legOffset / 2
+                default: bodyOffset = 0
+                }
+                return CGPoint(x: (0.5 + (x - 0.5) * 1.3) * size.width,
+                               y: (0.95 + (y + bodyOffset - 0.95) * 0.9) * size.height)
             }
             let white = GraphicsContext.Shading.color(.white)
             func limb(_ start: PoseJoint, _ bend: PoseJoint, _ end: PoseJoint, width: CGFloat) {
                 guard let a = point(start), let b = point(bend), let c = point(end) else { return }
                 var path = Path()
                 path.move(to: a)
-                path.addQuadCurve(to: b, control: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2))
-                path.addQuadCurve(to: c, control: CGPoint(x: (b.x + c.x) / 2, y: (b.y + c.y) / 2))
+                path.addLine(to: b)
+                path.addLine(to: c)
                 context.stroke(path, with: white,
                                style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
             }
 
-            let thickness = max(5, size.width * 0.067)
-            limb(.leftHip, .leftKnee, .leftAnkle, width: thickness * 1.08)
-            limb(.rightHip, .rightKnee, .rightAnkle, width: thickness * 1.08)
+            let thickness = max(3, size.width * 0.072)
+            limb(.leftHip, .leftKnee, .leftAnkle, width: thickness)
+            limb(.rightHip, .rightKnee, .rightAnkle, width: thickness)
             if let ls = point(.leftShoulder), let rs = point(.rightShoulder),
                let lh = point(.leftHip), let rh = point(.rightHip) {
+                let shoulderCenter = CGPoint(x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2)
+                let shoulderCurve = size.height * 0.025
                 var torso = Path()
-                let inset = size.width * 0.025
-                torso.move(to: CGPoint(x: ls.x + inset, y: ls.y))
-                torso.addQuadCurve(to: CGPoint(x: rs.x - inset, y: rs.y),
-                                   control: CGPoint(x: (ls.x + rs.x) / 2, y: min(ls.y, rs.y) - size.height * 0.015))
-                torso.addQuadCurve(to: rh, control: CGPoint(x: rs.x - inset, y: (rs.y + rh.y) / 2))
-                torso.addQuadCurve(to: lh, control: CGPoint(x: (lh.x + rh.x) / 2, y: max(lh.y, rh.y)))
-                torso.addQuadCurve(to: CGPoint(x: ls.x + inset, y: ls.y),
-                                   control: CGPoint(x: ls.x + inset, y: (ls.y + lh.y) / 2))
+                torso.move(to: CGPoint(x: ls.x, y: ls.y + shoulderCurve))
+                torso.addQuadCurve(to: shoulderCenter,
+                                   control: CGPoint(x: ls.x, y: ls.y - shoulderCurve * 0.3))
+                torso.addQuadCurve(to: CGPoint(x: rs.x, y: rs.y + shoulderCurve),
+                                   control: CGPoint(x: rs.x, y: rs.y - shoulderCurve * 0.3))
+                torso.addLine(to: rh)
+                torso.addQuadCurve(to: lh,
+                                   control: CGPoint(x: (lh.x + rh.x) / 2, y: max(lh.y, rh.y) + shoulderCurve * 0.3))
                 torso.closeSubpath()
                 context.fill(torso, with: white)
             }
@@ -290,15 +305,10 @@ struct BubblePoseFigure: View, Animatable {
             limb(.rightShoulder, .rightElbow, .rightWrist, width: thickness)
 
             if let head = point(.nose) {
-                let radius = max(6, size.width * 0.105)
-                if let neck = point(.neck) {
-                    var neckPath = Path()
-                    neckPath.move(to: CGPoint(x: head.x, y: head.y + radius * 0.7))
-                    neckPath.addLine(to: neck)
-                    context.stroke(neckPath, with: white,
-                                   style: StrokeStyle(lineWidth: thickness * 0.8, lineCap: .round))
-                }
-                context.fill(Path(ellipseIn: CGRect(x: head.x - radius, y: head.y - radius,
+                let radius = max(4.8, size.width * 0.09)
+                let neck = point(.neck) ?? head
+                let center = CGPoint(x: (head.x + neck.x) / 2, y: (head.y + neck.y) / 2)
+                context.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius,
                                                     width: radius * 2, height: radius * 2)), with: white)
             }
         }
