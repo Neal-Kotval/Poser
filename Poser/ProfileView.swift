@@ -36,7 +36,7 @@ struct ProfileView: View {
             } onCancel: {
                 editingProfile = false
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.large])
         }
         .onChange(of: avatarPicker) { _, item in
             guard let item else { return }
@@ -89,7 +89,7 @@ struct ProfileView: View {
                         Text(bio)
                             .font(PoserType.supporting)
                             .foregroundStyle(Palette.secondaryText)
-                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 0)
@@ -253,14 +253,20 @@ struct EditProfileView: View {
                     .frame(minHeight: 44)
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            field("Name") {
+            field("Name", count: name.count, limit: UserProfile.nameLimit) {
                 TextField("Your name", text: $name)
                     .textInputAutocapitalization(.words)
+                    .onChange(of: name) { _, value in
+                        let clean = value.replacingOccurrences(of: "\n", with: " ")
+                        let limited = String(clean.prefix(UserProfile.nameLimit))
+                        if limited != value { name = limited }
+                    }
             }
-            field("Bio") {
-                TextField("One line about you", text: $bio)
+            field("Bio", count: bio.count, limit: UserProfile.bioLimit) {
+                TextField("Tell people about you", text: $bio, axis: .vertical)
+                    .lineLimit(3...6)
                     .onChange(of: bio) { _, value in
-                        if value.count > 80 { bio = String(value.prefix(80)) }
+                        if value.count > UserProfile.bioLimit { bio = String(value.prefix(UserProfile.bioLimit)) }
                     }
             }
             Text("Your profile stays on this phone. No account is required.")
@@ -273,11 +279,18 @@ struct EditProfileView: View {
         .background(Palette.background.ignoresSafeArea())
     }
 
-    private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+    private func field<Content: View>(_ label: String, count: Int, limit: Int,
+                                      @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(PoserType.caption)
-                .foregroundStyle(Palette.secondaryText)
+            HStack {
+                Text(label)
+                Spacer()
+                Text("\(count)/\(limit)")
+                    .monospacedDigit()
+                    .accessibilityLabel("\(count) of \(limit) characters")
+            }
+            .font(PoserType.caption)
+            .foregroundStyle(Palette.secondaryText)
             content()
                 .padding(14)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
