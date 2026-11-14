@@ -335,6 +335,7 @@ struct CameraScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var camera = CameraModel()
     @State private var showGrid = false
+    @State private var showPose = true
 
     init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, shotSpec: ShotSpec? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil, onStartOver: (() -> Void)? = nil) {
         self.mode = mode
@@ -372,6 +373,40 @@ struct CameraScreen: View {
                         .ignoresSafeArea()
                 }
                 if showGrid && !isGuideOverlayVisible { ThirdsGrid().ignoresSafeArea() }
+                if showPose && mode == .guide && !isGuideOverlayVisible,
+                   let shotSpec, shotSpec.silhouette.count > 2 {
+                    GeometryReader { geometry in
+                        let aligned = camera.coachInstruction?.kind == .hold &&
+                            (camera.outlineOverlap ?? 0) >= 65
+                        Path { path in
+                            path.addLines(FrameMapping.cutout(for: shotSpec,
+                                                              frameAspect: camera.liveFrameAspect,
+                                                              viewSize: geometry.size))
+                            path.closeSubpath()
+                        }
+                        .stroke(.white.opacity(aligned ? 0.95 : 0.7),
+                                style: StrokeStyle(lineWidth: aligned ? 3 : 2, lineJoin: .round, dash: aligned ? [] : [8, 6]))
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                } else if showPose && mode == .guide && !isGuideOverlayVisible,
+                          let guidePose = targetPose {
+                    GeometryReader { geometry in
+                        let guideX = geometry.size.width * min(max(targetX, 0.25), 0.75)
+                        BubblePoseFigure(target: guidePose, progress: 1)
+                            .opacity(0.3)
+                            .frame(width: 170, height: 310)
+                            .position(x: guideX, y: geometry.size.height * 0.53)
+                        Text("REFERENCE POSE")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .tracking(1)
+                            .foregroundStyle(.white)
+                            .shadow(color: .black, radius: 5)
+                            .position(x: guideX, y: geometry.size.height * 0.53 + 170)
+                    }
+                    .allowsHitTesting(false)
+                }
             } else {
                 VStack(spacing: 12) {
                     Image(systemName: "camera")
@@ -494,6 +529,11 @@ struct CameraScreen: View {
                             .accessibilityLabel(camera.poseScore.map { "Pose match \($0) percent" }
                                 ?? "Looking for pose match")
                         }
+                        Button { showPose.toggle() } label: {
+                            Image(systemName: showPose ? "eye.slash" : "eye")
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel(showPose ? "Hide pose" : "Show pose")
                     }
                     .padding(.leading, 14)
                     .padding(.trailing, 4)
