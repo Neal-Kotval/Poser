@@ -6,7 +6,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: '5.0'
-    DEVELOPMENT_TEAM: SV5MW3F3ZP
+    DEVELOPMENT_TEAM: GN2A6926JU
     CODE_SIGN_STYLE: Automatic
     TARGETED_DEVICE_FAMILY: '1,2'
     INFOPLIST_KEY_NSCameraUsageDescription: Poser uses the camera to scan your surroundings and guide your shot.
