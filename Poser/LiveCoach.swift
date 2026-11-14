@@ -6,6 +6,8 @@ import simd
 
 /// What the live camera currently sees, in the same terms as `ShotSpec`.
 struct LiveReading {
+    /// Width divided by height after applying the video orientation.
+    var frameAspect: CGFloat?
     var cameraHeightRatio: Double?
     var distanceMeters: Double?
     var subjectYawDegrees: Double?
@@ -13,6 +15,7 @@ struct LiveReading {
     /// Normalized to the live frame, top-left origin.
     var subjectBox: CGRect?
     var pose: PoseSkeleton?
+    var silhouette: [CGPoint] = []
     /// Present when LiDAR depth let Vision measure the subject instead of assuming 1.8 m.
     var measuredSubjectHeight: Double?
 }
@@ -42,9 +45,11 @@ final class LiveFrameAnalyzer {
                                         attachmentModeOut: nil) as? Data
         let focalPixels = delivered.flatMap(LensModel.focalPixels(fromIntrinsics:))
             ?? LensModel.focalLengthPixels(imageSize: frameSize, equivalentMM: LensModel.phoneMainEquivalentMM)
-        let intrinsics = delivered ?? LensModel.intrinsicsData(width: width, height: height, focalPixels: focalPixels)
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation,
-                                            options: [.cameraIntrinsics: intrinsics as CFData])
+        let intrinsics = LensModel.intrinsicsData(width: width, height: height, focalPixels: focalPixels)
+        // Keep the sample buffer's camera metadata when the device supplies it. Vision can use
+        // the delivered intrinsics and any depth attachment directly.
+        let options: [VNImageOption: Any] = delivered == nil ? [.cameraIntrinsics: intrinsics as CFData] : [:]
+        let handler = VNImageRequestHandler(cmSampleBuffer: sampleBuffer, orientation: orientation, options: options)
         return Self.reading(using: handler, frameSize: frameSize, focalPixels: focalPixels,
                             subjectHeightMeters: subjectHeightMeters)
     }
@@ -57,24 +62,44 @@ final class LiveFrameAnalyzer {
         try? handler.perform([pose3D])
 
         var reading = LiveReading()
+        reading.frameAspect = frameSize.width / max(frameSize.height, 1)
         let observation2D = pose2D.results?.first
         let points = observation2D.map(Pose2DReader.points) ?? [:]
         reading.subjectBox = Pose2DReader.box(points)
         reading.pose = observation2D.flatMap(PoseSkeleton.detected)
-
-        if let body = pose3D.results?.first, Pose3DReader.isUsable(body), let placement = Pose3DReader.placement(body) {
-            let measured = body.heightEstimation == .measured
-            let scale = measured ? 1 : subjectHeightMeters / Double(body.bodyHeight)
-            reading.cameraHeightRatio = placement.heightRatio
-            reading.distanceMeters = placement.horizontalDistance * scale
-            reading.subjectYawDegrees = placement.subjectYawDegrees
-            reading.visionPitchDegrees = placement.pitchDegrees
-            if measured { reading.measuredSubjectHeight = Double(body.bodyHeight) }
-            if reading.subjectBox == nil { reading.subjectBox = Pose3DReader.subjectBox(body)?.box }
-        } else if let span = Pose2DReader.noseToAnkle(points) {
+        if observation2D != nil {
+            let segmentation = VNGeneratePersonSegmentationRequest()
+            segmentation.qualityLevel = .balanced
+            try? handler.perform([segmentation])
+            reading.silhouette = segmentation.results?.first.map {
+                ShotSpecEstimator.silhouettePoints(mask: $0.pixelBuffer)
+            } ?? []
+        }
+        if let span = Pose2DReader.noseToAnkle(points) {
             reading.distanceMeters = BodyFrameGeometry.pinholeDistance(
                 focalPixels: focalPixels, subjectHeightMeters: subjectHeightMeters,
                 visibleFraction: Pose2DReader.noseToAnkleFraction, spanPixels: Double(span * frameSize.height))
+        }
+
+        if let body = pose3D.results?.first, Pose2DReader.hasFullBodyEvidence(points),
+           Pose3DReader.isUsable(body), let placement = Pose3DReader.placement(body),
+           BodyFrameGeometry.isPlausible(placement),
+           let scale = BodyFrameGeometry.scale(bodyHeight: Double(body.bodyHeight),
+                                                heightIsMeasured: body.heightEstimation == .measured,
+                                                assumedHeight: subjectHeightMeters) {
+            let measured = body.heightEstimation == .measured
+            let height = Double(body.bodyHeight)
+            // Match the reference estimator: retain true meters when depth measured height,
+            // otherwise scale Vision's arbitrary body frame to the assumed subject height.
+            let distance = placement.horizontalDistance * scale
+            if distance.isFinite, (0.3...20).contains(distance) {
+                reading.cameraHeightRatio = placement.heightRatio
+                reading.distanceMeters = distance
+                reading.subjectYawDegrees = placement.subjectYawDegrees
+                reading.visionPitchDegrees = placement.pitchDegrees
+                if measured { reading.measuredSubjectHeight = height }
+                if reading.subjectBox == nil { reading.subjectBox = Pose3DReader.subjectBox(body)?.box }
+            }
         }
         return reading
     }
@@ -83,7 +108,7 @@ final class LiveFrameAnalyzer {
 struct CoachInstruction: Equatable {
     enum Kind: String, Equatable {
         case findSubject, stepBack, stepCloser, raisePhone, lowerPhone, subjectTurnRight, subjectTurnLeft
-        case tiltUp, tiltDown, level, panLeft, panRight, adjustPose, hold
+        case tiltUp, tiltDown, level, panLeft, panRight, adjustPose, checkSetup, hold
     }
 
     let kind: Kind
@@ -105,6 +130,7 @@ struct CoachInstruction: Equatable {
     static let level = CoachInstruction(.level, "Straighten the phone", symbol: "level")
     static let panLeft = CoachInstruction(.panLeft, "Turn the phone slightly left", symbol: "arrow.left")
     static let panRight = CoachInstruction(.panRight, "Turn the phone slightly right", symbol: "arrow.right")
+    static let checkSetup = CoachInstruction(.checkSetup, "Check the reference setup", symbol: "viewfinder")
     static let hold = CoachInstruction(.hold, "Looks right. Take the shot", symbol: "checkmark.circle.fill")
 
     static func stepBack(meters: Double?) -> CoachInstruction {
@@ -187,14 +213,14 @@ final class LiveCoach {
     let tolerances: CoachTolerances
     let switchAfter: Int
     /// The reference subject's box in live-frame coordinates.
-    let targetBox: CGRect?
+    private(set) var targetBox: CGRect?
     private(set) var instruction: CoachInstruction?
     private(set) var poseMatch: PoseMatch?
 
     private let referencePose: PoseSkeleton?
+    private let referenceFocalRatio: CGFloat
     private let smoothing = 0.35
     private var smoothed = LiveReading()
-    private var pitch: Double?
     private var roll: Double?
     private var pendingKind: CoachInstruction.Kind?
     private var pendingCount = 0
@@ -205,15 +231,24 @@ final class LiveCoach {
         self.referencePose = referencePose
         self.tolerances = tolerances
         self.switchAfter = switchAfter
-        targetBox = spec.subjectBox.map { FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: liveAspect) }
+        let focalRatio: CGFloat
+        switch spec.focalSource {
+        case .exif(let millimeters) where millimeters > 0:
+            focalRatio = CGFloat(LensModel.phoneMainEquivalentMM / millimeters)
+        default:
+            focalRatio = 1
+        }
+        referenceFocalRatio = focalRatio
+        targetBox = spec.subjectBox.map {
+            FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: liveAspect, focalRatio: focalRatio)
+        }
     }
 
     /// Call on every motion update. Pass `reading` only when a new Vision result is available.
-    /// Pitch is positive when the camera tilts up; roll is zero when the phone is level.
+    /// Roll is zero when the phone is level. Vision pitch is compared only with Vision pitch.
     @discardableResult
-    func update(reading: LiveReading?, pitchDegrees: Double, rollDegrees: Double) -> CoachInstruction {
+    func update(reading: LiveReading?, pitchDegrees _: Double, rollDegrees: Double) -> CoachInstruction {
         if let reading { absorb(reading) }
-        pitch = blend(pitch, pitchDegrees)
         roll = blend(roll, rollDegrees)
         return settle(evaluate())
     }
@@ -236,8 +271,8 @@ final class LiveCoach {
             let delta = Self.angleDifference(target, live)
             if abs(delta) > limits.yawDegrees { return .subjectTurn(degrees: delta) }
         }
-        if let pitch {
-            let delta = (spec.pitchDegrees ?? 0) - pitch
+        if let targetPitch = spec.pitchDegrees, let livePitch = smoothed.visionPitchDegrees {
+            let delta = targetPitch - livePitch
             if abs(delta) > limits.pitchDegrees { return .tilt(degrees: delta) }
         }
         if let roll, abs(roll) > limits.rollDegrees { return .level }
@@ -249,9 +284,18 @@ final class LiveCoach {
             if size > 1 + limits.sizeFraction { return .stepBack(meters: nil) }
             if size < 1 - limits.sizeFraction { return .stepCloser(meters: nil) }
         }
+        poseMatch = nil
         if let referencePose, let pose = smoothed.pose {
-            poseMatch = PoseMatcher.compare(reference: referencePose, live: pose)
+            poseMatch = PoseMatcher.compare(reference: referencePose, live: pose,
+                                            referenceOutline: spec.silhouette, liveOutline: smoothed.silhouette)
             if let poseMatch, poseMatch.score < limits.poseScore { return .adjustPose(poseMatch.cue) }
+        }
+        if (spec.distanceMeters != nil && smoothed.distanceMeters == nil)
+            || (spec.cameraHeightRatio != nil && smoothed.cameraHeightRatio == nil)
+            || (spec.subjectYawDegrees != nil && smoothed.subjectYawDegrees == nil)
+            || (spec.pitchDegrees != nil && smoothed.visionPitchDegrees == nil)
+            || (referencePose != nil && poseMatch == nil) {
+            return .checkSetup
         }
         return .hold
     }
@@ -277,8 +321,15 @@ final class LiveCoach {
     }
 
     private func absorb(_ reading: LiveReading) {
+        if let aspect = reading.frameAspect, aspect.isFinite, aspect > 0 {
+            targetBox = spec.subjectBox.map {
+                FrameMapping.map($0, fromAspect: spec.imageAspect, intoAspect: aspect,
+                                 focalRatio: referenceFocalRatio)
+            }
+        }
         guard let box = reading.subjectBox else {
             smoothed = LiveReading()
+            poseMatch = nil
             return
         }
         let previous = smoothed.subjectBox
@@ -292,7 +343,9 @@ final class LiveCoach {
             smoothed.subjectYawDegrees.map { $0 + smoothing * Self.angleDifference(new, $0) } ?? new
         }
         smoothed.visionPitchDegrees = reading.visionPitchDegrees
+        smoothed.frameAspect = reading.frameAspect
         smoothed.pose = reading.pose
+        smoothed.silhouette = reading.silhouette
         smoothed.measuredSubjectHeight = reading.measuredSubjectHeight
     }
 
@@ -313,22 +366,26 @@ final class LiveCoach {
     }
 }
 
-/// Maps reference-image coordinates into the live frame by angular size, assuming both were taken
-/// with the same phone lens and the reference is a centered crop of a 3:4 capture.
+/// Maps reference-image coordinates into the live frame by angular size. The reference is
+/// treated as a centered crop of a 3:4 capture; focalRatio accounts for a different lens.
 enum FrameMapping {
-    static func map(_ point: CGPoint, fromAspect: CGFloat, intoAspect: CGFloat) -> CGPoint {
+    static func map(_ point: CGPoint, fromAspect: CGFloat, intoAspect: CGFloat,
+                    focalRatio: CGFloat = 1) -> CGPoint {
         let source = CGSize(width: fromAspect, height: 1)
         let destination = CGSize(width: intoAspect, height: 1)
         let sourceDiagonal = diagonal(LensModel.captureFrame(containing: source))
         let destinationDiagonal = diagonal(LensModel.captureFrame(containing: destination))
-        let scale = destinationDiagonal / sourceDiagonal
+        let scale = destinationDiagonal / sourceDiagonal * focalRatio
         return CGPoint(x: 0.5 + (point.x - 0.5) * scale * source.width / destination.width,
                        y: 0.5 + (point.y - 0.5) * scale * source.height / destination.height)
     }
 
-    static func map(_ rect: CGRect, fromAspect: CGFloat, intoAspect: CGFloat) -> CGRect {
-        let topLeft = map(CGPoint(x: rect.minX, y: rect.minY), fromAspect: fromAspect, intoAspect: intoAspect)
-        let bottomRight = map(CGPoint(x: rect.maxX, y: rect.maxY), fromAspect: fromAspect, intoAspect: intoAspect)
+    static func map(_ rect: CGRect, fromAspect: CGFloat, intoAspect: CGFloat,
+                    focalRatio: CGFloat = 1) -> CGRect {
+        let topLeft = map(CGPoint(x: rect.minX, y: rect.minY), fromAspect: fromAspect,
+                          intoAspect: intoAspect, focalRatio: focalRatio)
+        let bottomRight = map(CGPoint(x: rect.maxX, y: rect.maxY), fromAspect: fromAspect,
+                              intoAspect: intoAspect, focalRatio: focalRatio)
         return CGRect(x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y)
     }
 
@@ -342,8 +399,16 @@ enum FrameMapping {
 
     /// The reference silhouette in preview coordinates, for drawing the pose cutout.
     static func cutout(for spec: ShotSpec, frameAspect: CGFloat = 3.0 / 4.0, viewSize: CGSize) -> [CGPoint] {
-        spec.silhouette.map {
-            viewPoint(map($0, fromAspect: spec.imageAspect, intoAspect: frameAspect),
+        let focalRatio: CGFloat
+        switch spec.focalSource {
+        case .exif(let millimeters) where millimeters > 0:
+            focalRatio = CGFloat(LensModel.phoneMainEquivalentMM / millimeters)
+        default:
+            focalRatio = 1
+        }
+        return spec.silhouette.map {
+            viewPoint(map($0, fromAspect: spec.imageAspect, intoAspect: frameAspect,
+                          focalRatio: focalRatio),
                       frameAspect: frameAspect, viewSize: viewSize)
         }
     }

@@ -1,5 +1,6 @@
 import XCTest
 import simd
+import UIKit
 @testable import Poser
 
 final class ShotSpecTests: XCTestCase {
@@ -61,6 +62,49 @@ final class ShotSpecTests: XCTestCase {
         let distance = BodyFrameGeometry.pinholeDistance(focalPixels: 3028, subjectHeightMeters: 1.7,
                                                          visibleFraction: 0.955, spanPixels: 2016)
         XCTAssertEqual(distance ?? 0, 2.438, accuracy: 0.001)
+    }
+
+    func testCroppedLegsDoNotSupportCameraPlacement() {
+        let cropped: [PoseJoint: CGPoint] = [
+            .nose: CGPoint(x: 0.5, y: 0.1),
+            .leftShoulder: CGPoint(x: 0.4, y: 0.2), .rightShoulder: CGPoint(x: 0.6, y: 0.2),
+            .leftHip: CGPoint(x: 0.45, y: 0.6), .rightHip: CGPoint(x: 0.55, y: 0.6),
+            .leftKnee: CGPoint(x: 0.45, y: 0.9), .rightKnee: CGPoint(x: 0.55, y: 0.9)
+        ]
+        XCTAssertFalse(Pose2DReader.hasFullBodyEvidence(cropped))
+        var complete = cropped
+        complete[.leftAnkle] = CGPoint(x: 0.44, y: 0.96)
+        complete[.rightAnkle] = CGPoint(x: 0.56, y: 0.96)
+        XCTAssertTrue(Pose2DReader.hasFullBodyEvidence(complete))
+    }
+
+    func testCroppedPortraitDoesNotClaim3DCameraGeometry() async throws {
+        let portrait = try XCTUnwrap(UIImage(named: "InspirationPortrait"))
+        let source = try XCTUnwrap(portrait.cgImage)
+        let crop = CGRect(x: 0, y: 0, width: source.width, height: Int(Double(source.height) * 0.65))
+        let croppedImage = UIImage(cgImage: try XCTUnwrap(source.cropping(to: crop)))
+        let estimate = await ShotSpecEstimator.estimate(image: croppedImage)
+        XCTAssertNotEqual(estimate.spec.source, .pose3D, estimate.diagnostics.text)
+    }
+
+    func testContradictoryDistanceEstimatesAreRejected() {
+        XCTAssertTrue(BodyFrameGeometry.distancesAgree(vision: 2, pinhole: 2.2))
+        XCTAssertFalse(BodyFrameGeometry.distancesAgree(vision: 2, pinhole: 5))
+    }
+
+    func testDepthMeasuredHeightKeepsMetricCameraDistance() {
+        XCTAssertEqual(BodyFrameGeometry.scale(bodyHeight: 1.9, heightIsMeasured: true,
+                                               assumedHeight: 1.7) ?? 0, 1)
+        XCTAssertEqual(BodyFrameGeometry.scale(bodyHeight: 1.8, heightIsMeasured: false,
+                                               assumedHeight: 1.7) ?? 0, 1.7 / 1.8, accuracy: 0.0001)
+        XCTAssertNil(BodyFrameGeometry.scale(bodyHeight: 0, heightIsMeasured: true,
+                                             assumedHeight: 1.7))
+    }
+
+    func testImpossibleCameraPlacementIsRejected() {
+        let invalid = CameraPlacement(heightRatio: -0.2, horizontalDistance: 2,
+                                      subjectYawDegrees: 0, pitchDegrees: 0)
+        XCTAssertFalse(BodyFrameGeometry.isPlausible(invalid))
     }
 
     func testDistanceLabelRoundsToHalfUnits() {

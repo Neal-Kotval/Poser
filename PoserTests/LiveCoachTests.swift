@@ -8,7 +8,8 @@ final class LiveCoachTests: XCTestCase {
 
     private func reading(height: Double = 0.3, distance: Double = 2.0, yaw: Double = 0,
                          box: CGRect? = CGRect(x: 0.35, y: 0.1, width: 0.3, height: 0.8)) -> LiveReading {
-        LiveReading(cameraHeightRatio: height, distanceMeters: distance, subjectYawDegrees: yaw, subjectBox: box)
+        LiveReading(cameraHeightRatio: height, distanceMeters: distance, subjectYawDegrees: yaw,
+                    visionPitchDegrees: 10, subjectBox: box)
     }
 
     private func instruction(for reading: LiveReading, pitch: Double = 10, roll: Double = 0) -> CoachInstruction {
@@ -52,9 +53,38 @@ final class LiveCoachTests: XCTestCase {
     }
 
     func testTiltUpTowardReferencePitch() {
-        let result = instruction(for: reading(), pitch: 0)
+        var live = reading()
+        live.visionPitchDegrees = 0
+        let result = instruction(for: live, pitch: 0)
         XCTAssertEqual(result.kind, .tiltUp)
         XCTAssertEqual(result.text, "Tilt the phone up ≈10°")
+    }
+
+    func testMotionPitchDoesNotReplaceMissingVisionPitch() {
+        var live = reading()
+        live.visionPitchDegrees = nil
+        let result = instruction(for: live, pitch: 0)
+        XCTAssertEqual(result.kind, .checkSetup)
+    }
+
+    func testUnknownReferencePitchDoesNotInventLevelTarget() {
+        let reference = ShotSpec(source: .pose2D, distanceMeters: 2, subjectBox: box)
+        let result = LiveCoach(spec: reference).update(reading: reading(), pitchDegrees: 15, rollDegrees: 0)
+        XCTAssertEqual(result.kind, .hold)
+    }
+
+    func testMissingLiveDistanceDoesNotClaimMatch() {
+        let reference = ShotSpec(source: .pose3D, distanceMeters: 2, subjectBox: box)
+        let result = LiveCoach(spec: reference).update(reading: LiveReading(subjectBox: box),
+                                                        pitchDegrees: 0, rollDegrees: 0)
+        XCTAssertEqual(result.kind, .checkSetup)
+    }
+
+    func testVisionPitchIsComparedWithVisionPitch() {
+        let live = LiveReading(visionPitchDegrees: 10, subjectBox: box)
+        let reference = ShotSpec(source: .pose3D, pitchDegrees: 10, subjectBox: box)
+        let result = LiveCoach(spec: reference).update(reading: live, pitchDegrees: 25, rollDegrees: 0)
+        XCTAssertEqual(result.kind, .hold)
     }
 
     func testLevelWhenRolled() {
@@ -90,6 +120,12 @@ final class LiveCoachTests: XCTestCase {
     func testLandscapeReferenceShrinksInPortraitFrame() {
         let mapped = FrameMapping.map(CGPoint(x: 0.5, y: 0), fromAspect: 1.5, intoAspect: 0.75)
         XCTAssertEqual(mapped.y, 1.0 / 6.0, accuracy: 0.001)
+    }
+
+    func testTelephotoReferenceMapsToSmallerPhonePreviewTarget() {
+        let mapped = FrameMapping.map(box, fromAspect: 0.75, intoAspect: 0.75, focalRatio: 0.5)
+        XCTAssertEqual(mapped.midX, box.midX, accuracy: 0.001)
+        XCTAssertEqual(mapped.height, box.height * 0.5, accuracy: 0.001)
     }
 
     func testViewPointUsesAspectFill() {

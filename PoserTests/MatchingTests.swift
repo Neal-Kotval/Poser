@@ -34,6 +34,7 @@ final class MatchingTests: XCTestCase {
         }
         for reference in [ReferenceCatalog.items[0], ReferenceCatalog.items[407], ReferenceCatalog.items[815]] {
             XCTAssertNotNil(reference.image, "Missing full image for \(reference.assetName)")
+            XCTAssertNotNil(reference.imageData, "Missing original bytes for \(reference.assetName)")
         }
     }
 
@@ -85,6 +86,21 @@ final class MatchingTests: XCTestCase {
         XCTAssertNil(PoseMatcher.compare(reference: reference, live: incomplete))
     }
 
+    func testOutlineDominatesPoseScore() {
+        let pose = fiveJointPose(rightWristY: 0.3)
+        let full = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.9, y: 0.1),
+                    CGPoint(x: 0.9, y: 0.9), CGPoint(x: 0.1, y: 0.9)]
+        let narrow = [CGPoint(x: 0.1, y: 0.1), CGPoint(x: 0.9, y: 0.1),
+                      CGPoint(x: 0.2, y: 0.9), CGPoint(x: 0.1, y: 0.9)]
+
+        let score = PoseMatcher.compare(reference: pose, live: pose,
+                                        referenceOutline: full, liveOutline: narrow)
+        XCTAssertNotNil(score)
+        XCTAssertLessThan(score!.score, 80, "Matching joints should not hide a mismatched outline")
+        XCTAssertEqual(PoseMatcher.compare(reference: pose, live: pose,
+                                           referenceOutline: full, liveOutline: full)?.score, 100)
+    }
+
     @MainActor
     func testImportedInspirationPersistsAcrossStoreReload() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -98,7 +114,21 @@ final class MatchingTests: XCTestCase {
         XCTAssertNotNil(reopened.image(for: saved))
     }
 
-    func testGeometryEstimatorUsesVisibleBodyForDistanceAndHeight() {
+    @MainActor
+    func testOriginalReferenceDataSurvivesLibraryReload() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let image = solidImage(.systemGreen)
+        let original = try XCTUnwrap(image.pngData())
+
+        let saved = try InspirationStore(folder: folder).add(image, source: .photoLibrary, originalData: original)
+        let reopened = InspirationStore(folder: folder)
+
+        XCTAssertEqual(reopened.originalData(for: saved), original)
+        XCTAssertNotNil(reopened.image(for: saved))
+    }
+
+    func test2DFramingDoesNotClaimLowCameraHeight() {
         let points: [PoseJoint: CGPoint] = [
             .nose: CGPoint(x: 0.5, y: 0.1),
             .leftShoulder: CGPoint(x: 0.4, y: 0.24), .rightShoulder: CGPoint(x: 0.6, y: 0.24),
@@ -110,7 +140,8 @@ final class MatchingTests: XCTestCase {
         XCTAssertTrue(estimate.inferredFromPose)
         XCTAssertGreaterThan(estimate.distanceMeters, 1)
         XCTAssertLessThan(estimate.distanceMeters, 3)
-        XCTAssertEqual(estimate.heightLabel, "Waist height")
+        XCTAssertEqual(estimate.cameraHeightMeters, 1.5)
+        XCTAssertEqual(estimate.heightLabel, "Camera height unknown")
     }
 
     func testCroppedPoseDoesNotInventCameraMeasurements() {

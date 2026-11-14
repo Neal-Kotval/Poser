@@ -12,6 +12,9 @@ struct ShotGeometry {
 
     var heightLabel: String {
         if let bucket = spec?.heightBucket { return bucket.label }
+        // Framing alone cannot distinguish a low camera from a tilted or cropped shot.
+        // The neutral height below only places the photographer in the diagram.
+        if spec?.cameraHeightRatio == nil { return "Camera height unknown" }
         switch cameraHeightMeters {
         case ..<0.8: return "Knee height"
         case ..<1.1: return "Waist height"
@@ -120,24 +123,11 @@ enum ShotGeometryEstimator {
         let rawDistance = visibleMeters / (2 * tan(63.0 * .pi / 360) * visibleFraction)
         let distance = min(8, max(0.5, (rawDistance * 2).rounded() / 2))
 
-        let aimFraction = (0.5 - Double(top)) / visibleFraction
-        let height: Double
-        switch aimFraction {
-        case ..<0.25: height = 1.55
-        case ..<0.46: height = 1.25
-        case ..<0.68: height = 0.95
-        default: height = 0.65
-        }
-        return ShotGeometry(cameraHeightMeters: height, distanceMeters: distance,
+        return ShotGeometry(cameraHeightMeters: 1.5, distanceMeters: distance,
                             tiltDegrees: 0, inferredFromPose: true)
     }
 
     static func fallback(for recipe: ShotRecipe) -> ShotGeometry {
-        switch recipe.id {
-        case "nature": .init(cameraHeightMeters: 0.95, distanceMeters: 3, tiltDegrees: 5, inferredFromPose: false)
-        case "cafe": .init(cameraHeightMeters: 1.55, distanceMeters: 1.5, tiltDegrees: -5, inferredFromPose: false)
-        case "sunset": .init(cameraHeightMeters: 0.65, distanceMeters: 3, tiltDegrees: 10, inferredFromPose: false)
-        default: .init(cameraHeightMeters: 1.25, distanceMeters: 2.5, tiltDegrees: 0, inferredFromPose: false)
-        }
+        .init(cameraHeightMeters: 1.5, distanceMeters: 2.5, tiltDegrees: 0, inferredFromPose: false)
     }
 }

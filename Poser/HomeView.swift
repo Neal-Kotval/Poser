@@ -441,7 +441,9 @@ struct HomeView: View {
             }
 
             Button {
-                if let fullImage = asset.image { Task { await analyze(fullImage, scene: false) } }
+                if let data = asset.imageData, let fullImage = UIImage(data: data) {
+                    Task { await analyze(fullImage, scene: false, imageData: data) }
+                }
             } label: {
                 GeometryReader { tile in
                     Image(uiImage: image)
@@ -471,7 +473,9 @@ struct HomeView: View {
                     .accessibilityLabel("Open original Pin")
                 }
                 Button {
-                    if let fullImage = asset.image { Task { await analyze(fullImage, scene: false) } }
+                    if let data = asset.imageData, let fullImage = UIImage(data: data) {
+                        Task { await analyze(fullImage, scene: false, imageData: data) }
+                    }
                 } label: {
                     Image(systemName: "arrow.up.right")
                         .font(.system(size: 16, weight: .semibold))
@@ -509,7 +513,11 @@ struct HomeView: View {
                         ForEach(inspirationStore.items) { item in
                             if let image = inspirationStore.image(for: item) {
                                 Button {
-                                    Task { await analyze(image, scene: false) }
+                                    Task {
+                                        let original = inspirationStore.originalData(for: item)
+                                        await analyze(original.flatMap(UIImage.init(data:)) ?? image,
+                                                      scene: false, imageData: original)
+                                    }
                                 } label: {
                                     VStack(alignment: .leading, spacing: 7) {
                                         Image(uiImage: image)
@@ -862,7 +870,7 @@ struct HomeView: View {
 
     private func importInspiration(_ image: UIImage, source: InspirationSource, imageData: Data? = nil) async {
         do {
-            try inspirationStore.add(image, source: source)
+            try inspirationStore.add(image, source: source, originalData: imageData)
         } catch {
             errorMessage = error.localizedDescription
             return
@@ -910,7 +918,16 @@ struct HomeView: View {
             return reference.image
         }
         guard let item = inspirationStore.items.first(where: { $0.id == id }) else { return nil }
-        return inspirationStore.image(for: item)
+        return inspirationStore.originalData(for: item).flatMap(UIImage.init(data:))
+            ?? inspirationStore.image(for: item)
+    }
+
+    private func matchingImageData(for id: UUID) -> Data? {
+        if let reference = ReferenceCatalog.items.first(where: { $0.id == id }) {
+            return reference.imageData
+        }
+        guard let item = inspirationStore.items.first(where: { $0.id == id }) else { return nil }
+        return inspirationStore.originalData(for: item)
     }
 
     private func matchingTitle(for id: UUID) -> String {
@@ -941,7 +958,7 @@ struct HomeView: View {
             return
         }
         do {
-            let result = try await AnalysisService.analyze(image)
+            let result = try await AnalysisService.analyze(image, imageData: matchingImageData(for: id))
             guard requestID == flowID else { return }
             referenceImage = image
             analysis = result

@@ -101,8 +101,34 @@ enum BodyFrameGeometry {
     /// Distance from the subject's visible height in pixels, for a camera roughly level with them.
     static func pinholeDistance(focalPixels: Double, subjectHeightMeters: Double,
                                 visibleFraction: Double, spanPixels: Double) -> Double? {
-        guard spanPixels > 1 else { return nil }
+        guard focalPixels.isFinite, focalPixels > 0,
+              subjectHeightMeters.isFinite, subjectHeightMeters > 0,
+              visibleFraction.isFinite, (0...1).contains(visibleFraction),
+              spanPixels.isFinite, spanPixels > 1 else { return nil }
         return focalPixels * subjectHeightMeters * visibleFraction / spanPixels
+    }
+
+    /// These broad physical bounds catch inverted or degenerate Vision camera matrices without
+    /// assuming that every portrait was taken from eye level on a standard lens.
+    static func isPlausible(_ placement: CameraPlacement) -> Bool {
+        (0.02...2.5).contains(placement.heightRatio) &&
+        (0.35...30).contains(placement.horizontalDistance) &&
+        placement.subjectYawDegrees.isFinite &&
+        placement.pitchDegrees.isFinite &&
+        abs(placement.pitchDegrees) <= 80
+    }
+
+    /// Two independent distance estimates should be within roughly 30% of each other.
+    static func distancesAgree(vision: Double, pinhole: Double) -> Bool {
+        guard vision.isFinite, pinhole.isFinite, vision > 0, pinhole > 0 else { return false }
+        return (0.7...1.43).contains(vision / pinhole)
+    }
+
+    static func scale(bodyHeight: Double, heightIsMeasured: Bool, assumedHeight: Double) -> Double? {
+        guard bodyHeight.isFinite, bodyHeight > 0,
+              assumedHeight.isFinite, (0.5...2.5).contains(assumedHeight),
+              !heightIsMeasured || (0.5...2.5).contains(bodyHeight) else { return nil }
+        return heightIsMeasured ? 1 : assumedHeight / bodyHeight
     }
 }
 
@@ -203,16 +229,48 @@ enum Pose2DReader {
 
     /// Nose-to-ankle span in normalized image height, when the whole body is visible.
     static func noseToAnkle(_ points: [PoseJoint: CGPoint]) -> CGFloat? {
-        guard let nose = points[.nose] else { return nil }
+        guard hasUprightBodyEvidence(points), let nose = points[.nose] else { return nil }
         let ankles = [points[.leftAnkle], points[.rightAnkle]].compactMap { $0?.y }
         guard let ankle = ankles.max(), ankle > nose.y else { return nil }
         return ankle - nose.y
+    }
+
+    /// Vision's 3D request may synthesize offscreen legs for a cropped portrait. Require the 2D
+    /// detector to independently locate every major limb before trusting its camera transform.
+    static func hasFullBodyEvidence(_ points: [PoseJoint: CGPoint]) -> Bool {
+        let required: [PoseJoint] = [.nose, .leftShoulder, .rightShoulder, .leftHip, .rightHip,
+                                     .leftKnee, .rightKnee, .leftAnkle, .rightAnkle]
+        guard required.allSatisfy({ joint in
+                  guard let point = points[joint] else { return false }
+                  return point.x.isFinite && point.y.isFinite &&
+                      (0.01...0.99).contains(point.x) && (0.01...0.99).contains(point.y)
+              }), let nose = points[.nose], let leftAnkle = points[.leftAnkle],
+              let rightAnkle = points[.rightAnkle] else { return false }
+        let jointYs = required.compactMap { points[$0]?.y }
+        return (jointYs.max() ?? 0) - (jointYs.min() ?? 0) >= 0.25 &&
+            max(leftAnkle.y, rightAnkle.y) - nose.y >= 0.15
+    }
+
+    /// A 2D image span estimates metric distance only when legs extend below an upright torso.
+    static func hasUprightBodyEvidence(_ points: [PoseJoint: CGPoint]) -> Bool {
+        guard hasFullBodyEvidence(points), let nose = points[.nose],
+              let shoulders = meanY(points, .leftShoulder, .rightShoulder),
+              let hips = meanY(points, .leftHip, .rightHip),
+              let knees = meanY(points, .leftKnee, .rightKnee),
+              let ankles = meanY(points, .leftAnkle, .rightAnkle) else { return false }
+        return nose.y + 0.02 < shoulders && shoulders + 0.03 < hips &&
+            hips + 0.04 < knees && knees + 0.04 < ankles &&
+            ankles - nose.y >= 0.3
+    }
+
+    private static func meanY(_ points: [PoseJoint: CGPoint], _ left: PoseJoint, _ right: PoseJoint) -> CGFloat? {
+        guard let leftPoint = points[left], let rightPoint = points[right] else { return nil }
+        return (leftPoint.y + rightPoint.y) / 2
     }
 }
 
 enum ShotSpecEstimator {
     static let defaultSubjectHeight = 1.7
-    private static let headToAnkleFraction = 1 - Double(BodyFrameGeometry.ankleHeightRatio)
 
     static func estimate(image: UIImage, imageData: Data? = nil,
                          subjectHeightMeters: Double = defaultSubjectHeight) async -> (spec: ShotSpec, diagnostics: ShotSpecDiagnostics) {
@@ -237,8 +295,11 @@ enum ShotSpecEstimator {
         log.add("image \(Int(size.width))x\(Int(size.height)) orientation \(orientation.rawValue)")
         log.add("focal \(fmt(focalPixels)) px from \(exifMM.map { "EXIF \(fmt($0)) mm" } ?? "assumed \(fmt(LensModel.phoneMainEquivalentMM)) mm phone lens")")
         let intrinsics = LensModel.intrinsicsData(width: cgImage.width, height: cgImage.height, focalPixels: focalPixels)
-        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation,
-                                            options: [.cameraIntrinsics: intrinsics as CFData])
+        let options: [VNImageOption: Any] = [.cameraIntrinsics: intrinsics as CFData]
+        // An original HEIC/JPEG may contain calibration and depth auxiliaries that have already
+        // been discarded by UIImage's CGImage. Let Vision decode the original when available.
+        let handler = imageData.map { VNImageRequestHandler(data: $0, orientation: orientation, options: options) }
+            ?? VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: options)
         let pose3D = VNDetectHumanBodyPose3DRequest()
         let pose2D = VNDetectHumanBodyPoseRequest()
         let horizon = VNDetectHorizonRequest()
@@ -247,9 +308,9 @@ enum ShotSpecEstimator {
         segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
         // Run separately so one unavailable model does not block the others.
         do { try handler.perform([pose3D]) } catch { log.add("3D pose failed: \(error.localizedDescription)") }
-        try? handler.perform([pose2D])
-        try? handler.perform([horizon])
-        try? handler.perform([segmentation])
+        do { try handler.perform([pose2D]) } catch { log.add("2D pose failed: \(error.localizedDescription)") }
+        do { try handler.perform([horizon]) } catch { log.add("horizon failed: \(error.localizedDescription)") }
+        do { try handler.perform([segmentation]) } catch { log.add("segmentation failed: \(error.localizedDescription)") }
 
         let points2D = pose2D.results?.first.map(Pose2DReader.points) ?? [:]
         let horizonDegrees = horizon.results?.first.map { Double($0.angle) * 180 / .pi }
@@ -261,29 +322,44 @@ enum ShotSpecEstimator {
             logRaw(body, into: &log)
             if !Pose3DReader.isUsable(body) { log.add("3D skeleton rejected: hips or shoulders project outside the photo") }
         }
-        if let body = pose3D.results?.first, Pose3DReader.isUsable(body), let placement = Pose3DReader.placement(body) {
-            let scale = subjectHeightMeters / Double(body.bodyHeight)
+        let fullBodyEvidence = Pose2DReader.hasFullBodyEvidence(points2D)
+        let uprightEvidence = Pose2DReader.hasUprightBodyEvidence(points2D)
+        if !fullBodyEvidence { log.add("full-body 2D evidence unavailable; camera geometry will be withheld") }
+        if let body = pose3D.results?.first, fullBodyEvidence,
+           Pose3DReader.isUsable(body), let placement = Pose3DReader.placement(body),
+           BodyFrameGeometry.isPlausible(placement),
+           let scale = BodyFrameGeometry.scale(
+                bodyHeight: Double(body.bodyHeight), heightIsMeasured: body.heightEstimation == .measured,
+                assumedHeight: subjectHeightMeters) {
+            let measuredHeight = body.heightEstimation == .measured
+            let resolvedHeight = Double(body.bodyHeight) * scale
             let distance = placement.horizontalDistance * scale
             let projected = Pose3DReader.subjectBox(body)
-            let anklesSeen = points2D[.leftAnkle] != nil || points2D[.rightAnkle] != nil
-            let pinhole = anklesSeen && Pose3DReader.feetAndHeadInFrame(body) ? projected.flatMap {
-                BodyFrameGeometry.pinholeDistance(focalPixels: focalPixels, subjectHeightMeters: subjectHeightMeters,
-                                                  visibleFraction: headToAnkleFraction,
-                                                  spanPixels: Double($0.headToAnkle * size.height))
-            } : nil
-            let agreement = pinhole.map { distance / $0 }
-            let approximate = agreement.map { !(0.7...1.43).contains($0) } ?? true
+            let pinhole = (uprightEvidence ? Pose2DReader.noseToAnkle(points2D) : nil).flatMap {
+                BodyFrameGeometry.pinholeDistance(focalPixels: focalPixels, subjectHeightMeters: resolvedHeight,
+                                                  visibleFraction: Pose2DReader.noseToAnkleFraction,
+                                                  spanPixels: Double($0 * size.height))
+            }
+            let agreement = pinhole.map { BodyFrameGeometry.distancesAgree(vision: distance, pinhole: $0) }
             log.add("placement heightRatio \(fmt(placement.heightRatio)) yaw \(fmt(placement.subjectYawDegrees))° pitch \(fmt(placement.pitchDegrees))°")
-            log.add("distance vision \(fmt(distance)) m, pinhole \(pinhole.map(fmt) ?? "-") m, approximate \(approximate)")
-            let spec = ShotSpec(source: .pose3D, cameraHeightRatio: placement.heightRatio, distanceMeters: distance,
-                                distanceIsApproximate: approximate, pitchDegrees: placement.pitchDegrees,
+            log.add("distance vision \(fmt(distance)) m, pinhole \(pinhole.map(fmt) ?? "-") m, agreement \(agreement.map { String(describing: $0) } ?? "unavailable")")
+            // An EXIF focal length makes the pinhole estimate independent enough to disqualify
+            // a contradictory 3D camera pose. An assumed lens cannot support that conclusion.
+            if exifMM == nil || agreement != false {
+                let spec = ShotSpec(source: .pose3D, cameraHeightRatio: placement.heightRatio, distanceMeters: distance,
+                                distanceIsApproximate: !measuredHeight || exifMM == nil,
+                                pitchDegrees: placement.pitchDegrees,
                                 subjectYawDegrees: placement.subjectYawDegrees, horizonDegrees: horizonDegrees,
                                 subjectBox: Pose2DReader.box(points2D) ?? projected?.box, silhouette: silhouette,
-                                subjectHeightMeters: subjectHeightMeters, focalSource: focalSource, imageAspect: aspect)
-            return (spec, log)
+                                subjectHeightMeters: resolvedHeight, focalSource: focalSource, imageAspect: aspect)
+                return (spec, log)
+            }
+            log.add("3D camera pose rejected: EXIF-calibrated image span disagrees with Vision distance")
+        } else if pose3D.results?.first != nil {
+            log.add("3D camera pose rejected: missing full-body evidence or implausible transform")
         }
 
-        if let span = Pose2DReader.noseToAnkle(points2D) {
+        if uprightEvidence, let span = Pose2DReader.noseToAnkle(points2D) {
             let distance = BodyFrameGeometry.pinholeDistance(
                 focalPixels: focalPixels, subjectHeightMeters: subjectHeightMeters,
                 visibleFraction: Pose2DReader.noseToAnkleFraction, spanPixels: Double(span * size.height))
@@ -301,7 +377,7 @@ enum ShotSpecEstimator {
         return (spec, log)
     }
 
-    private static func silhouettePoints(mask: CVPixelBuffer) -> [CGPoint] {
+    static func silhouettePoints(mask: CVPixelBuffer) -> [CGPoint] {
         let request = VNDetectContoursRequest()
         request.detectsDarkOnLight = false
         request.maximumImageDimension = 256

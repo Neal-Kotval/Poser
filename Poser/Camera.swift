@@ -33,14 +33,15 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published var poseScore: Int?
     @Published var poseHint = "Looking for the reference pose"
     @Published var coachInstruction: CoachInstruction?
+    @Published var liveFrameAspect: CGFloat = 3.0 / 4.0
     private var coachEnabled: Bool {
         get { targetLock.lock(); defer { targetLock.unlock() }; return storedCoachEnabled }
         set { targetLock.lock(); storedCoachEnabled = newValue; targetLock.unlock() }
     }
-    /// Set on the main thread. A spec from a 3D-measured reference turns on step-by-step coaching.
+    /// Set on the main thread. A measured reference turns on step-by-step coaching.
     var shotSpec: ShotSpec? {
         didSet {
-            coach = shotSpec.map { LiveCoach(spec: $0) }
+            coach = shotSpec.map { LiveCoach(spec: $0, referencePose: targetPose) }
             pendingReading = nil
             coachInstruction = nil
             coachEnabled = coach != nil
@@ -178,10 +179,12 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         if coachEnabled {
             guard let reading = analyzer.analyze(sampleBuffer) else { return }
             let poseMatch = targetPose.flatMap { target in
-                reading.pose.flatMap { PoseMatcher.compare(reference: target, live: $0) }
+                reading.pose.flatMap { PoseMatcher.compare(reference: target, live: $0,
+                    referenceOutline: self.shotSpec?.silhouette ?? [], liveOutline: reading.silhouette) }
             }
             DispatchQueue.main.async {
                 self.pendingReading = reading
+                if let aspect = reading.frameAspect { self.liveFrameAspect = aspect }
                 self.poseScore = poseMatch?.score
                 self.poseHint = poseMatch?.cue ?? (reading.pose == nil ? "Looking for the reference pose" : "Move into view to match the pose")
             }
@@ -330,7 +333,9 @@ struct CameraScreen: View {
                     GeometryReader { geometry in
                         let aligned = camera.coachInstruction?.kind == .hold
                         Path { path in
-                            path.addLines(FrameMapping.cutout(for: shotSpec, viewSize: geometry.size))
+                            path.addLines(FrameMapping.cutout(for: shotSpec,
+                                                              frameAspect: camera.liveFrameAspect,
+                                                              viewSize: geometry.size))
                             path.closeSubpath()
                         }
                         .stroke(.white.opacity(aligned ? 0.95 : 0.7),
@@ -370,7 +375,7 @@ struct CameraScreen: View {
                         }
                         .font(.system(size: 15, weight: .semibold))
                         .frame(minWidth: 140, minHeight: 44)
-                        .background(Palette.elevated, in: Capsule())
+                        .background(Palette.elevated, in: RoundedRectangle(cornerRadius: PoserRadius.control))
                     }
                 }
                 .foregroundStyle(Palette.primaryText)
@@ -418,7 +423,7 @@ struct CameraScreen: View {
                         .tracking(1.3)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(.black.opacity(0.75), in: Capsule())
+                        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: PoserRadius.control))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 18)
                 }
@@ -428,9 +433,9 @@ struct CameraScreen: View {
                         Image(uiImage: referenceImage)
                             .resizable()
                             .scaledToFill()
-                            .frame(width: 78, height: 110)
+                            .frame(width: 88, height: 88)
                             .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.control))
+                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
                             .accessibilityLabel("Current reference photo")
                         VStack(alignment: .leading, spacing: 5) {
                             if let queueProgress {
@@ -545,7 +550,7 @@ struct CameraScreen: View {
                     Text(camera.isDemo ? "Sample scene for simulator testing" : "Point at the place where you want to shoot")
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .padding(14)
-                        .background(Palette.background.opacity(0.85), in: Capsule())
+                        .background(Palette.background.opacity(0.85), in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 } else if mode == .guide, recipe == nil {
                     VStack(spacing: 4) {
                         Text("Looking for inspo?")
@@ -556,7 +561,7 @@ struct CameraScreen: View {
                     }
                     .padding(.horizontal, 18)
                     .padding(.vertical, 12)
-                    .background(Palette.background.opacity(0.82), in: Capsule())
+                    .background(Palette.background.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 }
                 Button { camera.capture() } label: {
                     Circle()

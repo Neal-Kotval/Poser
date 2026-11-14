@@ -49,7 +49,7 @@ final class InspirationStore: ObservableObject {
     }
 
     @discardableResult
-    func add(_ image: UIImage, source: InspirationSource) throws -> InspirationItem {
+    func add(_ image: UIImage, source: InspirationSource, originalData: Data? = nil) throws -> InspirationItem {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
         let id = UUID()
         let filename = "\(id.uuidString).jpg"
@@ -63,7 +63,7 @@ final class InspirationStore: ObservableObject {
             throw InspirationStoreError.imageEncodingFailed
         }
         let imageURL = folder.appendingPathComponent(filename)
-        try data.write(to: imageURL, options: .atomic)
+        let originalURL = folder.appendingPathComponent("\(id.uuidString).original")
         let item = InspirationItem(
             id: id,
             title: source == .link ? "Linked photo \(items.count + 1)" : "Reference \(items.count + 1)",
@@ -73,10 +73,13 @@ final class InspirationStore: ObservableObject {
         )
         let updated = [item] + items
         do {
+            try data.write(to: imageURL, options: .atomic)
+            if let originalData { try originalData.write(to: originalURL, options: .atomic) }
             try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
             items = updated
         } catch {
             try? FileManager.default.removeItem(at: imageURL)
+            try? FileManager.default.removeItem(at: originalURL)
             throw error
         }
         return item
@@ -84,5 +87,10 @@ final class InspirationStore: ObservableObject {
 
     func image(for item: InspirationItem) -> UIImage? {
         UIImage(contentsOfFile: folder.appendingPathComponent(item.filename).path)
+    }
+
+    /// Original bytes preserve EXIF lens and depth metadata for later shot analysis.
+    func originalData(for item: InspirationItem) -> Data? {
+        try? Data(contentsOf: folder.appendingPathComponent("\(item.id.uuidString).original"))
     }
 }

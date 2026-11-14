@@ -11,6 +11,11 @@ struct ReferenceAsset: Identifiable {
 
     var image: UIImage? { loadImage(in: "images") }
     var preview: UIImage? { loadImage(in: "previews") }
+    var imageData: Data? {
+        guard let url = Bundle.main.url(forResource: assetName, withExtension: "jpg",
+                                        subdirectory: "PinterestLibrary/images") else { return nil }
+        return try? Data(contentsOf: url)
+    }
 
     private func loadImage(in folder: String) -> UIImage? {
         guard let url = Bundle.main.url(
