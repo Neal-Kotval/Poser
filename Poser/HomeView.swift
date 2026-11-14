@@ -656,6 +656,7 @@ struct HomeView: View {
     }
 
     private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
+        let post = asset.mockPost
         let tags = [
             asset.setting.map { ReferenceTag(kind: .setting, value: $0) },
             asset.pose.map { ReferenceTag(kind: .pose, value: $0) }
@@ -672,6 +673,25 @@ struct HomeView: View {
                     .clipped()
             }
             .aspectRatio(1, contentMode: .fit)
+            .overlay(alignment: .topLeading) {
+                HStack(spacing: 7) {
+                    Text(post.initials)
+                        .font(.system(size: 9, weight: .semibold))
+                        .frame(width: 24, height: 24)
+                        .background(.white.opacity(0.14), in: Circle())
+                    Text(post.accountName)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.white)
+                .padding(.leading, 5)
+                .padding(.trailing, 10)
+                .padding(.vertical, 5)
+                .background(.regularMaterial, in: Capsule())
+                .padding(12)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
             .overlay(alignment: .bottomLeading) {
                 HStack(spacing: 4) {
                     ForEach(tags) { tag in
@@ -682,6 +702,16 @@ struct HomeView: View {
                             .padding(.vertical, 5)
                             .background(.regularMaterial, in: Capsule())
                     }
+                    Spacer(minLength: 8)
+                    HStack(spacing: 4) {
+                        Image(systemName: "heart")
+                        Text(post.likeCount.formatted(.number.notation(.compactName)))
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(.regularMaterial, in: Capsule())
                 }
                 .padding(12)
                 .allowsHitTesting(false)
@@ -692,7 +722,7 @@ struct HomeView: View {
             .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Open \(asset.title) inspiration")
+        .accessibilityLabel("Open \(asset.title) inspiration. Demo account \(post.accountName), \(post.likeCount) mock likes.")
     }
 
     private var savedInspiration: some View {

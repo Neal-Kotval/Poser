@@ -20,6 +20,10 @@ struct ReferenceAsset: Identifiable {
     var setting: String? = nil
     var pose: String? = nil
 
+    var mockPost: MockReferencePost {
+        MockReferencePost(referenceID: assetName)
+    }
+
     var image: UIImage? { loadImage(in: "images") }
     var preview: UIImage? { loadImage(in: "previews") }
     /// Feed cards use the original bundled image, decoded off the main thread.
@@ -57,6 +61,29 @@ struct ReferenceAsset: Identifiable {
             ReferencePreviewCache.images.setObject(image, forKey: key, cost: cost)
         }
         return image
+    }
+}
+
+/// Presentation-only mock data; not attribution or engagement from Pinterest.
+struct MockReferencePost {
+    let accountName: String
+    let initials: String
+    let likeCount: Int
+
+    init(referenceID: String) {
+        let accounts = [
+            ("demo.softlight", "SL"), ("demo.cityframes", "CF"),
+            ("demo.weekendmuse", "WM"), ("demo.poseedit", "PE"),
+            ("demo.slowdays", "SD"), ("demo.goldenhour", "GH")
+        ]
+        // A stable seed prevents metadata changing across renders or launches.
+        let seed = referenceID.utf8.reduce(UInt64(14695981039346656037)) {
+            ($0 ^ UInt64($1)) &* 1099511628211
+        }
+        let account = accounts[Int(seed % UInt64(accounts.count))]
+        accountName = account.0
+        initials = account.1
+        likeCount = 36 + Int((seed / 7) % 9400)
     }
 }
 
