@@ -597,7 +597,7 @@ struct CameraScreen: View {
             camera.shotSpec = shotSpec
             camera.poseScore = nil
         }
-        .onChange(of: shotSpec?.distanceMeters) { _, _ in camera.shotSpec = shotSpec }
+        .onChange(of: shotSpec) { _, newValue in camera.shotSpec = newValue }
         .onChange(of: targetX) { _, newValue in camera.targetX = newValue }
         .onDisappear { camera.stop() }
         .alert("Camera issue", isPresented: Binding(

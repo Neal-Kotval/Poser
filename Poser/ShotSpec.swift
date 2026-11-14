@@ -40,7 +40,7 @@ enum CameraHeightBucket: String, CaseIterable {
 
 /// Where the reference photo was taken from. Camera height and angles are relative to the
 /// subject's body; distance is absolute for a subject of `subjectHeightMeters`.
-struct ShotSpec {
+struct ShotSpec: Equatable {
     enum Source: String { case pose3D, pose2D, fallback }
     enum FocalSource: Equatable { case exif(millimeters: Double), assumedPhoneLens }
 

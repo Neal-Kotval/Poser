@@ -18,6 +18,7 @@ struct HomeView: View {
     @State private var activeTab: Tab = .camera
     @StateObject private var inspirationStore = InspirationStore()
     @StateObject private var shootStore = ShootStore()
+    @StateObject private var profileStore = UserProfileStore()
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var referenceImage: UIImage?
     @State private var analysis: PhotoAnalysis?
@@ -196,7 +197,7 @@ struct HomeView: View {
             targetX: analysis?.subjectPoint?.x ?? 0.5,
             targetPose: analysis?.poseSkeleton,
             shotGeometry: analysis?.geometry,
-            shotSpec: analysis?.geometry.spec,
+            shotSpec: analysis?.shotSpec,
             referenceImage: selectedRecipe == nil ? nil : referenceImage,
             referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
             queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
@@ -302,61 +303,14 @@ struct HomeView: View {
     }
 
     private var profilePage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    Text("My shots")
-                        .font(.system(size: 28, weight: .bold))
-                    Spacer()
-                    Text("\(shootStore.shots.count) completed")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Palette.secondaryText)
-                }
-                .padding(.top, PoserSpace.large)
-                if shootStore.shots.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Your shoots will live here")
-                            .font(.system(size: 19, weight: .semibold))
-                        Text("Take your first shot to start a collection.")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Palette.secondaryText)
-                        Button("Open camera") {
-                            withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
-                        }
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(.top, 8)
-                    }
-                    .padding(.top, 36)
-                } else {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                        ForEach(shootStore.shots) { shot in
-                            if let photo = shootStore.photo(for: shot) {
-                                Button { selectedCompletedShot = shot } label: {
-                                    GeometryReader { tile in
-                                        Image(uiImage: photo)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: tile.size.width, height: tile.size.height)
-                                            .clipped()
-                                    }
-                                    .aspectRatio(1, contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Completed shot from \(shot.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                            }
-                        }
-                    }
-                }
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: 620)
-            .padding(.horizontal, PoserSpace.large)
-            .padding(.bottom, 86)
-            .frame(maxWidth: .infinity)
-        }
-        .background(Palette.background)
+        ProfileView(
+            profileStore: profileStore,
+            shootStore: shootStore,
+            onOpenCamera: {
+                withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
+            },
+            onSelectShot: { selectedCompletedShot = $0 }
+        )
     }
 
     private var bottomBar: some View {

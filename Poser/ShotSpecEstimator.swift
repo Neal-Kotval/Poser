@@ -236,19 +236,22 @@ enum Pose2DReader {
     }
 
     /// Vision's 3D request may synthesize offscreen legs for a cropped portrait. Require the 2D
-    /// detector to independently locate every major limb before trusting its camera transform.
+    /// detector to independently locate the head, torso, and a complete leg before trusting
+    /// its camera transform. The other leg may be occluded by the stance or clothing.
     static func hasFullBodyEvidence(_ points: [PoseJoint: CGPoint]) -> Bool {
-        let required: [PoseJoint] = [.nose, .leftShoulder, .rightShoulder, .leftHip, .rightHip,
-                                     .leftKnee, .rightKnee, .leftAnkle, .rightAnkle]
-        guard required.allSatisfy({ joint in
+        let torso: [PoseJoint] = [.nose, .leftShoulder, .rightShoulder, .leftHip, .rightHip]
+        let valid: (PoseJoint) -> Bool = { joint in
                   guard let point = points[joint] else { return false }
                   return point.x.isFinite && point.y.isFinite &&
                       (0.01...0.99).contains(point.x) && (0.01...0.99).contains(point.y)
-              }), let nose = points[.nose], let leftAnkle = points[.leftAnkle],
-              let rightAnkle = points[.rightAnkle] else { return false }
-        let jointYs = required.compactMap { points[$0]?.y }
+              }
+        guard torso.allSatisfy(valid), let nose = points[.nose] else { return false }
+        let legs: [(PoseJoint, PoseJoint)] = [(.leftKnee, .leftAnkle), (.rightKnee, .rightAnkle)]
+        let completeLegs = legs.filter { valid($0.0) && valid($0.1) }
+        guard !completeLegs.isEmpty else { return false }
+        let jointYs = (torso + completeLegs.flatMap { [$0.0, $0.1] }).compactMap { points[$0]?.y }
         return (jointYs.max() ?? 0) - (jointYs.min() ?? 0) >= 0.25 &&
-            max(leftAnkle.y, rightAnkle.y) - nose.y >= 0.15
+            completeLegs.contains { (points[$0.1]?.y ?? 0) - nose.y >= 0.15 }
     }
 
     /// A 2D image span estimates metric distance only when legs extend below an upright torso.
@@ -256,11 +259,12 @@ enum Pose2DReader {
         guard hasFullBodyEvidence(points), let nose = points[.nose],
               let shoulders = meanY(points, .leftShoulder, .rightShoulder),
               let hips = meanY(points, .leftHip, .rightHip),
-              let knees = meanY(points, .leftKnee, .rightKnee),
-              let ankles = meanY(points, .leftAnkle, .rightAnkle) else { return false }
-        return nose.y + 0.02 < shoulders && shoulders + 0.03 < hips &&
-            hips + 0.04 < knees && knees + 0.04 < ankles &&
-            ankles - nose.y >= 0.3
+              nose.y + 0.02 < shoulders, shoulders + 0.03 < hips else { return false }
+        let legs: [(PoseJoint, PoseJoint)] = [(.leftKnee, .leftAnkle), (.rightKnee, .rightAnkle)]
+        return legs.contains { leg in
+            guard let knee = points[leg.0]?.y, let ankle = points[leg.1]?.y else { return false }
+            return hips + 0.04 < knee && knee + 0.04 < ankle && ankle - nose.y >= 0.3
+        }
     }
 
     /// The 2D detector can return several people while Vision's 3D detector returns one.

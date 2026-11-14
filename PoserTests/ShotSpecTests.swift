@@ -78,6 +78,18 @@ final class ShotSpecTests: XCTestCase {
         XCTAssertTrue(Pose2DReader.hasFullBodyEvidence(complete))
     }
 
+    func testOneVisibleLegSupportsApproximateDistance() {
+        let pose: [PoseJoint: CGPoint] = [
+            .nose: CGPoint(x: 0.5, y: 0.12),
+            .leftShoulder: CGPoint(x: 0.4, y: 0.25), .rightShoulder: CGPoint(x: 0.6, y: 0.25),
+            .leftHip: CGPoint(x: 0.45, y: 0.54), .rightHip: CGPoint(x: 0.55, y: 0.54),
+            .leftKnee: CGPoint(x: 0.44, y: 0.72), .leftAnkle: CGPoint(x: 0.43, y: 0.92)
+        ]
+        XCTAssertTrue(Pose2DReader.hasFullBodyEvidence(pose))
+        XCTAssertTrue(Pose2DReader.hasUprightBodyEvidence(pose))
+        XCTAssertEqual(Pose2DReader.noseToAnkle(pose) ?? 0, 0.8, accuracy: 0.001)
+    }
+
     func testCroppedPortraitDoesNotClaim3DCameraGeometry() async throws {
         let portrait = try XCTUnwrap(UIImage(named: "InspirationPortrait"))
         let source = try XCTUnwrap(portrait.cgImage)
@@ -160,6 +172,17 @@ final class ShotSpecTests: XCTestCase {
         XCTAssertEqual(geometry.angleLabel, "Match background lines")
         XCTAssertEqual(geometry.heightLabel, "Camera height unknown")
         XCTAssertNotNil(geometry.spec)
+    }
+
+    func testFallbackShotSpecKeepsOutlineWithoutInventingMeasurements() {
+        let outline = [CGPoint(x: 0.3, y: 0.2), CGPoint(x: 0.7, y: 0.2),
+                       CGPoint(x: 0.7, y: 0.8), CGPoint(x: 0.3, y: 0.8)]
+        let spec = ShotSpec(source: .fallback, silhouette: outline)
+        let geometry = spec.shotGeometry(fallback: ShotGeometryEstimator.fallback(for: ShotRecipe.presets[0]))
+        XCTAssertEqual(geometry.spec?.silhouette, outline)
+        XCTAssertNil(geometry.spec?.cameraHeightMeters)
+        XCTAssertNil(geometry.spec?.distanceMeters)
+        XCTAssertEqual(geometry.adjustmentLabel, "Height not measured")
     }
 
     func testSubjectTurnIgnoresSmallYaw() {

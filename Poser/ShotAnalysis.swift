@@ -55,16 +55,33 @@ struct PoseSkeleton {
         let shoulderCenter = CGPoint(x: (leftShoulder.x + rightShoulder.x) / 2,
                                      y: (leftShoulder.y + rightShoulder.y) / 2)
         let exampleShoulderCenter = CGPoint(x: 0.5, y: 0.28)
-        let shoulderWidth = hypot(rightShoulder.x - leftShoulder.x,
-                                  rightShoulder.y - leftShoulder.y)
-        let scale = min(max(shoulderWidth / 0.24, 0.7), 1.4)
+        let signedWidth = rightShoulder.x - leftShoulder.x
+        let scale = min(max(hypot(signedWidth, rightShoulder.y - leftShoulder.y) / 0.24, 0.7), 1.4)
+        let horizontalScale = signedWidth < 0 ? -scale : scale
         var completed = points
-        for joint in PoseJoint.allCases where completed[joint] == nil {
+        for joint in PoseJoint.allCases {
             guard let fallback = example[joint] else { continue }
-            completed[joint] = CGPoint(
-                x: shoulderCenter.x + (fallback.x - exampleShoulderCenter.x) * scale,
+            let guide = CGPoint(
+                x: shoulderCenter.x + (fallback.x - exampleShoulderCenter.x) * horizontalScale,
                 y: shoulderCenter.y + (fallback.y - exampleShoulderCenter.y) * scale
             )
+            guard let detected = points[joint] else {
+                completed[joint] = guide
+                continue
+            }
+            // The drawing should stay legible if Vision puts a wrist or ankle far from
+            // its body. Keep the unmodified detection in `points` for matching.
+            let radius: CGFloat = switch joint {
+            case .leftWrist, .rightWrist, .leftAnkle, .rightAnkle: 0.28
+            case .leftElbow, .rightElbow, .leftKnee, .rightKnee: 0.20
+            default: 1
+            }
+            let offset = CGVector(dx: detected.x - guide.x, dy: detected.y - guide.y)
+            let length = hypot(offset.dx, offset.dy)
+            if length > radius {
+                completed[joint] = CGPoint(x: guide.x + offset.dx * radius / length,
+                                           y: guide.y + offset.dy * radius / length)
+            }
         }
         return PoseSkeleton(points: completed)
     }
@@ -192,9 +209,7 @@ enum AnalysisService {
             print("[ShotSpec] source \(estimate.spec.source.rawValue)\n\(estimate.diagnostics.text)")
             #endif
             let poseGeometry = ShotGeometryEstimator.estimate(observation: pose, recipe: recipe)
-            let geometry = estimate.spec.source == .fallback
-                ? poseGeometry
-                : estimate.spec.shotGeometry(fallback: poseGeometry)
+            let geometry = estimate.spec.shotGeometry(fallback: poseGeometry)
             return PhotoAnalysis(labels: labels, subjectPoint: point, hasPerson: pose != nil,
                                  poseSkeleton: poseSkeleton, geometry: geometry, shotSpec: estimate.spec,
                                  summary: summary, recipe: recipe)
