@@ -3,6 +3,24 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    func testFilterBarDragsNeverPageEvenWhenDraggedOutsideTheBar() {
+        let bar = CGRect(x: 24, y: 220, width: 340, height: 44)
+        for translation in [CGSize(width: -250, height: 5), CGSize(width: 250, height: 100)] {
+            XCTAssertFalse(HomePaging.allowsSwipe(start: CGPoint(x: 100, y: 240),
+                                                 translation: translation, excluding: bar))
+        }
+    }
+
+    func testPageSwipeOutsideFiltersRequiresHorizontalMovement() {
+        let bar = CGRect(x: 24, y: 220, width: 340, height: 44)
+        XCTAssertTrue(HomePaging.allowsSwipe(start: CGPoint(x: 200, y: 400),
+                                            translation: CGSize(width: -100, height: 10), excluding: bar))
+        XCTAssertFalse(HomePaging.allowsSwipe(start: CGPoint(x: 200, y: 400),
+                                             translation: CGSize(width: 10, height: -100), excluding: bar))
+        XCTAssertTrue(HomePaging.allowsSwipe(start: CGPoint(x: 200, y: 240),
+                                            translation: CGSize(width: 100, height: 0), excluding: .null))
+    }
+
     func testReferenceTagsFilterBySettingAndPose() {
         XCTAssertFalse(ReferenceCatalog.tags.isEmpty)
         XCTAssertEqual(Set(ReferenceCatalog.tags.map(\.id)).count, ReferenceCatalog.tags.count)

@@ -1,8 +1,19 @@
 import SwiftUI
 import PhotosUI
 
+private struct ReferenceTagFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .null
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
+enum HomePaging {
+    static func allowsSwipe(start: CGPoint, translation: CGSize, excluding frame: CGRect) -> Bool {
+        !frame.contains(start) && abs(translation.width) > abs(translation.height)
+    }
+}
+
 struct HomeView: View {
-    private enum Tab: Hashable { case home, camera, profile }
+    private enum Tab: Int, CaseIterable { case home, camera, profile }
 
     @State private var activeTab: Tab = .camera
     @StateObject private var inspirationStore = InspirationStore()
@@ -33,18 +44,13 @@ struct HomeView: View {
     @State private var showLiveCamera = true
     @State private var showShotDetails = false
     @State private var selectedReferenceTag: ReferenceTag?
+    @State private var referenceTagFrame: CGRect = .null
+    @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.25)))
+    private var pageDragOffset: CGFloat = 0
 
     var body: some View {
         NavigationStack {
-            TabView(selection: $activeTab) {
-                homePage
-                    .tag(Tab.home)
-                cameraPage
-                    .tag(Tab.camera)
-                profilePage
-                    .tag(Tab.profile)
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            pagePager
             .background(Palette.background.ignoresSafeArea())
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !showingPoseTutorial { bottomBar }
@@ -106,6 +112,47 @@ struct HomeView: View {
         )) {
             Button("OK", role: .cancel) { savedMessage = nil }
         } message: { Text(savedMessage ?? "") }
+    }
+
+    private var pagePager: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                homePage.frame(width: geometry.size.width)
+                cameraPage.frame(width: geometry.size.width)
+                profilePage.frame(width: geometry.size.width)
+            }
+            .offset(x: -CGFloat(activeTab.rawValue) * geometry.size.width + pageDragOffset)
+            .frame(width: geometry.size.width, alignment: .leading)
+            .clipped()
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.25), value: activeTab)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20, coordinateSpace: .named("homePager"))
+                    .updating($pageDragOffset) { value, offset, _ in
+                        let excludedFrame = activeTab == .home ? referenceTagFrame : .null
+                        guard HomePaging.allowsSwipe(start: value.startLocation,
+                                                     translation: value.translation,
+                                                     excluding: excludedFrame) else { return }
+                        let translation = value.translation.width
+                        guard !(activeTab == .home && translation > 0),
+                              !(activeTab == .profile && translation < 0) else { return }
+                        offset = translation
+                    }
+                    .onEnded { value in
+                        let excludedFrame = activeTab == .home ? referenceTagFrame : .null
+                        guard HomePaging.allowsSwipe(start: value.startLocation,
+                                                     translation: value.translation,
+                                                     excluding: excludedFrame),
+                              abs(value.translation.width) > 50 else { return }
+                        let step = value.translation.width < 0 ? 1 : -1
+                        if let next = Tab(rawValue: activeTab.rawValue + step) {
+                            activeTab = next
+                        }
+                    }
+            )
+        }
+        .coordinateSpace(name: "homePager")
+        .onPreferenceChange(ReferenceTagFrameKey.self) { referenceTagFrame = $0 }
     }
 
     @ViewBuilder
@@ -401,6 +448,12 @@ struct HomeView: View {
             }
         }
         .accessibilityIdentifier("referenceTagBar")
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: ReferenceTagFrameKey.self,
+                                       value: geometry.frame(in: .named("homePager")))
+            }
+        }
     }
 
     private func referenceTagButton(_ tag: ReferenceTag?) -> some View {
@@ -456,6 +509,9 @@ struct HomeView: View {
                 }
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                // Cropping the image does not constrain its hit-testing area.
+                // Keep the photo button inside its visible tile, away from the filters.
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(asset.title) inspiration")
