@@ -4,6 +4,17 @@ import UIKit
 @testable import Poser
 
 final class ShotSpecTests: XCTestCase {
+    func testBundledFullBodyReferenceProducesOutlineOnDevice() async throws {
+        #if targetEnvironment(simulator)
+        throw XCTSkip("Person segmentation is unavailable in this simulator runtime")
+        #else
+        let reference = ReferenceCatalog.items[0]
+        let image = try XCTUnwrap(reference.image)
+        let estimate = await ShotSpecEstimator.estimate(image: image, imageData: reference.imageData)
+        XCTAssertGreaterThan(estimate.spec.silhouette.count, 2, estimate.diagnostics.text)
+        #endif
+    }
+
     private let leftHip = SIMD3<Float>(0.1, 0, 0)
     private let rightHip = SIMD3<Float>(-0.1, 0, 0)
     private let leftAnkle = SIMD3<Float>(0.1, -0.8, 0)
