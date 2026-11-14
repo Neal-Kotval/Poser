@@ -394,7 +394,17 @@ struct HomeView: View {
                 .foregroundStyle(.white)
             HStack {
                 Spacer()
-                if activeTab == .camera, !showLiveCamera {
+                if activeTab == .home {
+                    Button { showingScan = true } label: {
+                        Label("Scan", systemImage: "viewfinder")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 44)
+                            .poserGlass(interactive: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Scan surroundings")
+                } else if activeTab == .camera, !showLiveCamera {
                     Button("Start over") { reset() }
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.65))
@@ -406,28 +416,11 @@ struct HomeView: View {
 
     private var landing: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text("Find your next shot")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .tracking(-0.7)
-                .foregroundStyle(.white)
-
-            HStack(spacing: 9) {
-                Button { showingScan = true } label: {
-                    feedAction(symbol: "viewfinder", title: "Scan place")
-                }
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    feedAction(symbol: "plus", title: "Add photo")
-                }
-            }
-            .buttonStyle(.plain)
-
-            if !inspirationStore.items.isEmpty {
-                savedInspiration
-            }
+            savedInspiration
 
             HStack {
                 Text("For you")
-                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                 Spacer()
                 Text("\(filteredReferences.count) photos")
@@ -575,20 +568,6 @@ struct HomeView: View {
         .accessibilityHint(tag.map { "Filter reference photos by \($0.title)" } ?? "Show all categories")
     }
 
-    private func feedAction(symbol: String, title: String) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-        }
-        .foregroundStyle(.white)
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .poserGlass(interactive: true)
-    }
-
     private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             Button {
@@ -622,53 +601,79 @@ struct HomeView: View {
     }
 
     private var savedInspiration: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack {
-                Text("Your inspiration")
-                    .font(PoserType.title)
-                    .foregroundStyle(.white)
-                Spacer()
-                Text(isEditingInspiration ? "\(selectedInspiration.count) selected" : "\(inspirationStore.items.count) saved")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.secondaryText)
-                Button(isEditingInspiration ? "Done" : "Edit") {
-                    isEditingInspiration.toggle()
-                    selectedInspiration = []
-                }
-                .font(.system(size: 14, weight: .semibold))
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
-            }
-            if isEditingInspiration {
-                HStack {
-                    Button(selectedInspiration.count == inspirationStore.items.count ? "Deselect all" : "Select all") {
-                        selectedInspiration = selectedInspiration.count == inspirationStore.items.count
-                            ? [] : Set(inspirationStore.items.map(\.id))
-                    }
-                    Spacer()
-                    Button("Delete (\(selectedInspiration.count))", role: .destructive) {
-                        pendingReferenceDeletion = selectedInspiration
-                    }
-                    .disabled(selectedInspiration.isEmpty)
-                }
-                .font(.system(size: 14, weight: .semibold))
-                .frame(minHeight: 44)
-            }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 11) {
-                    ForEach(inspirationStore.items) { item in
-                        if let image = inspirationStore.image(for: item) {
-                            savedInspirationCard(item, image: image)
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Your inspiration")
+                            .font(.system(size: 24, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                        if !isEditingInspiration && !inspirationStore.items.isEmpty {
+                            Text("\(inspirationStore.items.count) saved")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Palette.secondaryText)
                         }
                     }
+                    Spacer(minLength: 4)
+                    if !isEditingInspiration {
+                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 17, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                                .poserGlass(interactive: true)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Add reference photo")
+                    }
+                    if !inspirationStore.items.isEmpty {
+                        Button(isEditingInspiration ? "Done" : "Edit") {
+                            isEditingInspiration.toggle()
+                            selectedInspiration = []
+                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
+                    }
                 }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 3)
+                if isEditingInspiration {
+                    HStack {
+                        Button(selectedInspiration.count == inspirationStore.items.count ? "Deselect all" : "Select all") {
+                            selectedInspiration = selectedInspiration.count == inspirationStore.items.count
+                                ? [] : Set(inspirationStore.items.map(\.id))
+                        }
+                        .frame(minHeight: 44)
+                        Spacer()
+                        Button("Delete (\(selectedInspiration.count))", role: .destructive) {
+                            pendingReferenceDeletion = selectedInspiration
+                        }
+                        .frame(minHeight: 44)
+                        .disabled(selectedInspiration.isEmpty)
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                }
             }
-            .background {
-                GeometryReader { geometry in
-                    Color.clear.preference(key: SavedInspirationFrameKey.self,
-                                           value: geometry.frame(in: .named("homePager")))
+            if inspirationStore.items.isEmpty {
+                Text("Tap + to add photos for your next shoot.")
+                    .font(PoserType.supporting)
+                    .foregroundStyle(Palette.secondaryText)
+                    .padding(.vertical, 8)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 11) {
+                        ForEach(inspirationStore.items) { item in
+                            if let image = inspirationStore.image(for: item) {
+                                savedInspirationCard(item, image: image)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 3)
+                }
+                .background {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: SavedInspirationFrameKey.self,
+                                               value: geometry.frame(in: .named("homePager")))
+                    }
                 }
             }
         }
@@ -705,11 +710,11 @@ struct HomeView: View {
                     .overlay(alignment: .topTrailing) {
                         if isEditingInspiration {
                             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 23, weight: .semibold))
+                                .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(.white)
-                                .padding(7)
+                                .frame(width: 26, height: 26)
                                 .background(.black.opacity(0.6), in: Circle())
-                                .padding(6)
+                                .padding(8)
                         }
                     }
                 Text(item.title)
