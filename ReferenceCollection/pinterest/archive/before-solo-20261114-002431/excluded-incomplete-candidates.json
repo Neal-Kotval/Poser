@@ -1,0 +1,33 @@
+[
+  {
+    "id": "pin-726698089921002923",
+    "pinURL": "https://www.pinterest.com/pin/726698089921002923/",
+    "sourceURL": "",
+    "sourceCandidates": [],
+    "description": "",
+    "title": "",
+    "thumbnailURL": "",
+    "previewPath": "",
+    "queries": [
+      "person walking flower garden portrait photography pose"
+    ],
+    "creator": "",
+    "rights": "",
+    "approved": false,
+    "personConfirmed": false,
+    "localImage": "",
+    "settings": [],
+    "features": [],
+    "pose": "standing",
+    "personCount": 1,
+    "lighting": "unknown",
+    "cameraInstruction": "",
+    "poseInstruction": "",
+    "lightInstruction": "",
+    "framingInstruction": "",
+    "poseTemplate": "standing",
+    "distanceLabel": "STEP BACK",
+    "detailsCollected": false,
+    "collectedAt": "2026-11-14T05:10:54Z"
+  }
+]

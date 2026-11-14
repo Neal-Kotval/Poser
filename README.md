@@ -17,3 +17,9 @@ Open `Poser.xcodeproj` in Xcode and run the Poser target on iOS 26 or later. For
 7. Compare the captured shot with the reference and save it to Photos. A pose score appears when Vision detects enough body joints in both photos.
 
 Social post previews depend on the metadata a site exposes to iOS. If a post is private or blocks previews, save its image to Photos and import it instead. Scene matching searches the local inspiration library and the bundled example; it does not search Pinterest or Instagram. No model key is required.
+
+## Pinterest reference collection
+
+The [Pinterest discovery collection](ReferenceCollection/pinterest/README.md) contains 1,000 current solo-targeted, Instagram-style Pin candidates plus the archived first discovery run. Records include Pin URLs, descriptions, thumbnail URLs, query provenance, and review flags. Originals are not included, and none of these candidates are approved app assets yet.
+
+The [collection workflow](Tools/ReferenceLibrary/PINTEREST.md) provides the Playwright collector, local Vision review aids, and approved-image export tools. Browser sessions and credentials stay in the ignored `.reference-work` directory. The collection is separate from the app’s current bundled examples.

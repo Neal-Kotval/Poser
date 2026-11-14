@@ -1,0 +1,212 @@
+[
+  {
+    "query": "person standing city street portrait photography pose",
+    "settings": [
+      "street"
+    ],
+    "pose": "standing"
+  },
+  {
+    "query": "person sitting brick wall portrait photography pose",
+    "settings": [
+      "wall"
+    ],
+    "pose": "sitting"
+  },
+  {
+    "query": "person walking outdoor stairs portrait photography pose",
+    "settings": [
+      "stairs"
+    ],
+    "pose": "walking"
+  },
+  {
+    "query": "person leaning cafe table portrait photography pose",
+    "settings": [
+      "cafe"
+    ],
+    "pose": "leaning"
+  },
+  {
+    "query": "person crouching window light portrait photography pose",
+    "settings": [
+      "window"
+    ],
+    "pose": "crouching"
+  },
+  {
+    "query": "person turning park trees portrait photography pose",
+    "settings": [
+      "park"
+    ],
+    "pose": "turning"
+  },
+  {
+    "query": "couple interacting flower garden portrait photography pose",
+    "settings": [
+      "garden"
+    ],
+    "pose": "interacting"
+  },
+  {
+    "query": "person standing beach portrait photography pose",
+    "settings": [
+      "beach"
+    ],
+    "pose": "standing"
+  },
+  {
+    "query": "person sitting waterfront railing portrait photography pose",
+    "settings": [
+      "waterfront"
+    ],
+    "pose": "sitting"
+  },
+  {
+    "query": "person walking open field portrait photography pose",
+    "settings": [
+      "landscape"
+    ],
+    "pose": "walking"
+  },
+  {
+    "query": "person leaning city street portrait photography pose",
+    "settings": [
+      "street"
+    ],
+    "pose": "leaning"
+  },
+  {
+    "query": "person crouching brick wall portrait photography pose",
+    "settings": [
+      "wall"
+    ],
+    "pose": "crouching"
+  },
+  {
+    "query": "person turning outdoor stairs portrait photography pose",
+    "settings": [
+      "stairs"
+    ],
+    "pose": "turning"
+  },
+  {
+    "query": "couple interacting cafe table portrait photography pose",
+    "settings": [
+      "cafe"
+    ],
+    "pose": "interacting"
+  },
+  {
+    "query": "person standing window light portrait photography pose",
+    "settings": [
+      "window"
+    ],
+    "pose": "standing"
+  },
+  {
+    "query": "person sitting park trees portrait photography pose",
+    "settings": [
+      "park"
+    ],
+    "pose": "sitting"
+  },
+  {
+    "query": "person walking flower garden portrait photography pose",
+    "settings": [
+      "garden"
+    ],
+    "pose": "walking"
+  },
+  {
+    "query": "person leaning beach portrait photography pose",
+    "settings": [
+      "beach"
+    ],
+    "pose": "leaning"
+  },
+  {
+    "query": "person crouching waterfront railing portrait photography pose",
+    "settings": [
+      "waterfront"
+    ],
+    "pose": "crouching"
+  },
+  {
+    "query": "person turning open field portrait photography pose",
+    "settings": [
+      "landscape"
+    ],
+    "pose": "turning"
+  },
+  {
+    "query": "couple interacting city street portrait photography pose",
+    "settings": [
+      "street"
+    ],
+    "pose": "interacting"
+  },
+  {
+    "query": "person standing brick wall portrait photography pose",
+    "settings": [
+      "wall"
+    ],
+    "pose": "standing"
+  },
+  {
+    "query": "person sitting outdoor stairs portrait photography pose",
+    "settings": [
+      "stairs"
+    ],
+    "pose": "sitting"
+  },
+  {
+    "query": "person walking cafe table portrait photography pose",
+    "settings": [
+      "cafe"
+    ],
+    "pose": "walking"
+  },
+  {
+    "query": "person leaning window light portrait photography pose",
+    "settings": [
+      "window"
+    ],
+    "pose": "leaning"
+  },
+  {
+    "query": "person crouching park trees portrait photography pose",
+    "settings": [
+      "park"
+    ],
+    "pose": "crouching"
+  },
+  {
+    "query": "person turning flower garden portrait photography pose",
+    "settings": [
+      "garden"
+    ],
+    "pose": "turning"
+  },
+  {
+    "query": "couple interacting beach portrait photography pose",
+    "settings": [
+      "beach"
+    ],
+    "pose": "interacting"
+  },
+  {
+    "query": "person standing waterfront railing portrait photography pose",
+    "settings": [
+      "waterfront"
+    ],
+    "pose": "standing"
+  },
+  {
+    "query": "person sitting open field portrait photography pose",
+    "settings": [
+      "landscape"
+    ],
+    "pose": "sitting"
+  }
+]

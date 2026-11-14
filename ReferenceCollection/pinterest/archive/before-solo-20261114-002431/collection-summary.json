@@ -1,0 +1,13 @@
+{
+  "candidates": 1000,
+  "uniquePinURLs": 1000,
+  "uniqueThumbnailURLs": 993,
+  "withDescription": 1000,
+  "withThumbnailURL": 1000,
+  "queriesRepresented": 30,
+  "duplicateThumbnailGroups": 7,
+  "originalImagesDownloaded": 0,
+  "approvedForApp": 0,
+  "sourceLinksConfirmed": 0,
+  "note": "Discovery metadata only. Query hints are search intent, not verified image labels. Original sources, image rights, humans, and pose suitability require review."
+}

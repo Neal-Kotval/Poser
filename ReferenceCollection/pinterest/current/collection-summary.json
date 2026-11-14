@@ -1,0 +1,16 @@
+{
+  "candidates": 1000,
+  "uniquePinURLs": 1000,
+  "uniqueThumbnailURLs": 998,
+  "withDescription": 1000,
+  "withThumbnailURL": 1000,
+  "queriesRepresented": 24,
+  "duplicateThumbnailGroups": 2,
+  "curationDirection": "Exactly one visible person, Instagram-style candid/editorial portraits. Streetwear, outfit photo dumps, mirror selfies, direct flash, warm film and natural light.",
+  "requiredPersonCount": 1,
+  "originalImagesDownloaded": 0,
+  "approvedForApp": 0,
+  "personConfirmed": 0,
+  "styleConfirmed": 0,
+  "note": "Solo-directed searches and text filtering only. Actual people count, aesthetic fit, source rights, and image uniqueness require visual review."
+}

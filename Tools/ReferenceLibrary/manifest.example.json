@@ -1,0 +1,9 @@
+[
+  {
+    "imageURL": "https://images.example.com/portrait.jpg",
+    "sourceURL": "https://example.com/photographer/portrait",
+    "title": "Standing portrait by a wall",
+    "creator": "Photographer name",
+    "rights": "License or permission reference"
+  }
+]
