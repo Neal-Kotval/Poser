@@ -25,6 +25,18 @@ final class MatchingTests: XCTestCase {
         XCTAssertTrue(matches.isEmpty)
     }
 
+    func testBundledPinterestReferencesLoad() {
+        XCTAssertEqual(ReferenceCatalog.items.count, 816)
+        for reference in ReferenceCatalog.items {
+            XCTAssertNotNil(reference.preview, "Missing preview for \(reference.assetName)")
+            XCTAssertEqual(reference.source?.host, "www.pinterest.com")
+            XCTAssertEqual(reference.license, "Rights unverified")
+        }
+        for reference in [ReferenceCatalog.items[0], ReferenceCatalog.items[407], ReferenceCatalog.items[815]] {
+            XCTAssertNotNil(reference.image, "Missing full image for \(reference.assetName)")
+        }
+    }
+
     func testSceneMatcherHonorsCameraImageOrientation() async {
         let original = asymmetricImage()
         let rotated = UIImage(cgImage: original.cgImage!, scale: 1, orientation: .right)

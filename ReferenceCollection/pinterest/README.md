@@ -10,7 +10,13 @@
 - [Collection summary](current/collection-summary.md)
 - [Query plan](current/queries.json)
 
-Each record has a description and thumbnail URL. Identical-thumbnail candidates are flagged. Other visual duplicates may remain. No original images or cached thumbnails are included. No source rights, exact person counts, or style approvals have been confirmed; all candidates remain unapproved.
+Each record has a description and thumbnail URL. Identical-thumbnail candidates are flagged. Other visual duplicates may remain. The 1,000-record collection itself has no approved originals or confirmed reuse rights.
+
+## Development app library
+
+A local download pass retrieved 999 of the 1,000 Pin images and normalized 997 distinct files. The [image inventory](image-inventory.json) records their Pin links, image hashes, dimensions, and local Vision person counts. The app bundles 816 references: 815 had one body detected by Vision, and one extra mirror portrait was visually checked. The other 181 files remain in the ignored `.reference-work/pinterest/` folder for review. Vision detection is a suggestion, not confirmation that every frame contains exactly one person. The [initial visual selection](app-selection.json) records the smaller first review pass.
+
+The former seven bundled examples have been removed from the app catalog. A separate `InspirationPortrait` asset remains for the simulator camera example. The original creators, original source pages, and reuse rights are unverified; this is a local development library and is not cleared for distribution. These images do not mark the 1,000 candidate records approved or satisfy the release catalog validator.
 
 Final acceptance requires exactly one visible person, the intended Instagram-style aesthetic, and documented permission/license evidence. Reject couples, groups, collages, product-only images, and formal studio headshots. `personCount: 1` in an unreviewed record is a placeholder; only `personConfirmed: true` establishes a review decision.
 
@@ -24,4 +30,4 @@ Follow the [workflow guide](../../Tools/ReferenceLibrary/PINTEREST.md). To resum
 
 Review files use local previews only. Use the Pin links to inspect candidates, or add thumbnails you are permitted to retain locally. The review page downloads an edited JSON file; replace the working JSON deliberately before importing approved originals. Session data, passwords, cookies, Python environments, and browser caches are intentionally absent from this repository.
 
-Approved image exports are staging artifacts. Integrating those assets into the app’s current ReferenceCatalog/Xcode resources is a separate step; this discovery commit does not replace the app’s bundled examples.
+Approved image exports are staging artifacts. They require a separate integration into the app's ReferenceCatalog and Xcode resources. The development library is separate from the approved-image export workflow.
