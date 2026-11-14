@@ -4,8 +4,9 @@ import UIKit
 struct UserProfile: Codable, Equatable {
     var displayName: String
     var avatarFilename: String?
+    var bio: String?
 
-    static let `default` = UserProfile(displayName: "Photographer", avatarFilename: nil)
+    static let `default` = UserProfile(displayName: "Photographer", avatarFilename: nil, bio: nil)
 }
 
 @MainActor
@@ -44,6 +45,12 @@ final class UserProfileStore: ObservableObject {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         profile.displayName = trimmed
+        save()
+    }
+
+    func updateBio(_ bio: String) {
+        let trimmed = bio.trimmingCharacters(in: .whitespacesAndNewlines)
+        profile.bio = trimmed.isEmpty ? nil : String(trimmed.prefix(80))
         save()
     }
 

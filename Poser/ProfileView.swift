@@ -7,8 +7,7 @@ struct ProfileView: View {
     let onOpenCamera: () -> Void
     let onSelectShot: (CompletedShot) -> Void
 
-    @State private var editingName = false
-    @State private var draftName = ""
+    @State private var editingProfile = false
     @State private var avatarPicker: PhotosPickerItem?
     @State private var avatarDraft: AvatarDraft?
     @State private var avatarError: String?
@@ -29,13 +28,15 @@ struct ProfileView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Palette.background)
-        .alert("Display name", isPresented: $editingName) {
-            TextField("Name", text: $draftName)
-                .textInputAutocapitalization(.words)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") { profileStore.updateDisplayName(draftName) }
-        } message: {
-            Text("This name stays on this phone. No account is required.")
+        .sheet(isPresented: $editingProfile) {
+            EditProfileView(profile: profileStore.profile) { name, bio in
+                profileStore.updateDisplayName(name)
+                profileStore.updateBio(bio)
+                editingProfile = false
+            } onCancel: {
+                editingProfile = false
+            }
+            .presentationDetents([.medium])
         }
         .onChange(of: avatarPicker) { _, item in
             guard let item else { return }
@@ -79,37 +80,38 @@ struct ProfileView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Change profile photo")
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Button {
-                        draftName = profileStore.profile.displayName
-                        editingName = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text(profileStore.profile.displayName)
-                                .font(.system(size: 28, weight: .bold))
-                            Image(systemName: "pencil")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(Palette.secondaryText)
-                        }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(profileStore.profile.displayName)
+                        .font(.system(size: 26, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    if let bio = profileStore.profile.bio {
+                        Text(bio)
+                            .font(PoserType.supporting)
+                            .foregroundStyle(Palette.secondaryText)
+                            .lineLimit(2)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Edit display name")
-
-                    Text("\(shootStore.shots.count) \(shootStore.shots.count == 1 ? "shot" : "shots")")
-                        .font(PoserType.supporting)
-                        .foregroundStyle(Palette.secondaryText)
                 }
                 Spacer(minLength: 0)
             }
 
             HStack(spacing: 0) {
                 profileStat(title: "Shots", value: "\(shootStore.shots.count)")
-                profileStat(title: "This week", value: "\(shotsThisWeek)")
-                profileStat(title: "Latest", value: latestShotLabel)
+                profileStat(title: "Best match", value: shootStore.bestMatch.map { "\($0)%" } ?? "—")
+                profileStat(title: "Poses tried", value: "\(shootStore.posesTried)")
             }
             .padding(.vertical, PoserSpace.small)
             .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
             .overlay(RoundedRectangle(cornerRadius: PoserRadius.surface).stroke(Palette.border))
+
+            Button { editingProfile = true } label: {
+                Text("Edit profile")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Palette.primaryText)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Palette.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -131,22 +133,28 @@ struct ProfileView: View {
         .overlay(Circle().stroke(Palette.border, lineWidth: 1))
     }
 
+    /// Equal thirds: a long value shrinks instead of squeezing its neighbors.
     private func profileStat(title: String, value: String) -> some View {
         VStack(spacing: 4) {
             Text(value)
                 .font(.system(size: 17, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             Text(title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Palette.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, PoserSpace.xSmall)
         .padding(.vertical, PoserSpace.medium)
     }
 
     @ViewBuilder
     private var gallery: some View {
         VStack(alignment: .leading, spacing: PoserSpace.medium) {
-            Text("Gallery")
+            Text("Shots")
                 .font(PoserType.title)
 
             if shootStore.shots.isEmpty {
@@ -166,20 +174,12 @@ struct ProfileView: View {
                     ForEach(shootStore.shots) { shot in
                         if let photo = shootStore.photo(for: shot) {
                             Button { onSelectShot(shot) } label: {
-                                GeometryReader { tile in
-                                    Image(uiImage: photo)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: tile.size.width, height: tile.size.height)
-                                        .clipped()
-                                }
-                                .aspectRatio(1, contentMode: .fit)
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                .contentShape(Rectangle())
-                                .background(Palette.surface)
+                                pairedTile(photo: photo, reference: shootStore.reference(for: shot),
+                                           score: shot.matchScore)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Shot from \(shot.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                            .accessibilityLabel("Shot from \(shot.createdAt.formatted(date: .abbreviated, time: .omitted))"
+                                + (shot.matchScore.map { ", \($0) percent match" } ?? ""))
                         }
                     }
                 }
@@ -187,14 +187,273 @@ struct ProfileView: View {
         }
     }
 
-    private var shotsThisWeek: Int {
-        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date.distantPast
-        return shootStore.shots.filter { $0.createdAt >= weekAgo }.count
+    /// My shot fills the tile; the reference it recreates sits in the corner, like BeReal's front-camera bubble.
+    private func pairedTile(photo: UIImage, reference: UIImage?, score: Int?) -> some View {
+        GeometryReader { tile in
+            Image(uiImage: photo)
+                .resizable()
+                .scaledToFill()
+                .frame(width: tile.size.width, height: tile.size.height)
+                .clipped()
+                .overlay(alignment: .topLeading) {
+                    if let reference {
+                        Image(uiImage: reference)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: tile.size.width * 0.36, height: tile.size.width * 0.36)
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(.black, lineWidth: 1.5))
+                            .padding(5)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if let score {
+                        Text("\(score)%")
+                            .font(.system(size: 11, weight: .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.65), in: Capsule())
+                            .padding(5)
+                    }
+                }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+        .background(Palette.surface)
+    }
+}
+
+struct EditProfileView: View {
+    let onSave: (String, String) -> Void
+    let onCancel: () -> Void
+    @State private var name: String
+    @State private var bio: String
+
+    init(profile: UserProfile, onSave: @escaping (String, String) -> Void, onCancel: @escaping () -> Void) {
+        self.onSave = onSave
+        self.onCancel = onCancel
+        _name = State(initialValue: profile.displayName)
+        _bio = State(initialValue: profile.bio ?? "")
     }
 
-    private var latestShotLabel: String {
-        guard let latest = shootStore.shots.first else { return "—" }
-        return latest.createdAt.formatted(date: .abbreviated, time: .omitted)
+    var body: some View {
+        VStack(alignment: .leading, spacing: PoserSpace.regular) {
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .frame(minHeight: 44)
+                Spacer()
+                Text("Edit profile").font(.system(size: 17, weight: .semibold))
+                Spacer()
+                Button("Save") { onSave(name, bio) }
+                    .fontWeight(.semibold)
+                    .frame(minHeight: 44)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            field("Name") {
+                TextField("Your name", text: $name)
+                    .textInputAutocapitalization(.words)
+            }
+            field("Bio") {
+                TextField("One line about you", text: $bio)
+                    .onChange(of: bio) { _, value in
+                        if value.count > 80 { bio = String(value.prefix(80)) }
+                    }
+            }
+            Text("Your profile stays on this phone. No account is required.")
+                .font(PoserType.caption)
+                .foregroundStyle(Palette.secondaryText)
+            Spacer()
+        }
+        .padding(PoserSpace.large)
+        .foregroundStyle(.white)
+        .background(Palette.background.ignoresSafeArea())
+    }
+
+    private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(PoserType.caption)
+                .foregroundStyle(Palette.secondaryText)
+            content()
+                .padding(14)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+}
+
+/// A completed shot as a post: reference and shot side by side, the match score, and share.
+struct ShotPostView: View {
+    let shot: CompletedShot
+    @ObservedObject var shootStore: ShootStore
+    let onDeleted: () -> Void
+
+    @State private var shareCard: UIImage?
+    @State private var message: String?
+    @State private var confirmingDelete = false
+
+    var body: some View {
+        let photo = shootStore.photo(for: shot)
+        let reference = shootStore.reference(for: shot)
+        ScrollView {
+            VStack(alignment: .leading, spacing: PoserSpace.large) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(shot.createdAt.formatted(date: .abbreviated, time: .omitted))
+                            .font(.system(size: 17, weight: .semibold))
+                        Text(shot.createdAt.formatted(date: .omitted, time: .shortened))
+                            .font(PoserType.caption)
+                            .foregroundStyle(Palette.secondaryText)
+                    }
+                    Spacer()
+                    Menu {
+                        if let photo {
+                            Button { save(photo) } label: { Label("Save to Photos", systemImage: "square.and.arrow.down") }
+                        }
+                        Button(role: .destructive) { confirmingDelete = true } label: {
+                            Label("Delete shot", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("More")
+                }
+
+                HStack(spacing: 8) {
+                    if let reference { postImage(reference, label: "REFERENCE") }
+                    if let photo { postImage(photo, label: "MY SHOT") }
+                }
+
+                if let score = shot.matchScore {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("\(score)%")
+                            .font(.system(size: 44, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                        Text("match")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Palette.secondaryText)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+
+                if let shareCard {
+                    ShareLink(item: Image(uiImage: shareCard),
+                              preview: SharePreview("My Poser shot", image: Image(uiImage: shareCard))) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .background(.white, in: Capsule())
+                    }
+                }
+            }
+            .padding(PoserSpace.large)
+            .foregroundStyle(.white)
+        }
+        .background(Palette.background.ignoresSafeArea())
+        .task {
+            if let photo, let reference {
+                shareCard = ShareCardRenderer.render(reference: reference, shot: photo, score: shot.matchScore)
+            }
+        }
+        .confirmationDialog("Delete this shot?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete shot", role: .destructive) {
+                do {
+                    try shootStore.remove(shot)
+                    onDeleted()
+                } catch {
+                    message = "This shot could not be deleted. Try again."
+                }
+            }
+        } message: {
+            Text("It's removed from Poser. Your Photos library is unchanged.")
+        }
+        .alert("Poser", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
+            Button("OK", role: .cancel) { message = nil }
+        } message: { Text(message ?? "") }
+    }
+
+    private func postImage(_ image: UIImage, label: String) -> some View {
+        Color.clear
+            .aspectRatio(3.0 / 4.0, contentMode: .fit)
+            .overlay { Image(uiImage: image).resizable().scaledToFill() }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(alignment: .topLeading) {
+                Text(label)
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .padding(8)
+            }
+            .accessibilityLabel(label == "REFERENCE" ? "Reference photo" : "My shot")
+    }
+
+    private func save(_ photo: UIImage) {
+        PhotoLibrarySaver.save(photo) { success in
+            message = success ? "Your shot is in Photos." : "Allow Photos access in Settings to save this shot."
+        }
+    }
+}
+
+/// Draws the shareable card: reference and shot side by side, the score, and the wordmark.
+enum ShareCardRenderer {
+    static func render(reference: UIImage, shot: UIImage, score: Int?) -> UIImage {
+        let size = CGSize(width: 1080, height: 1350)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            let margin: CGFloat = 48, gap: CGFloat = 16
+            let width = (size.width - margin * 2 - gap) / 2
+            let height = width * 4 / 3
+            let y: CGFloat = 220
+            drawFilled(reference, in: CGRect(x: margin, y: y, width: width, height: height), context: context.cgContext)
+            drawFilled(shot, in: CGRect(x: margin + width + gap, y: y, width: width, height: height), context: context.cgContext)
+
+            let label: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 26, weight: .bold), .foregroundColor: UIColor(white: 0.7, alpha: 1), .kern: 2
+            ]
+            NSString(string: "REFERENCE").draw(at: CGPoint(x: margin, y: y - 44), withAttributes: label)
+            NSString(string: "MY SHOT").draw(at: CGPoint(x: margin + width + gap, y: y - 44), withAttributes: label)
+
+            let wordmark: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 56, weight: .bold), .foregroundColor: UIColor.white, .kern: -2
+            ]
+            NSString(string: "poser").draw(at: CGPoint(x: margin, y: 70), withAttributes: wordmark)
+
+            if let score {
+                let big: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 120, weight: .bold), .foregroundColor: UIColor.white
+                ]
+                let small: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 40, weight: .medium), .foregroundColor: UIColor(white: 0.7, alpha: 1)
+                ]
+                let scoreText = NSString(string: "\(score)%")
+                let scoreY = y + height + 40
+                scoreText.draw(at: CGPoint(x: margin, y: scoreY), withAttributes: big)
+                let scoreWidth = scoreText.size(withAttributes: big).width
+                NSString(string: "pose match").draw(at: CGPoint(x: margin + scoreWidth + 20, y: scoreY + 66), withAttributes: small)
+            }
+        }
+    }
+
+    private static func drawFilled(_ image: UIImage, in rect: CGRect, context: CGContext) {
+        context.saveGState()
+        UIBezierPath(roundedRect: rect, cornerRadius: 28).addClip()
+        let scale = max(rect.width / max(image.size.width, 1), rect.height / max(image.size.height, 1))
+        let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        image.draw(in: CGRect(x: rect.midX - drawSize.width / 2, y: rect.midY - drawSize.height / 2,
+                              width: drawSize.width, height: drawSize.height))
+        context.restoreGState()
     }
 }
 

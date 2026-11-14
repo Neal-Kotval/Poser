@@ -6,6 +6,10 @@ struct CompletedShot: Codable, Identifiable, Equatable {
     let createdAt: Date
     let photoFilename: String
     let referenceFilename: String
+    /// Pose or outline match at capture time. Nil for shots saved before scores were stored.
+    var matchScore: Int?
+    /// Which reference was recreated, so distinct poses can be counted.
+    var referenceID: UUID?
 }
 
 @MainActor
@@ -26,7 +30,8 @@ final class ShootStore: ObservableObject {
     }
 
     @discardableResult
-    func add(photo: UIImage, reference: UIImage) throws -> CompletedShot {
+    func add(photo: UIImage, reference: UIImage, matchScore: Int? = nil,
+             referenceID: UUID? = nil) throws -> CompletedShot {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let id = UUID()
         let photoFilename = "\(id.uuidString)-photo.jpg"
@@ -36,7 +41,9 @@ final class ShootStore: ObservableObject {
         do {
             try jpeg(photo).write(to: photoURL, options: .atomic)
             try jpeg(reference).write(to: referenceURL, options: .atomic)
-            let shot = CompletedShot(id: id, createdAt: Date(), photoFilename: photoFilename, referenceFilename: referenceFilename)
+            let shot = CompletedShot(id: id, createdAt: Date(), photoFilename: photoFilename,
+                                     referenceFilename: referenceFilename, matchScore: matchScore,
+                                     referenceID: referenceID)
             let updated = [shot] + shots
             try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
             shots = updated
@@ -46,6 +53,22 @@ final class ShootStore: ObservableObject {
             try? FileManager.default.removeItem(at: referenceURL)
             throw error
         }
+    }
+
+    func remove(_ shot: CompletedShot) throws {
+        let updated = shots.filter { $0.id != shot.id }
+        try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
+        shots = updated
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent(shot.photoFilename))
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent(shot.referenceFilename))
+    }
+
+    var bestMatch: Int? { shots.compactMap(\.matchScore).max() }
+
+    /// Distinct references recreated; older shots without an id count once each.
+    var posesTried: Int {
+        let known = Set(shots.compactMap(\.referenceID)).count
+        return known + shots.filter { $0.referenceID == nil }.count
     }
 
     func photo(for shot: CompletedShot) -> UIImage? {

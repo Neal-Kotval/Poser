@@ -1285,7 +1285,8 @@ struct HomeView: View {
         isSavingShot = true
         defer { isSavingShot = false }
         do {
-            try shootStore.add(photo: image, reference: referenceImage)
+            try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore,
+                               referenceID: shootQueue[currentShotIndex])
         } catch {
             errorMessage = "The shot could not be saved to your profile. Try again."
             return
@@ -1309,42 +1310,9 @@ struct HomeView: View {
     }
 
     private func completedShotDetail(_ shot: CompletedShot) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Completed shot")
-                    .font(.system(size: 28, weight: .bold))
-                Text(shot.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Palette.secondaryText)
-                if let photo = shootStore.photo(for: shot) {
-                    Image(uiImage: photo)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                    Button("Save to Photos") {
-                        PhotoLibrarySaver.save(photo) { success in
-                            savedMessage = success ? "Your shot is in Photos." : "Allow Photos access in Settings to save this shot."
-                        }
-                    }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
-                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                }
-                if let reference = shootStore.reference(for: shot) {
-                    Text("Reference")
-                        .font(.system(size: 17, weight: .semibold))
-                    Image(uiImage: reference)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                }
-            }
-            .padding(PoserSpace.large)
-            .foregroundStyle(.white)
+        ShotPostView(shot: shot, shootStore: shootStore) {
+            selectedCompletedShot = nil
         }
-        .background(Palette.background.ignoresSafeArea())
     }
 
     private func compare(_ image: UIImage) async {
