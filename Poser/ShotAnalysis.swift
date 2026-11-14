@@ -45,6 +45,29 @@ struct PoseSkeleton {
 
     subscript(_ joint: PoseJoint) -> CGPoint? { points[joint] }
 
+    /// Supplies a complete outline for the illustrated guide without changing
+    /// which joints Vision actually found for scoring or pose cues.
+    func displayingMissingJoints() -> PoseSkeleton {
+        guard let leftShoulder = points[.leftShoulder],
+              let rightShoulder = points[.rightShoulder] else { return self }
+        let example = Self.example(for: ShotRecipe.presets[1])
+        let shoulderCenter = CGPoint(x: (leftShoulder.x + rightShoulder.x) / 2,
+                                     y: (leftShoulder.y + rightShoulder.y) / 2)
+        let exampleShoulderCenter = CGPoint(x: 0.5, y: 0.28)
+        let shoulderWidth = hypot(rightShoulder.x - leftShoulder.x,
+                                  rightShoulder.y - leftShoulder.y)
+        let scale = min(max(shoulderWidth / 0.24, 0.7), 1.4)
+        var completed = points
+        for joint in PoseJoint.allCases where completed[joint] == nil {
+            guard let fallback = example[joint] else { continue }
+            completed[joint] = CGPoint(
+                x: shoulderCenter.x + (fallback.x - exampleShoulderCenter.x) * scale,
+                y: shoulderCenter.y + (fallback.y - exampleShoulderCenter.y) * scale
+            )
+        }
+        return PoseSkeleton(points: completed)
+    }
+
     static func example(for recipe: ShotRecipe) -> PoseSkeleton {
         var points: [PoseJoint: CGPoint] = [
             .nose: CGPoint(x: 0.50, y: 0.12), .neck: CGPoint(x: 0.50, y: 0.23),

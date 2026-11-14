@@ -128,6 +128,26 @@ final class MatchingTests: XCTestCase {
         XCTAssertEqual(shoulderWidth / bodyHeight, 0.25, accuracy: 0.001)
     }
 
+    func testDiagramFillsMissingJointsWithoutChangingDetectedPose() {
+        let detected = PoseSkeleton(points: [
+            .nose: CGPoint(x: 0.52, y: 0.12),
+            .leftShoulder: CGPoint(x: 0.38, y: 0.28),
+            .rightShoulder: CGPoint(x: 0.62, y: 0.28),
+            .leftHip: CGPoint(x: 0.44, y: 0.56),
+            .rightHip: CGPoint(x: 0.58, y: 0.56),
+            .leftKnee: CGPoint(x: 0.42, y: 0.75)
+        ])
+
+        let diagram = detected.displayingMissingJoints()
+
+        XCTAssertEqual(diagram.points.count, PoseJoint.allCases.count)
+        XCTAssertEqual(diagram[.nose], detected[.nose])
+        XCTAssertEqual(diagram[.leftKnee], detected[.leftKnee])
+        XCTAssertNil(detected[.leftWrist])
+        XCTAssertNotNil(diagram[.leftWrist])
+        XCTAssertNotNil(diagram[.rightAnkle])
+    }
+
     @MainActor
     func testCompletedShotPersistsWithPhotoAndReference() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -27,10 +27,9 @@ struct HomeView: View {
     @State private var shootQueue: [UUID] = []
     @State private var currentShotIndex = 0
     @State private var isPreparingReference = false
-    @State private var completionPreview: UIImage?
-    @State private var completedShotNumber = 0
-    @State private var completedShotTotal = 0
+    @State private var isSavingShot = false
     @State private var selectedCompletedShot: CompletedShot?
+    @State private var flowID = UUID()
 
     var body: some View {
         NavigationStack {
@@ -52,12 +51,6 @@ struct HomeView: View {
         .tint(.white)
         .preferredColorScheme(.dark)
         .overlay {
-            if let completionPreview {
-                completionOverlay(completionPreview)
-                    .transition(.opacity)
-            }
-        }
-        .overlay {
             if showingPoseTutorial, let selectedRecipe {
                 PoseTutorialView(analysis: analysis, recipe: selectedRecipe) {
                     withAnimation(.easeInOut(duration: 0.45)) { showingPoseTutorial = false }
@@ -70,13 +63,17 @@ struct HomeView: View {
         }
         .onChange(of: selectedPhoto) { _, item in
             guard let item else { return }
+            let requestID = flowID
             Task {
                 do {
                     guard let data = try await item.loadTransferable(type: Data.self),
                           let image = UIImage(data: data) else { throw AnalysisError.invalidImage }
+                    guard requestID == flowID else { return }
                     await importInspiration(image, source: .photoLibrary)
                     selectedPhoto = nil
-                } catch { errorMessage = error.localizedDescription }
+                } catch {
+                    if requestID == flowID { errorMessage = error.localizedDescription }
+                }
             }
         }
         .sheet(isPresented: $showingLink) {
@@ -119,11 +116,15 @@ struct HomeView: View {
             referenceTitle: shootQueue.isEmpty ? nil : matchingTitle(for: shootQueue[currentShotIndex]),
             queueProgress: shootQueue.isEmpty ? nil : (currentShotIndex + 1, shootQueue.count),
             embedded: true,
-            isActive: activeTab == .camera && completionPreview == nil,
+            isActive: activeTab == .camera,
             isGuideOverlayVisible: showingPoseTutorial
         ) { image in
             if !shootQueue.isEmpty {
-                Task { await completeCurrentShot(image) }
+                capturedImage = image
+                comparisonNote = nil
+                poseScore = nil
+                withAnimation(.easeOut(duration: 0.32)) { activeTab = .home }
+                Task { await compare(image) }
             } else if selectedRecipe != nil, referenceImage != nil {
                 capturedImage = image
                 comparisonNote = nil
@@ -144,11 +145,11 @@ struct HomeView: View {
                 header
                 if let capturedImage {
                     comparison(capturedImage)
-                } else if !sceneMatches.isEmpty {
+                } else if !sceneMatches.isEmpty && shootQueue.isEmpty {
                     sceneMatchResults
                 } else if let selectedRecipe {
                     recipeDetail(selectedRecipe)
-                } else if isAnalyzing {
+                } else if isAnalyzing || isPreparingReference {
                     analyzingView
                 } else {
                     landing
@@ -238,7 +239,7 @@ struct HomeView: View {
 
     private var bottomBar: some View {
         VStack(spacing: 0) {
-            if activeTab == .home, !sceneMatches.isEmpty {
+            if activeTab == .home, !sceneMatches.isEmpty, shootQueue.isEmpty, capturedImage == nil {
                 Button { Task { await startSelectedShoot() } } label: {
                     Text(isPreparingReference ? "Preparing your shots…" : "Continue with \(selectedMatches.count) \(selectedMatches.count == 1 ? "shot" : "shots")")
                         .font(.system(size: 16, weight: .semibold))
@@ -313,7 +314,7 @@ struct HomeView: View {
                 .foregroundStyle(.white)
             HStack {
                 Spacer()
-                if selectedRecipe != nil || capturedImage != nil {
+                if selectedRecipe != nil || capturedImage != nil || !sceneMatches.isEmpty || isAnalyzing {
                     Button("Start over") { reset() }
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white.opacity(0.65))
@@ -602,10 +603,10 @@ struct HomeView: View {
     private var analyzingView: some View {
         VStack(alignment: .leading, spacing: 16) {
             ProgressView().tint(.white)
-            Text("Reading your photo")
+            Text(isPreparingReference ? "Preparing your shot" : "Reading your photo")
                 .font(.system(size: 23, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
-            Text("Finding the subject, framing, and light.")
+            Text(isPreparingReference ? "Finding the setup for your reference." : "Finding the subject, framing, and light.")
                 .font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.55))
         }
@@ -707,7 +708,12 @@ struct HomeView: View {
 
     private func comparison(_ image: UIImage) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Your shot")
+            if !shootQueue.isEmpty {
+                Text("Shot \(currentShotIndex + 1) of \(shootQueue.count)")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Palette.secondaryText)
+            }
+            Text(shootQueue.isEmpty ? "Your shot" : "Review your shot")
                 .font(.system(size: 34, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
             Text(comparisonNote ?? (referenceImage == nil
@@ -740,24 +746,50 @@ struct HomeView: View {
             if let recipe = selectedRecipe {
                 instruction(symbol: "scope", title: "Try one adjustment", body: recipe.framing)
             }
-            Button {
-                PhotoLibrarySaver.save(image) { success in
-                    savedMessage = success ? "Your shot is in Photos." : "Allow Photos access in Settings to save this shot."
+            if !shootQueue.isEmpty {
+                Button {
+                    Task { await completeCurrentShot(image) }
+                } label: {
+                    Text(isSavingShot ? "Saving shot…" : currentShotIndex + 1 < shootQueue.count ? "Use shot and continue" : "Use shot and finish")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 17)
+                        .background(.white, in: Capsule())
                 }
-            } label: {
-                Text("Save to Photos")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
-                    .background(.white, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            Button("Take another shot") { activeTab = .camera }
+                .buttonStyle(.plain)
+                .disabled(isSavingShot)
+                Button("Retake") {
+                    capturedImage = nil
+                    comparisonNote = nil
+                    poseScore = nil
+                    withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
+                }
+                .disabled(isSavingShot)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
+            } else {
+                Button {
+                    PhotoLibrarySaver.save(image) { success in
+                        savedMessage = success ? "Your shot is in Photos." : "Allow Photos access in Settings to save this shot."
+                    }
+                } label: {
+                    Text("Save to Photos")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 17)
+                        .background(.white, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                Button("Take another shot") { activeTab = .camera }
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
         }
     }
 
@@ -784,6 +816,8 @@ struct HomeView: View {
     }
 
     private func analyze(_ image: UIImage, scene: Bool) async {
+        let requestID = UUID()
+        flowID = requestID
         activeTab = .home
         shootQueue = []
         selectedMatches = []
@@ -798,9 +832,13 @@ struct HomeView: View {
         isAnalyzing = true
         do {
             let result = try await AnalysisService.analyze(image)
+            guard requestID == flowID else { return }
             analysis = result
             selectedRecipe = result.recipe
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard requestID == flowID else { return }
+            errorMessage = error.localizedDescription
+        }
         isAnalyzing = false
     }
 
@@ -820,7 +858,10 @@ struct HomeView: View {
     }
 
     private func scanScene(_ image: UIImage) async {
+        let requestID = UUID()
+        flowID = requestID
         activeTab = .home
+        isSceneScan = false
         scannedScene = image
         sceneMatches = []
         selectedMatches = []
@@ -841,6 +882,7 @@ struct HomeView: View {
             }
         }
         let matches = await SceneMatcher.rank(scene: image, candidates: candidates)
+        guard requestID == flowID else { return }
         if matches.isEmpty {
             await analyze(image, scene: true)
         } else {
@@ -865,15 +907,20 @@ struct HomeView: View {
     }
 
     private func startSelectedShoot() async {
-        guard !selectedMatches.isEmpty else { return }
+        guard !selectedMatches.isEmpty, !isPreparingReference else { return }
         isPreparingReference = true
         shootQueue = sceneMatches.map(\.id).filter { selectedMatches.contains($0) }
+        guard let firstReference = shootQueue.first else {
+            isPreparingReference = false
+            return
+        }
         currentShotIndex = 0
-        await prepareReference(shootQueue[0])
+        await prepareReference(firstReference)
         isPreparingReference = false
     }
 
     private func prepareReference(_ id: UUID) async {
+        let requestID = flowID
         guard let image = matchingImage(for: id) else {
             errorMessage = "This reference is no longer available. Choose another shot."
             shootQueue = []
@@ -881,6 +928,7 @@ struct HomeView: View {
         }
         do {
             let result = try await AnalysisService.analyze(image)
+            guard requestID == flowID else { return }
             referenceImage = image
             analysis = result
             selectedRecipe = result.recipe
@@ -888,23 +936,25 @@ struct HomeView: View {
             withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
             withAnimation(.easeInOut(duration: 0.3)) { showingPoseTutorial = true }
         } catch {
+            guard requestID == flowID else { return }
             errorMessage = error.localizedDescription
             shootQueue = []
         }
     }
 
     private func completeCurrentShot(_ image: UIImage) async {
-        guard let referenceImage, !shootQueue.isEmpty else { return }
+        guard let referenceImage, !shootQueue.isEmpty, !isSavingShot else { return }
+        isSavingShot = true
+        defer { isSavingShot = false }
         do {
             try shootStore.add(photo: image, reference: referenceImage)
         } catch {
             errorMessage = "The shot could not be saved to your profile. Try again."
             return
         }
-        completedShotNumber = currentShotIndex + 1
-        completedShotTotal = shootQueue.count
-        withAnimation(.easeInOut(duration: 0.22)) { completionPreview = image }
-        try? await Task.sleep(nanoseconds: 1_350_000_000)
+        capturedImage = nil
+        comparisonNote = nil
+        poseScore = nil
         if currentShotIndex + 1 < shootQueue.count {
             currentShotIndex += 1
             await prepareReference(shootQueue[currentShotIndex])
@@ -917,37 +967,6 @@ struct HomeView: View {
             self.referenceImage = nil
             withAnimation(.easeOut(duration: 0.32)) { activeTab = .profile }
         }
-        withAnimation(.easeInOut(duration: 0.22)) { completionPreview = nil }
-    }
-
-    private func completionOverlay(_ image: UIImage) -> some View {
-        ZStack {
-            Palette.background.opacity(0.94).ignoresSafeArea()
-            VStack(spacing: 20) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 190, height: 240)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 45))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.black, .white)
-                            .padding(12)
-                    }
-                Text("Shot complete")
-                    .font(.system(size: 27, weight: .bold))
-                Text(completedShotNumber < completedShotTotal
-                     ? "Next reference \(completedShotNumber + 1) of \(completedShotTotal)"
-                     : "Saved to your profile")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Palette.secondaryText)
-            }
-            .foregroundStyle(.white)
-        }
-        .accessibilityElement(children: .combine)
     }
 
     private func completedShotDetail(_ shot: CompletedShot) -> some View {
@@ -991,6 +1010,7 @@ struct HomeView: View {
 
     private func compare(_ image: UIImage) async {
         guard let result = try? await AnalysisService.analyze(image) else { return }
+        guard capturedImage === image else { return }
         if let referencePose = analysis?.poseSkeleton,
            let capturedPose = result.poseSkeleton,
            let match = PoseMatcher.compare(reference: referencePose, live: capturedPose) {
@@ -1011,6 +1031,7 @@ struct HomeView: View {
     }
 
     private func reset() {
+        flowID = UUID()
         selectedPhoto = nil
         referenceImage = nil
         analysis = nil
@@ -1023,6 +1044,11 @@ struct HomeView: View {
         sceneMatches = []
         selectedMatches = []
         shootQueue = []
+        currentShotIndex = 0
+        isSavingShot = false
+        isPreparingReference = false
+        showingPoseTutorial = false
+        isAnalyzing = false
     }
 }
 

@@ -10,10 +10,14 @@ struct PoseTutorialView: View {
         analysis?.poseSkeleton ?? .example(for: recipe)
     }
 
+    private var shotGeometry: ShotGeometry {
+        analysis?.geometry ?? ShotGeometryEstimator.fallback(for: recipe)
+    }
+
     var body: some View {
         GeometryReader { screen in
             ZStack {
-                Color.black.opacity(0.7).ignoresSafeArea()
+                Color.black.opacity(0.96).ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     HStack {
@@ -23,6 +27,7 @@ struct PoseTutorialView: View {
                                 .frame(width: 44, height: 44)
                                 .background(.black.opacity(0.42), in: Circle())
                         }
+                        .accessibilityLabel("Close pose guide")
                         Spacer()
                         Text("poser")
                             .font(PoserType.wordmark)
@@ -31,18 +36,31 @@ struct PoseTutorialView: View {
                     }
                     .padding(.top, 12)
 
-                    Spacer(minLength: 30)
-                    Text(analysis?.poseSkeleton == nil ? "EXAMPLE SETUP" : "MATCH THIS POSE")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .tracking(2)
-                        .shadow(color: .black.opacity(0.5), radius: 8)
-                    PoseDiagramView(skeleton: skeleton, geometry: analysis?.geometry ?? ShotGeometryEstimator.fallback(for: recipe))
-                        .frame(height: min(430, screen.size.height * 0.52))
-                        .padding(.top, 14)
-                    Text(analysis?.poseSkeleton?.shortCue ?? "Use the reference to adjust your pose")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .multilineTextAlignment(.center)
-                    Spacer(minLength: 24)
+                    ScrollView {
+                        VStack(spacing: PoserSpace.regular) {
+                            Text(analysis?.poseSkeleton == nil ? "EXAMPLE SETUP" : "MATCH THIS POSE")
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .tracking(2)
+                                .multilineTextAlignment(.center)
+
+                            PoseDiagramView(skeleton: skeleton, geometry: shotGeometry)
+                                .frame(height: min(430, max(360, screen.size.height * 0.5)))
+
+                            Text(analysis?.poseSkeleton?.shortCue ?? "Use the reference to adjust your pose")
+                                .font(.system(.body, design: .rounded, weight: .semibold))
+                                .multilineTextAlignment(.center)
+
+                            Text("\(shotGeometry.heightLabel) · \(shotGeometry.distanceLabel) · \(shotGeometry.angleLabel)")
+                                .font(PoserType.supporting)
+                                .foregroundStyle(Palette.secondaryText)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: 620)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, PoserSpace.xLarge)
+                        .padding(.bottom, PoserSpace.large)
+                    }
+                    .scrollIndicators(.hidden)
 
                     Button(action: onContinue) {
                         HStack(spacing: 9) {
@@ -55,6 +73,7 @@ struct PoseTutorialView: View {
                         .background(.white, in: Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityHint("Closes the pose guide and shows the live camera")
                     .padding(.bottom, 22)
                 }
                 .padding(.horizontal, PoserSpace.large)
@@ -67,8 +86,6 @@ struct PoseTutorialView: View {
 private struct PoseDiagramView: View {
     let skeleton: PoseSkeleton
     let geometry: ShotGeometry
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var posed = false
 
     var body: some View {
         GeometryReader { canvas in
@@ -76,8 +93,12 @@ private struct PoseDiagramView: View {
             let photographerX = canvas.size.width * 0.23
             let subjectX = canvas.size.width * 0.78
             let crouched = self.geometry.cameraHeightMeters < 1.1
-            let phonePoint = CGPoint(x: photographerX + 43, y: floor - (crouched ? 88 : 130))
-            let subjectPoint = CGPoint(x: subjectX - 25, y: floor - 146)
+            let figureWidth = min(128, canvas.size.width * 0.30)
+            let figureHeight = min(206, canvas.size.height * 0.57)
+            let phonePoint = CGPoint(x: photographerX + figureWidth * 0.22 + 10,
+                                     y: floor - figureHeight * (crouched ? 0.39 : 0.57))
+            let subjectPoint = CGPoint(x: subjectX - figureWidth * 0.20,
+                                       y: floor - figureHeight * 0.71)
             ZStack {
                 Path { path in
                     path.move(to: CGPoint(x: 20, y: floor))
@@ -86,8 +107,8 @@ private struct PoseDiagramView: View {
                 .stroke(.white.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
-                    path.move(to: CGPoint(x: photographerX + 48, y: floor - 14))
-                    path.addLine(to: CGPoint(x: subjectX - 48, y: floor - 14))
+                    path.move(to: CGPoint(x: photographerX + figureWidth * 0.38, y: floor - 14))
+                    path.addLine(to: CGPoint(x: subjectX - figureWidth * 0.38, y: floor - 14))
                 }
                 .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
@@ -98,14 +119,14 @@ private struct PoseDiagramView: View {
                 .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 Path { path in
-                    path.move(to: CGPoint(x: photographerX + 56, y: floor - (crouched ? 145 : 194)))
-                    path.addLine(to: CGPoint(x: photographerX + 56, y: phonePoint.y))
+                    path.move(to: CGPoint(x: phonePoint.x + 8, y: floor - figureHeight * 0.94))
+                    path.addLine(to: CGPoint(x: phonePoint.x + 8, y: phonePoint.y))
                 }
                 .stroke(.white.opacity(0.8), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [2, 7]))
 
                 BubblePoseFigure(target: .photographer(crouched: crouched), progress: 1)
-                    .frame(width: 128, height: 206)
-                    .position(x: photographerX, y: floor - 104)
+                    .frame(width: figureWidth, height: figureHeight)
+                    .position(x: photographerX, y: floor - figureHeight / 2)
 
                 Image(systemName: "iphone.gen3")
                     .font(.system(size: 25, weight: .semibold))
@@ -113,15 +134,15 @@ private struct PoseDiagramView: View {
                     .rotationEffect(.degrees(-Double(self.geometry.tiltDegrees)))
                     .position(phonePoint)
 
-                BubblePoseFigure(target: skeleton, progress: posed ? 1 : 0)
-                    .frame(width: 128, height: 206)
-                    .position(x: subjectX, y: floor - 104)
+                AnimatedPoseFigure(skeleton: skeleton)
+                    .frame(width: figureWidth, height: figureHeight)
+                    .position(x: subjectX, y: floor - figureHeight / 2)
 
-                guideLabel(self.geometry.adjustmentLabel)
+                guideLabel(self.geometry.adjustmentLabel, width: min(116, canvas.size.width * 0.31))
                     .position(x: photographerX, y: floor - 230)
-                guideLabel(self.geometry.angleLabel)
+                guideLabel(self.geometry.angleLabel, width: min(116, canvas.size.width * 0.31))
                     .position(x: subjectX, y: floor - 230)
-                guideLabel(self.geometry.distanceLabel)
+                guideLabel(self.geometry.distanceLabel, width: min(132, canvas.size.width * 0.42))
                     .position(x: canvas.size.width * 0.5, y: canvas.size.height - 25)
                 Text("PHOTOGRAPHER")
                     .position(x: photographerX, y: floor + 22)
@@ -134,22 +155,13 @@ private struct PoseDiagramView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Animated setup: photographer at \(geometry.heightLabel), \(geometry.distanceLabel), \(geometry.angleLabel)")
-        .onAppear {
-            if reduceMotion {
-                posed = true
-            } else {
-                withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true)) {
-                    posed = true
-                }
-            }
-        }
     }
 
-    private func guideLabel(_ title: String) -> some View {
+    private func guideLabel(_ title: String, width: CGFloat) -> some View {
         Text(title)
             .font(.system(size: 12, weight: .semibold, design: .rounded))
             .multilineTextAlignment(.center)
-            .frame(width: 132)
+            .frame(width: width)
             .shadow(color: .black, radius: 5)
     }
 }
@@ -182,8 +194,6 @@ private extension PoseSkeleton {
 struct MiniPoseGuide: View {
     let skeleton: PoseSkeleton
     let geometry: ShotGeometry
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var posed = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -193,20 +203,32 @@ struct MiniPoseGuide: View {
             Rectangle()
                 .fill(.white.opacity(0.55))
                 .frame(width: 17, height: 1)
-            BubblePoseFigure(target: skeleton, progress: posed ? 1 : 0)
+            AnimatedPoseFigure(skeleton: skeleton)
                 .frame(width: 48, height: 82)
         }
             .frame(width: 128, height: 110)
             .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
             .accessibilityLabel("Animated setup: \(geometry.heightLabel), \(geometry.distanceLabel), \(geometry.angleLabel)")
+    }
+}
+
+private struct AnimatedPoseFigure: View {
+    let skeleton: PoseSkeleton
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var progress: CGFloat = 0
+
+    var body: some View {
+        BubblePoseFigure(target: skeleton, progress: progress)
             .onAppear {
                 if reduceMotion {
-                    posed = true
+                    progress = 1
                 } else {
-                    withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
-                        posed = true
-                    }
+                    progress = 0
+                    withAnimation(.smooth(duration: 1.25)) { progress = 1 }
                 }
+            }
+            .onChange(of: reduceMotion) { _, enabled in
+                if enabled { progress = 1 }
             }
     }
 }
@@ -223,8 +245,9 @@ struct BubblePoseFigure: View, Animatable {
     var body: some View {
         Canvas { context, size in
             let neutral = PoseSkeleton.example(for: ShotRecipe.presets[1])
+            let completeTarget = target.displayingMissingJoints()
             func point(_ joint: PoseJoint) -> CGPoint? {
-                guard let end = target[joint] else { return nil }
+                guard let end = completeTarget[joint] else { return nil }
                 let start = neutral[joint] ?? end
                 return CGPoint(x: (start.x + (end.x - start.x) * progress) * size.width,
                                y: (start.y + (end.y - start.y) * progress) * size.height)

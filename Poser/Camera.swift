@@ -21,6 +21,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published var isReady = false
     @Published var isDemo = false
     @Published var isCapturing = false
+    @Published var isPermissionDenied = false
     @Published var pitch: Double = 0
     @Published var roll: Double = 0
     @Published var message: String?
@@ -41,14 +42,23 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         #if targetEnvironment(simulator)
         isDemo = true
         isReady = true
+        isPermissionDenied = false
         message = nil
         #else
         queue.async { self.wantsToRun = true }
         AVCaptureDevice.requestAccess(for: .video) { [weak self] allowed in
             guard let self else { return }
             guard allowed else {
-                DispatchQueue.main.async { self.message = "Allow camera access in Settings to use live guidance." }
+                DispatchQueue.main.async {
+                    self.isReady = false
+                    self.isPermissionDenied = true
+                    self.message = "Allow camera access in Settings to use live guidance."
+                }
                 return
+            }
+            DispatchQueue.main.async {
+                self.isPermissionDenied = false
+                self.message = nil
             }
             self.queue.async {
                 guard self.wantsToRun else { return }
@@ -232,6 +242,7 @@ struct CameraScreen: View {
     let onCapture: (UIImage) -> Void
     let onPoseGuide: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var camera = CameraModel()
     @State private var showGrid = false
     @State private var showPose = true
@@ -295,6 +306,15 @@ struct CameraScreen: View {
                     Text(camera.message ?? "Opening camera…")
                         .font(.system(size: 15))
                         .multilineTextAlignment(.center)
+                    if camera.isPermissionDenied {
+                        Button("Open Settings") {
+                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                            UIApplication.shared.open(url)
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(minWidth: 140, minHeight: 44)
+                        .background(Palette.elevated, in: Capsule())
+                    }
                 }
                 .foregroundStyle(Palette.primaryText)
                 .padding(30)
@@ -307,8 +327,9 @@ struct CameraScreen: View {
                             .tracking(-1.5)
                     } else {
                         Button { dismiss() } label: {
-                            Image(systemName: "xmark").frame(width: 42, height: 42)
+                            Image(systemName: "xmark").frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel("Close camera")
                     }
                     Spacer()
                     if !embedded {
@@ -319,8 +340,11 @@ struct CameraScreen: View {
                     Button { showGrid.toggle() } label: {
                         Image(systemName: "square.grid.3x3")
                             .font(.system(size: 18, weight: .regular))
-                            .frame(width: 42, height: 42)
+                            .foregroundStyle(showGrid ? Palette.primaryText : Palette.secondaryText)
+                            .frame(width: 44, height: 44)
                     }
+                    .accessibilityLabel("Grid")
+                    .accessibilityValue(showGrid ? "On" : "Off")
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
@@ -461,9 +485,20 @@ struct CameraScreen: View {
                     Circle()
                         .stroke(.white, lineWidth: 2)
                         .frame(width: 72, height: 72)
-                        .overlay(Circle().fill(.white).frame(width: 60, height: 60))
+                        .overlay {
+                            if camera.isCapturing {
+                                ProgressView()
+                                    .tint(.black)
+                                    .frame(width: 60, height: 60)
+                                    .background(.white, in: Circle())
+                            } else {
+                                Circle().fill(.white).frame(width: 60, height: 60)
+                            }
+                        }
                 }
                 .disabled(!camera.isReady || camera.isCapturing)
+                .accessibilityLabel(mode == .scan || recipe == nil ? "Scan this scene" : "Take photo")
+                .accessibilityHint(camera.isCapturing ? "Processing photo" : "Double tap to capture")
                 .padding(.top, 17)
                 .padding(.bottom, embedded ? 90 : 30)
             }
@@ -482,6 +517,13 @@ struct CameraScreen: View {
         }
         .onChange(of: isActive) { _, active in
             if active { camera.start() } else { camera.stop() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, isActive {
+                camera.start()
+            } else if phase != .active {
+                camera.stop()
+            }
         }
         .onChange(of: queueProgress?.current) { _, _ in
             camera.targetPose = targetPose
