@@ -84,8 +84,16 @@ enum ReferenceCatalog {
             + poses.map { ReferenceTag(kind: .pose, value: $0) }
     }()
 
-    static func items(matching tag: ReferenceTag?) -> [ReferenceAsset] {
-        guard let tag else { return items }
-        return items.filter { tag.matches($0) }
+    static func items(matching tag: ReferenceTag?, query: String = "") -> [ReferenceAsset] {
+        let terms = searchText(query).split { !$0.isLetter && !$0.isNumber }
+        return items.filter { asset in
+            guard tag?.matches(asset) ?? true else { return false }
+            let text = searchText([asset.title, asset.setting ?? "", asset.pose ?? ""].joined(separator: " "))
+            return terms.allSatisfy { text.contains($0) }
+        }
+    }
+
+    private static func searchText(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
     }
 }

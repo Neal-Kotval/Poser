@@ -3,6 +3,29 @@ import UIKit
 @testable import Poser
 
 final class MatchingTests: XCTestCase {
+    func testReferenceSearchMatchesMultipleWordsRegardlessOfCaseAndSpacing() {
+        let results = ReferenceCatalog.items(matching: nil, query: "  STREET   walking ")
+        let expected = ReferenceCatalog.items.filter { $0.setting == "street" && $0.pose == "walking" }
+        XCTAssertFalse(results.isEmpty)
+        XCTAssertEqual(results.map(\.id), expected.map(\.id))
+    }
+
+    func testReferenceSearchCombinesCategoryAndText() {
+        let street = ReferenceTag(kind: .setting, value: "street")
+        let results = ReferenceCatalog.items(matching: street, query: "walking")
+        XCTAssertFalse(results.isEmpty)
+        XCTAssertTrue(results.allSatisfy { $0.setting == "street" && $0.pose == "walking" })
+        XCTAssertTrue(ReferenceCatalog.items(matching: street, query: "beach").isEmpty)
+    }
+
+    func testReferenceSearchHandlesAccentsResetAndNoMatches() {
+        XCTAssertEqual(ReferenceCatalog.items(matching: nil, query: "CAFÉ").map(\.id),
+                       ReferenceCatalog.items.filter { $0.setting == "cafe" }.map(\.id))
+        XCTAssertEqual(ReferenceCatalog.items(matching: nil, query: " \n ").map(\.id),
+                       ReferenceCatalog.items.map(\.id))
+        XCTAssertTrue(ReferenceCatalog.items(matching: nil, query: "zzznomatch").isEmpty)
+    }
+
     func testFilterBarDragsNeverPageEvenWhenDraggedOutsideTheBar() {
         let bar = CGRect(x: 24, y: 220, width: 340, height: 44)
         for translation in [CGSize(width: -250, height: 5), CGSize(width: 250, height: 100)] {

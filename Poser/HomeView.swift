@@ -44,6 +44,10 @@ struct HomeView: View {
     @State private var showLiveCamera = true
     @State private var showShotDetails = false
     @State private var selectedReferenceTag: ReferenceTag?
+    @State private var referenceQuery = ""
+    @State private var isReferenceSearchExpanded = false
+    @FocusState private var isReferenceSearchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var referenceTagFrame: CGRect = .null
     @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.25)))
     private var pageDragOffset: CGFloat = 0
@@ -413,16 +417,29 @@ struct HomeView: View {
                     .font(.system(size: 21, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                 Spacer()
-                Text("\(ReferenceCatalog.items(matching: selectedReferenceTag).count) photos")
+                Text("\(filteredReferences.count) photos")
                     .font(PoserType.caption)
                     .foregroundStyle(Palette.secondaryText)
             }
 
-            referenceTagBar
+            referenceSearchBubble
                 .padding(.top, -12)
 
+            if filteredReferences.isEmpty {
+                ContentUnavailableView {
+                    Label("No references found", systemImage: "magnifyingglass")
+                } description: {
+                    Text("Try another search or category.")
+                } actions: {
+                    Button("Clear search and filters") {
+                        referenceQuery = ""
+                        selectedReferenceTag = nil
+                    }
+                }
+            }
+
             LazyVStack(alignment: .leading, spacing: 28) {
-                ForEach(ReferenceCatalog.items(matching: selectedReferenceTag)) { asset in
+                ForEach(filteredReferences) { asset in
                     if let image = asset.preview {
                         feedCard(asset, image: image)
                     }
@@ -431,19 +448,89 @@ struct HomeView: View {
         }
     }
 
-    private var referenceTagBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            GlassEffectContainer(spacing: 4) {
-                HStack(spacing: PoserSpace.small) {
-                    referenceTagButton(nil)
-                    ForEach(ReferenceCatalog.tags) { tag in
-                        referenceTagButton(tag)
+    private var filteredReferences: [ReferenceAsset] {
+        ReferenceCatalog.items(matching: selectedReferenceTag, query: referenceQuery)
+    }
+
+    private var referenceSearchBubble: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Palette.secondaryText)
+                    .frame(width: 24, height: 52)
+                    .contentShape(Rectangle())
+                    .onTapGesture { isReferenceSearchFocused = true }
+                TextField("Search references", text: $referenceQuery)
+                    .font(PoserType.body)
+                    .frame(minHeight: 52)
+                    .focused($isReferenceSearchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityIdentifier("referenceSearchField")
+                    .onSubmit { closeReferenceSearch() }
+                if !referenceQuery.isEmpty {
+                    Button { referenceQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Palette.secondaryText)
+                            .frame(width: 44, height: 44)
                     }
+                    .accessibilityLabel("Clear search")
                 }
-                .padding(.vertical, 4)
+                if isReferenceSearchExpanded {
+                    Button(action: closeReferenceSearch) {
+                        Image(systemName: "chevron.up")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Collapse search")
+                }
+            }
+            .frame(minHeight: 52)
+
+            if isReferenceSearchExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    Divider().overlay(Palette.border)
+                    Text("Explore categories")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                    ScrollView(.vertical) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8)], spacing: 8) {
+                            referenceTagButton(nil)
+                            ForEach(ReferenceCatalog.tags) { tag in
+                                referenceTagButton(tag)
+                            }
+                        }
+                        .padding(.bottom, 4)
+                    }
+                    .frame(height: 188)
+                    .scrollIndicators(.hidden)
+                    .accessibilityIdentifier("referenceCategorySuggestions")
+                }
+                .padding(.bottom, 16)
+                .transition(.opacity)
+            } else if let tag = selectedReferenceTag {
+                Button { selectedReferenceTag = nil } label: {
+                    Label(tag.title, systemImage: "xmark.circle.fill")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                        .frame(minHeight: 44)
+                }
+                .accessibilityLabel("Remove \(tag.title) filter")
             }
         }
-        .accessibilityIdentifier("referenceTagBar")
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .foregroundStyle(Palette.primaryText)
+        .poserGlass(cornerRadius: isReferenceSearchExpanded ? 28 : 26)
+        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86),
+                   value: isReferenceSearchExpanded)
+        .onChange(of: isReferenceSearchFocused) { _, focused in
+            if focused { isReferenceSearchExpanded = true }
+        }
+        .onChange(of: activeTab) { _, tab in
+            if tab != .home { closeReferenceSearch() }
+        }
+        .accessibilityIdentifier("referenceSearchBubble")
         .background {
             GeometryReader { geometry in
                 Color.clear.preference(key: ReferenceTagFrameKey.self,
@@ -452,22 +539,26 @@ struct HomeView: View {
         }
     }
 
+    private func closeReferenceSearch() {
+        isReferenceSearchFocused = false
+        isReferenceSearchExpanded = false
+    }
+
     private func referenceTagButton(_ tag: ReferenceTag?) -> some View {
         let isSelected = selectedReferenceTag == tag
         return Button {
             selectedReferenceTag = tag
+            isReferenceSearchFocused = false
         } label: {
             Text(tag?.title ?? "All")
                 .font(.system(size: 14, weight: .semibold))
-                .padding(.horizontal, PoserSpace.regular)
-                .frame(minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .foregroundStyle(isSelected ? Palette.background : Palette.primaryText)
-                .poserGlass(cornerRadius: 100, interactive: true,
-                            tint: isSelected ? .white.opacity(0.9) : .clear)
+                .background(isSelected ? .white : .white.opacity(0.08), in: Capsule())
+                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityHint(tag == nil ? "Show all reference photos" : "Filter reference photos by \(tag!.title)")
+        .accessibilityHint(tag.map { "Filter reference photos by \($0.title)" } ?? "Show all categories")
     }
 
     private func feedAction(symbol: String, title: String) -> some View {

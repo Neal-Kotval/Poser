@@ -18,14 +18,14 @@ The compatibility names `ink`, `panel`, `raised`, `cyan`, `cream`, and `muted` r
 
 `PoserType` contains the wordmark, display, title, body, action, supporting, and caption roles. Use semantic SwiftUI font styles for content so Dynamic Type can scale. Keep the wordmark as the only strongly styled text treatment. Use SF Symbols for simple controls and avoid adding ornament to photo surfaces.
 
-`PoserSpace` follows a 4-point rhythm: 4, 8, 12, 16, 24, and 32 points. `PoserRadius` uses 22-point controls, 28-point grouped surfaces, and 24-point photo corners. Filter chips and floating navigation use capsule shapes. Feed and selection tiles use a 1:1 crop. The live camera remains edge-to-edge.
+`PoserSpace` follows a 4-point rhythm: 4, 8, 12, 16, 24, and 32 points. `PoserRadius` uses 22-point controls, 28-point grouped surfaces, and 24-point photo corners. Category chips and floating navigation use capsule shapes. Feed and selection tiles use a 1:1 crop. The live camera remains edge-to-edge.
 
 ## Components
 
 - `PrimaryButton`: white filled action for the next step. Use one per screen or section.
 - `SecondaryButton`: interactive Liquid Glass action for an alternative.
 - `poserGlass`: native regular Liquid Glass for navigation, controls, and floating camera guidance. Uses an opaque backing when Reduce Transparency is enabled.
-- Keep content cards on solid system surfaces; glass belongs above content, not behind every photograph. Group neighboring glass filters in `GlassEffectContainer`.
+- Keep content cards on solid system surfaces; glass belongs above content, not behind every photograph. The Home search expands as one continuous glass bubble, with a text field and category chips on the same surface. Chips use solid selection fills rather than separate glass layers. Search matches the title, setting, and pose; category selection narrows those results.
 - `SectionLabel`: quiet supporting label for grouping content.
 - `PoserSurface`: a grouped dark surface with a subtle border.
 
@@ -38,6 +38,6 @@ The pre-shot pose guide uses a white line figure on a dark surface. It animates 
 - Keep interactive areas at least 44 by 44 points; the shared buttons have a 52-point minimum height.
 - Pair icons with readable labels or accessibility labels. Decorative symbols inside a labeled button are hidden from VoiceOver.
 - Preserve readable contrast on photos using regular glass for floating guidance and an opaque fallback for Reduce Transparency.
-- Constrain cropped image hit areas to their visible tiles. Horizontal filter gestures stay inside the filter bar; page swipes start elsewhere.
+- Constrain cropped image hit areas to their visible tiles. Gestures that start inside the search bubble stay there; page swipes start elsewhere. Expansion respects Reduce Motion.
 - Support Dynamic Type without truncating instructions. Avoid relying on color alone to signal a successful alignment or error.
 - Keep motion tied to a user action; respect Reduced Motion if animations are added later.
