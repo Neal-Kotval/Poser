@@ -14,12 +14,23 @@ settings:
     INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: Poser saves photos you capture to your library.
     INFOPLIST_KEY_UILaunchScreen_Generation: YES
     GENERATE_INFOPLIST_FILE: YES
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: 12.15.0
 targets:
   Poser:
     type: application
     platform: iOS
     sources:
       - path: Poser
+    dependencies:
+      - package: Firebase
+        product: FirebaseAILogic
+      - package: Firebase
+        product: FirebaseAppCheck
+      - package: Firebase
+        product: FirebaseCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nealkotval.Poser

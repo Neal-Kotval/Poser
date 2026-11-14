@@ -41,6 +41,11 @@ struct HomeView: View {
     @State private var isSceneScan = false
     @State private var comparisonNote: String?
     @State private var poseScore: Int?
+    @State private var geminiReferenceNote: String?
+    @State private var geminiShotFeedback: String?
+    @State private var geminiMessage: String?
+    @State private var isDescribingReference = false
+    @State private var isGeneratingFeedback = false
     @State private var scannedScene: UIImage?
     @State private var sceneMatches: [SceneMatch] = []
     @State private var selectedMatches: Set<UUID> = []
@@ -228,12 +233,16 @@ struct HomeView: View {
                 capturedImage = image
                 comparisonNote = nil
                 poseScore = nil
+                geminiShotFeedback = nil
+                geminiMessage = nil
                 withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
                 Task { await compare(image) }
             } else if selectedRecipe != nil, referenceImage != nil {
                 capturedImage = image
                 comparisonNote = nil
                 poseScore = nil
+                geminiShotFeedback = nil
+                geminiMessage = nil
                 withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
                 Task { await compare(image) }
             } else {
@@ -884,6 +893,26 @@ struct HomeView: View {
                     .foregroundStyle(Palette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if GeminiImageCoach.isConfigured, let referenceImage {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button {
+                        Task { await describeReference(referenceImage) }
+                    } label: {
+                        Label(isDescribingReference ? "Describing pose…" : "Describe pose with Gemini",
+                              systemImage: "sparkles")
+                    }
+                    .disabled(isDescribingReference)
+                    Text("Sends the reference photo to Gemini when you tap.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.secondaryText)
+                    if isDescribingReference { ProgressView().tint(.white) }
+                    if let geminiReferenceNote { Text(geminiReferenceNote).font(.system(size: 14)) }
+                    if let geminiMessage { Text(geminiMessage).font(.system(size: 13)).foregroundStyle(Palette.secondaryText) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
+            }
             Button {
                 openPoseGuide()
             } label: {
@@ -938,6 +967,26 @@ struct HomeView: View {
                     .font(.system(size: 15))
                     .foregroundStyle(.white.opacity(0.58))
             }
+            if GeminiImageCoach.isConfigured, let referenceImage {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button {
+                        Task { await generateFeedback(reference: referenceImage, shot: image) }
+                    } label: {
+                        Label(isGeneratingFeedback ? "Comparing photos…" : "Get Gemini feedback",
+                              systemImage: "sparkles")
+                    }
+                    .disabled(isGeneratingFeedback)
+                    Text("Sends both photos to Gemini when you tap.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.secondaryText)
+                    if isGeneratingFeedback { ProgressView().tint(.white) }
+                    if let geminiShotFeedback { Text(geminiShotFeedback).font(.system(size: 14)) }
+                    if let geminiMessage { Text(geminiMessage).font(.system(size: 13)).foregroundStyle(Palette.secondaryText) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
+            }
             if let poseScore {
                 HStack {
                     Text("Pose match")
@@ -985,6 +1034,8 @@ struct HomeView: View {
                     capturedImage = nil
                     comparisonNote = nil
                     poseScore = nil
+                    geminiShotFeedback = nil
+                    geminiMessage = nil
                     withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = true; activeTab = .camera }
                 }
                 .disabled(isSavingShot)
@@ -1060,6 +1111,9 @@ struct HomeView: View {
         capturedImage = nil
         comparisonNote = nil
         poseScore = nil
+        geminiReferenceNote = nil
+        geminiShotFeedback = nil
+        geminiMessage = nil
         selectedRecipe = nil
         isAnalyzing = true
         do {
@@ -1176,6 +1230,9 @@ struct HomeView: View {
             guard requestID == flowID else { return }
             referenceImage = image
             analysis = result
+            geminiReferenceNote = nil
+            geminiShotFeedback = nil
+            geminiMessage = nil
             startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
                                                    faceDistanceMeters: result.faceDistanceMeters)
             selectedRecipe = result.recipe
@@ -1293,6 +1350,37 @@ struct HomeView: View {
         comparisonNote = "Not enough matching arm and leg joints were visible to score this pose. Try a clearer full-body shot."
     }
 
+    private func describeReference(_ image: UIImage) async {
+        guard !isDescribingReference else { return }
+        isDescribingReference = true
+        geminiMessage = nil
+        defer { isDescribingReference = false }
+        do {
+            let note = try await GeminiImageCoach.describeReference(image, hasMeasuredPose: analysis?.poseSkeleton != nil)
+            guard referenceImage === image else { return }
+            geminiReferenceNote = note
+        } catch {
+            guard referenceImage === image else { return }
+            geminiMessage = error.localizedDescription
+        }
+    }
+
+    private func generateFeedback(reference: UIImage, shot: UIImage) async {
+        guard !isGeneratingFeedback else { return }
+        isGeneratingFeedback = true
+        geminiMessage = nil
+        defer { isGeneratingFeedback = false }
+        do {
+            let note = try await GeminiImageCoach.compare(reference: reference, shot: shot,
+                                                           measuredScore: poseScore, measuredCue: comparisonNote)
+            guard referenceImage === reference, capturedImage === shot else { return }
+            geminiShotFeedback = note
+        } catch {
+            guard capturedImage === shot else { return }
+            geminiMessage = error.localizedDescription
+        }
+    }
+
     private func reset() {
         flowID = UUID()
         showLiveCamera = true
@@ -1305,6 +1393,9 @@ struct HomeView: View {
         isSceneScan = false
         comparisonNote = nil
         poseScore = nil
+        geminiReferenceNote = nil
+        geminiShotFeedback = nil
+        geminiMessage = nil
         scannedScene = nil
         sceneMatches = []
         selectedMatches = []
