@@ -16,7 +16,7 @@ Open `Poser.xcodeproj` in Xcode and run the Poser target on iOS 26 or later. For
 6. Use the thirds grid, motion based level, pose overlay, and live pose cue, then capture.
 7. Compare the captured shot with the reference and save it to Photos. A pose score appears when Vision detects enough body joints in both photos.
 
-Scene matching searches the local inspiration library and the bundled examples; it does not search Pinterest or Instagram. The on-device flow does not require a model key.
+Scene matching searches the local inspiration library and the bundled examples. Optional Typesense keyword search uses a configured remote index; image similarity falls back to on-device matching on the free tier. See [Tools/Typesense/README.md](Tools/Typesense/README.md). The on-device flow does not require a model key.
 
 ## Optional Gemini image guidance
 

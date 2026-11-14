@@ -172,7 +172,9 @@ enum AnalysisService {
             // Vision models are not available in every simulator/runtime. Keep the
             // reference flow usable when one model cannot initialize.
             try? handler.perform([classify])
-            try? handler.perform([person])
+            if let error = VisionRunner.perform(person, on: handler) {
+                print("[AnalysisService] 2D pose failed: \(error)")
+            }
             try? handler.perform([face])
             try? handler.perform([salient])
 

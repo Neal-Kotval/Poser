@@ -8,3 +8,5 @@ xcuserdata/
 .venv/
 __pycache__/
 Poser/GoogleService-Info.plist
+Poser/Secrets/Typesense.plist
+Tools/Typesense/.venv/
