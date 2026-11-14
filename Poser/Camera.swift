@@ -227,7 +227,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         lastDetection = Date()
         let request = VNDetectHumanBodyPoseRequest()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right)
-        guard (try? handler.perform([request])) != nil,
+        guard VisionRunner.perform(request, on: handler) == nil,
               let person = request.results?.first else {
             DispatchQueue.main.async {
                 self.subjectHint = "Place the subject inside the guide"

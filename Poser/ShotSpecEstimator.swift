@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreML
 import Foundation
 import ImageIO
 import UIKit
@@ -142,6 +143,35 @@ enum BodyFrameGeometry {
               assumedHeight.isFinite, (0.5...2.5).contains(assumedHeight),
               !heightIsMeasured || (0.5...2.5).contains(bodyHeight) else { return nil }
         return heightIsMeasured ? 1 : assumedHeight / bodyHeight
+    }
+}
+
+enum VisionRunner {
+    /// Performs `request`, retrying on the CPU if the default compute device fails to load the model.
+    /// Returns the error description when both attempts fail.
+    @discardableResult
+    static func perform(_ request: VNRequest, on handler: VNImageRequestHandler) -> String? {
+        do {
+            try handler.perform([request])
+            return nil
+        } catch {
+            let firstError = error.localizedDescription
+            guard let stages = try? request.supportedComputeStageDevices else { return firstError }
+            var movedToCPU = false
+            for (stage, devices) in stages {
+                if let cpu = devices.first(where: { if case .cpu = $0 { true } else { false } }) {
+                    request.setComputeDevice(cpu, for: stage)
+                    movedToCPU = true
+                }
+            }
+            guard movedToCPU else { return firstError }
+            do {
+                try handler.perform([request])
+                return nil
+            } catch {
+                return "\(firstError); on CPU: \(error.localizedDescription)"
+            }
+        }
     }
 }
 
@@ -335,10 +365,11 @@ enum ShotSpecEstimator {
         segmentation.qualityLevel = .balanced
         segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
         // Run separately so one unavailable model does not block the others.
-        do { try handler.perform([pose3D]) } catch { log.add("3D pose failed: \(error.localizedDescription)") }
-        do { try handler.perform([pose2D]) } catch { log.add("2D pose failed: \(error.localizedDescription)") }
-        do { try handler.perform([horizon]) } catch { log.add("horizon failed: \(error.localizedDescription)") }
-        do { try handler.perform([segmentation]) } catch { log.add("segmentation failed: \(error.localizedDescription)") }
+        let requests: [(String, VNRequest)] = [("3D pose", pose3D), ("2D pose", pose2D),
+                                               ("horizon", horizon), ("segmentation", segmentation)]
+        for (name, request) in requests {
+            log.add("\(name): \(VisionRunner.perform(request, on: handler).map { "FAILED \($0)" } ?? "ok")")
+        }
 
         let points2D = pose2D.results?.first.map(Pose2DReader.points) ?? [:]
         let horizonDegrees = horizon.results?.first.map { Double($0.angle) * 180 / .pi }
