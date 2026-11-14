@@ -53,6 +53,10 @@ struct HomeView: View {
     @GestureState(resetTransaction: Transaction(animation: .easeOut(duration: 0.25)))
     private var pageDragOffset: CGFloat = 0
 
+    private var isBottomNavigationVisible: Bool {
+        !showingPoseTutorial && !isReferenceSearchFocused && !isSearchKeyboardVisible
+    }
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
@@ -60,13 +64,18 @@ struct HomeView: View {
                 // the home indicator. Navigation keeps the normal safe area.
                 pagePager
                     .ignoresSafeArea(.container, edges: .bottom)
-                if !showingPoseTutorial && !isReferenceSearchFocused && !isSearchKeyboardVisible {
-                    bottomBar
-                        .transition(.opacity)
-                }
+                // Keep the glass surface mounted so its material is ready
+                // before it fades back in after keyboard dismissal.
+                bottomBar
+                    .opacity(isBottomNavigationVisible ? 1 : 0)
+                    .offset(y: !reduceMotion && !isBottomNavigationVisible ? 12 : 0)
+                    .scaleEffect(!reduceMotion && !isBottomNavigationVisible ? 0.98 : 1, anchor: .bottom)
+                    .allowsHitTesting(isBottomNavigationVisible)
+                    .accessibilityHidden(!isBottomNavigationVisible)
+                    .animation(reduceMotion ? .easeOut(duration: 0.18)
+                               : .spring(response: 0.42, dampingFraction: 1),
+                               value: isBottomNavigationVisible)
             }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2),
-                       value: isReferenceSearchFocused || isSearchKeyboardVisible)
             .background(Palette.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
         }
