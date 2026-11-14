@@ -30,9 +30,9 @@ enum PoserSpace {
 }
 
 enum PoserRadius {
-    static let control: CGFloat = 12
-    static let image: CGFloat = 14
-    static let surface: CGFloat = 18
+    static let control: CGFloat = 4
+    static let image: CGFloat = 0
+    static let surface: CGFloat = 4
 }
 
 enum PoserType {

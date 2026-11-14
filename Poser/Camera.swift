@@ -290,7 +290,6 @@ struct CameraScreen: View {
     @StateObject private var camera = CameraModel()
     @State private var showGrid = false
     @State private var showPose = true
-    @State private var tutorialStep = 0
 
     init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, shotSpec: ShotSpec? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil, onStartOver: (() -> Void)? = nil) {
         self.mode = mode
@@ -417,27 +416,16 @@ struct CameraScreen: View {
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
 
-                if camera.isDemo {
-                    Text("SIMULATOR PREVIEW")
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(1.3)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 18)
-                }
-
                 if mode == .guide, let recipe, let referenceImage {
-                    HStack(alignment: .top, spacing: 12) {
+                    HStack(alignment: .center, spacing: 12) {
                         Image(uiImage: referenceImage)
                             .resizable()
                             .scaledToFill()
-                            .frame(width: 88, height: 88)
+                            .frame(width: 60, height: 60)
                             .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
                             .accessibilityLabel("Current reference photo")
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(alignment: .leading, spacing: 4) {
                             if let queueProgress {
                                 Text("SHOT \(queueProgress.current) OF \(queueProgress.total)")
                                     .font(.system(size: 10, weight: .bold))
@@ -447,103 +435,50 @@ struct CameraScreen: View {
                                 .font(.system(size: 15, weight: .semibold))
                                 .lineLimit(2)
                         }
-                        .padding(.top, 8)
                         Spacer(minLength: 0)
                         Button { onPoseGuide?() } label: {
-                            if let targetPose {
-                                MiniPoseGuide(skeleton: targetPose,
-                                              geometry: shotGeometry ?? ShotGeometryEstimator.fallback(for: recipe))
-                            } else {
-                                VStack(spacing: 6) {
-                                    Image(systemName: "figure.stand")
-                                        .font(.system(size: 27, weight: .light))
-                                    Text("SETUP GUIDE")
-                                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                                        .tracking(1)
-                                }
+                            Image(systemName: "figure.stand")
+                                .font(.system(size: 21, weight: .medium))
                                 .foregroundStyle(.white)
-                                .frame(width: 128, height: 110)
+                                .frame(width: 44, height: 44)
                                 .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                            }
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Open pose and camera setup")
                     }
                     .padding(.horizontal, 18)
                 }
-
-                if mode == .guide, recipe != nil, !showPose {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "sparkle.viewfinder")
-                            .foregroundStyle(Palette.primaryText)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(tutorialStep == 0
-                                 ? (shotGeometry?.distanceLabel ?? "Move until framing matches")
-                                 : tutorialStep == 1
-                                   ? (targetPose?.shortCue ?? "Use the reference to adjust your pose")
-                                   : "Match the subject's position in the reference")
-                                .font(.system(size: 15, weight: .medium, design: .rounded))
-                            Text("Tap for next tip")
-                                .font(.caption)
-                                .foregroundStyle(Palette.secondaryText)
-                        }
-                        Spacer()
-                    }
-                    .padding(16)
-                    .background(Palette.background.opacity(0.75), in: RoundedRectangle(cornerRadius: PoserRadius.control))
-                    .padding(.horizontal, 18)
-                    .onTapGesture { tutorialStep = (tutorialStep + 1) % 3 }
-                }
                 Spacer()
                 if mode == .guide, recipe != nil, camera.isReady, !camera.isDemo {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if targetPose != nil {
-                            HStack(alignment: .center, spacing: 13) {
-                                Text(camera.poseScore.map { "\($0)%" } ?? "—")
-                                    .font(.system(size: 31, weight: .bold, design: .rounded))
-                                    .monospacedDigit()
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("POSE MATCH")
-                                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                                        .tracking(1)
-                                    Text(camera.poseHint)
-                                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                                        .foregroundStyle(Palette.secondaryText)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            Rectangle().fill(.white.opacity(0.2)).frame(height: 1)
-                        }
+                    HStack(spacing: 10) {
                         if let instruction = camera.coachInstruction {
-                            HStack(spacing: 10) {
-                                Image(systemName: instruction.symbol)
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .frame(width: 26)
-                                Text(instruction.text)
-                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Spacer()
-                                Button(showPose ? "Hide pose" : "Show pose") { showPose.toggle() }
-                            }
-                            .accessibilityElement(children: .combine)
+                            Image(systemName: instruction.symbol)
+                                .font(.system(size: 19, weight: .semibold))
+                            Text(instruction.text)
+                                .font(.system(size: 15, weight: .semibold))
+                                .fixedSize(horizontal: false, vertical: true)
                         } else {
-                            HStack(spacing: 8) {
-                                Image(systemName: "person.crop.rectangle")
-                                    .foregroundStyle(Palette.primaryText)
-                                Text(camera.subjectHint)
-                                Spacer()
-                            }
-                            HStack(spacing: 8) {
-                                Image(systemName: abs(camera.roll) < 3 ? "checkmark.circle.fill" : "level")
-                                    .foregroundStyle(abs(camera.roll) < 3 ? Palette.primaryText : Palette.secondaryText)
-                                Text(abs(camera.roll) < 3 ? "Level" : "Tilt \(Int(abs(camera.roll)))° to level")
-                                Spacer()
-                                Button(showPose ? "Hide pose" : "Show pose") { showPose.toggle() }
-                            }
+                            Image(systemName: abs(camera.roll) < 3 ? "person.crop.rectangle" : "level")
+                                .font(.system(size: 19, weight: .medium))
+                            Text(abs(camera.roll) < 3 ? (targetPose == nil ? camera.subjectHint : camera.poseHint)
+                                 : "Tilt \(Int(abs(camera.roll)))° to level")
+                                .font(.system(size: 15, weight: .medium))
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        Spacer(minLength: 0)
+                        if let score = camera.poseScore, targetPose != nil {
+                            Text("\(score)%")
+                                .font(.system(size: 15, weight: .bold))
+                                .monospacedDigit()
+                        }
+                        Button { showPose.toggle() } label: {
+                            Image(systemName: showPose ? "eye.slash" : "eye")
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel(showPose ? "Hide pose" : "Show pose")
                     }
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .padding(14)
+                    .padding(.leading, 14)
+                    .padding(.trailing, 4)
                     .background(Palette.background.opacity(0.75), in: RoundedRectangle(cornerRadius: PoserRadius.control))
                     .padding(.horizontal, 18)
                 } else if mode == .scan {
@@ -552,15 +487,9 @@ struct CameraScreen: View {
                         .padding(14)
                         .background(Palette.background.opacity(0.85), in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 } else if mode == .guide, recipe == nil {
-                    VStack(spacing: 4) {
-                        Text("Looking for inspo?")
-                            .font(.system(size: 17, weight: .semibold))
-                        Text("Take a photo of this place to find a shot")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Palette.secondaryText)
-                    }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
+                    Text("Scan this place to find a shot")
+                    .font(.system(size: 14, weight: .medium))
+                    .padding(14)
                     .background(Palette.background.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 }
                 Button { camera.capture() } label: {

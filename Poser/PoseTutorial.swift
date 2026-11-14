@@ -25,7 +25,7 @@ struct PoseTutorialView: View {
                             Image(systemName: "xmark")
                                 .font(.system(size: 18, weight: .semibold))
                                 .frame(width: 44, height: 44)
-                                .background(.black.opacity(0.42), in: Circle())
+                                .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: PoserRadius.control))
                         }
                         .accessibilityLabel("Close pose guide")
                         Spacer()
@@ -44,20 +44,11 @@ struct PoseTutorialView: View {
                                 .multilineTextAlignment(.center)
 
                             PoseDiagramView(skeleton: skeleton, geometry: shotGeometry)
-                                .frame(height: min(430, max(360, screen.size.height * 0.5)))
+                                .frame(height: min(400, max(320, screen.size.height * 0.46)))
 
-                            Text(analysis?.poseSkeleton?.shortCue ?? "Use the reference to adjust your pose")
-                                .font(.system(.body, design: .rounded, weight: .semibold))
-                                .multilineTextAlignment(.center)
-
-                            Text("\(shotGeometry.heightLabel) · \(shotGeometry.distanceLabel) · \(shotGeometry.angleLabel)")
-                                .font(PoserType.supporting)
-                                .foregroundStyle(Palette.secondaryText)
-                                .multilineTextAlignment(.center)
-                            if let turn = shotGeometry.spec?.subjectTurnDegrees {
-                                Text("Subject turns ≈\(abs(turn))° to their \(turn > 0 ? "right" : "left")")
-                                    .font(PoserType.supporting)
-                                    .foregroundStyle(Palette.secondaryText)
+                            if let cue = analysis?.poseSkeleton?.shortCue {
+                                Text(cue)
+                                    .font(.system(.body, design: .rounded, weight: .semibold))
                                     .multilineTextAlignment(.center)
                             }
                         }
@@ -76,7 +67,7 @@ struct PoseTutorialView: View {
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity, minHeight: 56)
-                        .background(.white, in: Capsule())
+                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Closes the pose guide and shows the live camera")

@@ -31,6 +31,7 @@ struct HomeView: View {
     @State private var selectedCompletedShot: CompletedShot?
     @State private var flowID = UUID()
     @State private var showLiveCamera = true
+    @State private var showShotDetails = false
 
     var body: some View {
         NavigationStack {
@@ -206,36 +207,19 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 HStack {
-                    Text("poser")
-                        .font(PoserType.wordmark)
+                    Text("My shots")
+                        .font(.system(size: 28, weight: .bold))
                     Spacer()
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 24, weight: .ultraLight))
+                    Text("\(shootStore.shots.count) completed")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Palette.secondaryText)
                 }
                 .padding(.top, PoserSpace.large)
-
-                HStack(spacing: 18) {
-                    Circle()
-                        .fill(Palette.elevated)
-                        .frame(width: 74, height: 74)
-                        .overlay(Image(systemName: "person.fill").font(.system(size: 29)).foregroundStyle(.white))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("My shots")
-                            .font(.system(size: 24, weight: .bold))
-                        Text("\(shootStore.shots.count) completed")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Palette.secondaryText)
-                    }
-                }
-
-                Rectangle().fill(Palette.border).frame(height: 1)
                 if shootStore.shots.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Image(systemName: "square.stack.3d.up")
-                            .font(.system(size: 28, weight: .ultraLight))
                         Text("Your shoots will live here")
                             .font(.system(size: 19, weight: .semibold))
-                        Text("Scan a place, choose inspiration, and finish your first shot.")
+                        Text("Take your first shot to start a collection.")
                             .font(.system(size: 14))
                             .foregroundStyle(Palette.secondaryText)
                         Button("Open camera") {
@@ -284,7 +268,7 @@ struct HomeView: View {
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 15)
-                        .background(.white, in: Capsule())
+                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 }
                 .buttonStyle(.plain)
                 .disabled(selectedMatches.isEmpty || isPreparingReference)
@@ -312,8 +296,8 @@ struct HomeView: View {
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.black)
                     .frame(width: 52, height: 52)
-                    .background(.white, in: Circle())
-                    .overlay(Circle().stroke(.white.opacity(activeTab == .camera ? 0.8 : 0), lineWidth: 2).padding(-5))
+                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                    .overlay(RoundedRectangle(cornerRadius: PoserRadius.control).stroke(.white.opacity(activeTab == .camera ? 0.8 : 0), lineWidth: 2).padding(-5))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
@@ -359,16 +343,11 @@ struct HomeView: View {
     }
 
     private var landing: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Find your next shot.")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .tracking(-0.7)
-                    .foregroundStyle(.white)
-                Text("Ideas for wherever you are.")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Palette.secondaryText)
-            }
+        VStack(alignment: .leading, spacing: 24) {
+            Text("Find your next shot")
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .tracking(-0.7)
+                .foregroundStyle(.white)
 
             HStack(spacing: 9) {
                 Button { showingScan = true } label: {
@@ -391,16 +370,12 @@ struct HomeView: View {
                 Text("For you")
                     .font(.system(size: 21, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
-                Spacer()
-                Text("\(ReferenceCatalog.items.count) ideas")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.secondaryText)
             }
 
             LazyVStack(alignment: .leading, spacing: 28) {
-                ForEach(Array(ReferenceCatalog.items.enumerated()), id: \.element.id) { index, asset in
+                ForEach(ReferenceCatalog.items) { asset in
                     if let image = asset.preview {
-                        feedCard(asset, image: image, index: index)
+                        feedCard(asset, image: image)
                     }
                 }
             }
@@ -418,28 +393,12 @@ struct HomeView: View {
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, minHeight: 44)
-        .background(Palette.surface, in: Capsule())
-        .overlay(Capsule().stroke(Palette.border, lineWidth: 1))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.control))
+        .overlay(RoundedRectangle(cornerRadius: PoserRadius.control).stroke(Palette.border, lineWidth: 1))
     }
 
-    private func feedCard(_ asset: ReferenceAsset, image: UIImage, index: Int) -> some View {
+    private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
         VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 10) {
-                Circle()
-                    .fill(Palette.elevated)
-                    .frame(width: 32, height: 32)
-                    .overlay(Image(systemName: "camera").font(.system(size: 13)).foregroundStyle(.white))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(asset.title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Text("Photo idea · \(String(format: "%02d", index + 1))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Palette.secondaryText)
-                }
-                Spacer()
-            }
-
             Button {
                 if let data = asset.imageData, let fullImage = UIImage(data: data) {
                     Task { await analyze(fullImage, scene: false, imageData: data) }
@@ -452,14 +411,14 @@ struct HomeView: View {
                         .frame(width: tile.size.width, height: tile.size.height)
                         .clipped()
                 }
-                .frame(height: 370)
+                .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(asset.title) inspiration")
 
             HStack(alignment: .center) {
-                Text("Try this shot")
+                Text(asset.title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
                 Spacer()
@@ -472,19 +431,6 @@ struct HomeView: View {
                     }
                     .accessibilityLabel("Open original Pin")
                 }
-                Button {
-                    if let data = asset.imageData, let fullImage = UIImage(data: data) {
-                        Task { await analyze(fullImage, scene: false, imageData: data) }
-                    }
-                } label: {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.black)
-                        .frame(width: 38, height: 38)
-                        .background(.white, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Try \(asset.title) shot")
             }
             Rectangle().fill(Palette.border).frame(height: 1).padding(.top, 9)
         }
@@ -523,7 +469,7 @@ struct HomeView: View {
                                         Image(uiImage: image)
                                             .resizable()
                                             .scaledToFill()
-                                            .frame(width: 132, height: 154)
+                                            .frame(width: 132, height: 132)
                                             .clipped()
                                             .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
                                         Text(item.title)
@@ -543,28 +489,32 @@ struct HomeView: View {
     }
 
     private var sceneMatchResults: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Choose your shots")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(.white)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(.white)
                 Spacer()
                 Text("\(selectedMatches.count) selected")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Palette.secondaryText)
             }
-            Text("Pick one or more references for this place. Best scene matches appear first.")
-                .font(.system(size: 14))
-                .foregroundStyle(Palette.secondaryText)
             if let scannedScene {
-                Image(uiImage: scannedScene)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 138)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                    .overlay(alignment: .topLeading) { imageLabel("YOUR SCENE") }
+                HStack(alignment: .top, spacing: 14) {
+                    Image(uiImage: scannedScene)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 112, height: 112)
+                        .clipped()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("YOUR SCENE")
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(1)
+                            .foregroundStyle(Palette.secondaryText)
+                    }
+                    .padding(.top, 4)
+                    Spacer(minLength: 0)
+                }
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 18) {
                 ForEach(sceneMatches) { match in
@@ -581,20 +531,12 @@ struct HomeView: View {
                                         .frame(width: tile.size.width, height: tile.size.height)
                                         .clipped()
                                 }
-                                    .frame(height: 190)
+                                    .aspectRatio(1, contentMode: .fit)
                                     .overlay(alignment: .topTrailing) {
                                         Image(systemName: selectedMatches.contains(match.id) ? "checkmark.circle.fill" : "circle")
                                             .font(.system(size: 24, weight: .medium))
                                             .shadow(radius: 3)
                                             .padding(10)
-                                    }
-                                    .overlay(alignment: .bottomLeading) {
-                                        Text("\(Int(min(max(match.score, 0), 1) * 100))% match")
-                                            .font(.system(size: 12, weight: .bold))
-                                            .padding(.horizontal, 9)
-                                            .padding(.vertical, 6)
-                                            .background(.black.opacity(0.75), in: Capsule())
-                                            .padding(9)
                                     }
                                     .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
                                 Text(matchingTitle(for: match.id))
@@ -632,13 +574,10 @@ struct HomeView: View {
     }
 
     private func recipeDetail(_ recipe: ShotRecipe) -> some View {
-        VStack(alignment: .leading, spacing: 23) {
+        VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(isSceneScan ? "A shot for this place" : "Your shot plan")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.52))
                 Text(recipe.title)
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
                     .tracking(-1)
                     .foregroundStyle(.white)
                 Text(recipe.subtitle)
@@ -646,30 +585,22 @@ struct HomeView: View {
                     .foregroundStyle(.white.opacity(0.55))
             }
             if let referenceImage {
-                Image(uiImage: referenceImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 330)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(alignment: .topLeading) {
-                        imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
+                GeometryReader { tile in
+                    Image(uiImage: referenceImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: tile.size.width, height: tile.size.height)
+                        .clipped()
+                        .overlay(alignment: .topLeading) {
+                            imageLabel(isSceneScan ? "YOUR SCENE" : "REFERENCE")
+                        }
                     }
-            }
-            if let analysis {
-                Text(analysis.summary)
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white.opacity(0.6))
+                    .aspectRatio(1, contentMode: .fit)
             }
             VStack(spacing: 0) {
                 instruction(symbol: "iphone", title: "Camera", body: analysis?.geometry.distanceLabel ?? recipe.camera)
                 rowDivider
                 instruction(symbol: "figure.stand", title: "Pose", body: analysis.map { $0.poseSkeleton?.shortCue ?? "Pose not measured; use the photo as your guide." } ?? recipe.pose)
-                rowDivider
-                instruction(symbol: "sun.max", title: "Light", body: analysis == nil ? recipe.light : "Match the light direction in the reference.")
-                rowDivider
-                instruction(symbol: "square.dashed", title: "Frame", body: analysis == nil ? recipe.framing : "Place the subject where they appear in the reference.")
             }
             Button {
                 openPoseGuide()
@@ -679,31 +610,18 @@ struct HomeView: View {
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 17)
-                    .background(.white, in: Capsule())
+                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
             }
             .buttonStyle(.plain)
-            if isSceneScan {
-                Text("Other ideas")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 9) {
-                        ForEach(ShotRecipe.presets.filter { $0.id != recipe.id }) { option in
-                            Button {
-                                selectedRecipe = option
-                            } label: {
-                                Text(option.title)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 15)
-                                    .padding(.vertical, 11)
-                                    .overlay(Capsule().stroke(.white.opacity(0.35)))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+            DisclosureGroup("More setup details", isExpanded: $showShotDetails) {
+                VStack(spacing: 0) {
+                    instruction(symbol: "sun.max", title: "Light", body: analysis == nil ? recipe.light : "Match the light direction in the reference.")
+                    rowDivider
+                    instruction(symbol: "square.dashed", title: "Frame", body: analysis == nil ? recipe.framing : "Place the subject where they appear in the reference.")
                 }
             }
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(Palette.secondaryText)
         }
     }
 
@@ -724,20 +642,20 @@ struct HomeView: View {
     }
 
     private func comparison(_ image: UIImage) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 14) {
             if !shootQueue.isEmpty {
                 Text("Shot \(currentShotIndex + 1) of \(shootQueue.count)")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Palette.secondaryText)
             }
             Text(shootQueue.isEmpty ? "Your shot" : "Review your shot")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .font(.system(size: 28, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-            Text(comparisonNote ?? (referenceImage == nil
-                ? "Capture complete. Add a reference next time for a side-by-side comparison."
-                : "Compare the subject's position, horizon, and light."))
-                .font(.system(size: 15))
-                .foregroundStyle(.white.opacity(0.58))
+            if let comparisonNote {
+                Text(comparisonNote)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.white.opacity(0.58))
+            }
             if let poseScore {
                 HStack {
                     Text("Pose match")
@@ -751,17 +669,22 @@ struct HomeView: View {
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.control))
             }
             if let referenceImage {
-                HStack(spacing: 8) {
-                    compareImage(referenceImage, label: isSceneScan ? "SCENE" : "REFERENCE")
-                    compareImage(image, label: "YOUR SHOT")
+                GeometryReader { geometry in
+                    let tileWidth = max(1, (geometry.size.width - 8) / 2)
+                    HStack(spacing: 8) {
+                        compareImage(referenceImage, label: isSceneScan ? "SCENE" : "REFERENCE",
+                                     width: tileWidth, height: tileWidth)
+                        compareImage(image, label: "YOUR SHOT", width: tileWidth, height: tileWidth)
+                    }
                 }
-                .frame(height: 320)
+                .aspectRatio(2, contentMode: .fit)
             } else {
-                compareImage(image, label: "YOUR SHOT")
-                    .frame(height: 420)
-            }
-            if let recipe = selectedRecipe {
-                instruction(symbol: "scope", title: "Try one adjustment", body: recipe.framing)
+                GeometryReader { geometry in
+                    let side = min(geometry.size.width, 260)
+                    compareImage(image, label: "YOUR SHOT", width: side, height: side)
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(height: 260)
             }
             if !shootQueue.isEmpty {
                 Button {
@@ -772,7 +695,7 @@ struct HomeView: View {
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 17)
-                        .background(.white, in: Capsule())
+                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 }
                 .buttonStyle(.plain)
                 .disabled(isSavingShot)
@@ -798,7 +721,7 @@ struct HomeView: View {
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 17)
-                        .background(.white, in: Capsule())
+                        .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 }
                 .buttonStyle(.plain)
                 Button("Take another shot") {
@@ -812,15 +735,14 @@ struct HomeView: View {
         }
     }
 
-    private func compareImage(_ image: UIImage, label: String) -> some View {
+    private func compareImage(_ image: UIImage, label: String, width: CGFloat, height: CGFloat) -> some View {
         Image(uiImage: image)
             .resizable()
             .scaledToFill()
-            .frame(maxWidth: .infinity)
-            .frame(height: 320)
+            .frame(width: width, height: height)
             .clipped()
             .overlay(alignment: .topLeading) { imageLabel(label) }
-            .clipShape(RoundedRectangle(cornerRadius: 11))
+            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
     }
 
     private func imageLabel(_ label: String) -> some View {
@@ -830,7 +752,7 @@ struct HomeView: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(.black.opacity(0.72), in: Capsule())
+            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: PoserRadius.control))
             .padding(12)
     }
 
@@ -1024,7 +946,7 @@ struct HomeView: View {
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 17)
-                    .background(.white, in: Capsule())
+                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
                 }
                 if let reference = shootStore.reference(for: shot) {
                     Text("Reference")
@@ -1084,6 +1006,7 @@ struct HomeView: View {
         isPreparingReference = false
         showingPoseTutorial = false
         isAnalyzing = false
+        showShotDetails = false
     }
 }
 
@@ -1110,7 +1033,7 @@ struct LinkEntryView: View {
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
                 .padding(15)
-                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: PoserRadius.control))
             if let errorMessage {
                 Text(errorMessage)
                     .font(.system(size: 13))
@@ -1130,7 +1053,7 @@ struct LinkEntryView: View {
                     .foregroundStyle(.black)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 17)
-                    .background(.white, in: Capsule())
+                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
             }
             .buttonStyle(.plain)
             .disabled(loading || link.isEmpty)
