@@ -17,17 +17,16 @@ struct ShotGeometry {
         }
     }
 
-    var distanceLabel: String { "\(distanceMeters.formatted(.number.precision(.fractionLength(1)))) m apart" }
+    var distanceLabel: String {
+        inferredFromPose ? "Start ≈\(distanceMeters.formatted(.number.precision(.fractionLength(1)))) m away" : "Move until framing matches"
+    }
 
     var adjustmentLabel: String {
-        let lowerFeet = Int(((1.55 - cameraHeightMeters) * 3.28084).rounded())
-        return lowerFeet > 0 ? "Lower \(lowerFeet) ft" : "Eye level"
+        "Adjust camera height"
     }
 
     var angleLabel: String {
-        if tiltDegrees >= 5 { return "Tilt up \(tiltDegrees)°" }
-        if tiltDegrees <= -5 { return "Tilt down \(-tiltDegrees)°" }
-        return "Level"
+        "Match background lines"
     }
 }
 
@@ -51,36 +50,32 @@ enum ShotGeometryEstimator {
 
     static func estimate(points: [PoseJoint: CGPoint], recipe: ShotRecipe) -> ShotGeometry {
         let base = fallback(for: recipe)
-        guard points.count >= 5,
+        guard points.count >= 7,
+              points[.nose] != nil,
+              points[.leftShoulder] != nil, points[.rightShoulder] != nil,
+              points[.leftHip] != nil, points[.rightHip] != nil,
+              points[.leftAnkle] != nil, points[.rightAnkle] != nil,
               let top = points.values.map(\.y).min(),
               let bottom = points.values.map(\.y).max(),
               bottom - top > 0.12 else { return base }
 
         let visibleFraction = Double(bottom - top)
-        let fullBody = points[.leftAnkle] != nil || points[.rightAnkle] != nil
-        let torso = points[.leftHip] != nil || points[.rightHip] != nil
-        // Pinhole-camera approximation using a typical phone-wide vertical FOV.
-        // A partial-body crop uses an approximate visible body span instead.
-        let visibleMeters = fullBody ? 1.7 : (torso ? 0.9 : 0.5)
+        // A starting distance for a fully visible adult on a typical phone-wide lens.
+        // Cropped bodies and unknown zoom levels cannot support a distance estimate.
+        let visibleMeters = 1.7
         let rawDistance = visibleMeters / (2 * tan(63.0 * .pi / 360) * visibleFraction)
         let distance = min(8, max(0.5, (rawDistance * 2).rounded() / 2))
 
         let aimFraction = (0.5 - Double(top)) / visibleFraction
         let height: Double
-        if fullBody {
-            switch aimFraction {
-            case ..<0.25: height = 1.55
-            case ..<0.46: height = 1.25
-            case ..<0.68: height = 0.95
-            default: height = 0.65
-            }
-        } else {
-            height = base.cameraHeightMeters
+        switch aimFraction {
+        case ..<0.25: height = 1.55
+        case ..<0.46: height = 1.25
+        case ..<0.68: height = 0.95
+        default: height = 0.65
         }
-        let bodyCenter = Double((top + bottom) / 2)
-        let tilt = Int((max(-15, min(15, (0.5 - bodyCenter) * 30)) / 5).rounded()) * 5
         return ShotGeometry(cameraHeightMeters: height, distanceMeters: distance,
-                            tiltDegrees: tilt, inferredFromPose: true)
+                            tiltDegrees: 0, inferredFromPose: true)
     }
 
     static func fallback(for recipe: ShotRecipe) -> ShotGeometry {

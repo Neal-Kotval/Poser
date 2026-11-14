@@ -32,13 +32,16 @@ struct PoseTutorialView: View {
                     .padding(.top, 12)
 
                     Spacer(minLength: 30)
-                    Text("MATCH THIS SHOT")
+                    Text(analysis?.poseSkeleton == nil ? "EXAMPLE SETUP" : "MATCH THIS POSE")
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .tracking(2)
                         .shadow(color: .black.opacity(0.5), radius: 8)
                     PoseDiagramView(skeleton: skeleton, geometry: analysis?.geometry ?? ShotGeometryEstimator.fallback(for: recipe))
                         .frame(height: min(430, screen.size.height * 0.52))
                         .padding(.top, 14)
+                    Text(analysis?.poseSkeleton?.shortCue ?? "Use the reference to adjust your pose")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .multilineTextAlignment(.center)
                     Spacer(minLength: 24)
 
                     Button(action: onContinue) {
@@ -115,9 +118,9 @@ private struct PoseDiagramView: View {
                     .position(x: subjectX, y: floor - 104)
 
                 guideLabel(self.geometry.adjustmentLabel)
-                    .position(x: photographerX + 24, y: floor - (crouched ? 180 : 225))
+                    .position(x: photographerX, y: floor - 230)
                 guideLabel(self.geometry.angleLabel)
-                    .position(x: canvas.size.width * 0.65, y: floor - 230)
+                    .position(x: subjectX, y: floor - 230)
                 guideLabel(self.geometry.distanceLabel)
                     .position(x: canvas.size.width * 0.5, y: canvas.size.height - 25)
                 Text("PHOTOGRAPHER")
@@ -144,7 +147,9 @@ private struct PoseDiagramView: View {
 
     private func guideLabel(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .multilineTextAlignment(.center)
+            .frame(width: 132)
             .shadow(color: .black, radius: 5)
     }
 }
@@ -165,8 +170,8 @@ private extension PoseSkeleton {
         return PoseSkeleton(points: [
             .nose: CGPoint(x: 0.41, y: 0.13), .neck: CGPoint(x: 0.42, y: 0.25),
             .leftShoulder: CGPoint(x: 0.31, y: 0.30), .rightShoulder: CGPoint(x: 0.54, y: 0.30),
-            .leftElbow: CGPoint(x: 0.55, y: 0.34), .leftWrist: CGPoint(x: 0.72, y: 0.40),
-            .rightElbow: CGPoint(x: 0.51, y: 0.44), .rightWrist: CGPoint(x: 0.72, y: 0.42),
+            .leftElbow: CGPoint(x: 0.57, y: 0.36), .leftWrist: CGPoint(x: 0.72, y: 0.40),
+            .rightElbow: CGPoint(x: 0.55, y: 0.46), .rightWrist: CGPoint(x: 0.72, y: 0.45),
             .leftHip: CGPoint(x: 0.37, y: 0.56), .rightHip: CGPoint(x: 0.54, y: 0.56),
             .leftKnee: CGPoint(x: 0.30, y: 0.76), .rightKnee: CGPoint(x: 0.60, y: 0.76),
             .leftAnkle: CGPoint(x: 0.21, y: 0.97), .rightAnkle: CGPoint(x: 0.65, y: 0.97)
@@ -218,57 +223,55 @@ struct BubblePoseFigure: View, Animatable {
     var body: some View {
         Canvas { context, size in
             let neutral = PoseSkeleton.example(for: ShotRecipe.presets[1])
-            func point(_ joint: PoseJoint) -> CGPoint {
-                let start = neutral[joint] ?? CGPoint(x: 0.5, y: 0.5)
-                let end = target[joint] ?? start
+            func point(_ joint: PoseJoint) -> CGPoint? {
+                guard let end = target[joint] else { return nil }
+                let start = neutral[joint] ?? end
                 return CGPoint(x: (start.x + (end.x - start.x) * progress) * size.width,
                                y: (start.y + (end.y - start.y) * progress) * size.height)
             }
             let white = GraphicsContext.Shading.color(.white)
             func limb(_ start: PoseJoint, _ bend: PoseJoint, _ end: PoseJoint, width: CGFloat) {
+                guard let a = point(start), let b = point(bend), let c = point(end) else { return }
                 var path = Path()
-                path.move(to: point(start))
-                path.addQuadCurve(to: point(end), control: point(bend))
+                path.move(to: a)
+                path.addQuadCurve(to: b, control: CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2))
+                path.addQuadCurve(to: c, control: CGPoint(x: (b.x + c.x) / 2, y: (b.y + c.y) / 2))
                 context.stroke(path, with: white,
                                style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
             }
 
-            let thickness = size.width * 0.105
+            let thickness = max(5, size.width * 0.067)
             limb(.leftHip, .leftKnee, .leftAnkle, width: thickness * 1.08)
             limb(.rightHip, .rightKnee, .rightAnkle, width: thickness * 1.08)
+            if let ls = point(.leftShoulder), let rs = point(.rightShoulder),
+               let lh = point(.leftHip), let rh = point(.rightHip) {
+                var torso = Path()
+                let inset = size.width * 0.025
+                torso.move(to: CGPoint(x: ls.x + inset, y: ls.y))
+                torso.addQuadCurve(to: CGPoint(x: rs.x - inset, y: rs.y),
+                                   control: CGPoint(x: (ls.x + rs.x) / 2, y: min(ls.y, rs.y) - size.height * 0.015))
+                torso.addQuadCurve(to: rh, control: CGPoint(x: rs.x - inset, y: (rs.y + rh.y) / 2))
+                torso.addQuadCurve(to: lh, control: CGPoint(x: (lh.x + rh.x) / 2, y: max(lh.y, rh.y)))
+                torso.addQuadCurve(to: CGPoint(x: ls.x + inset, y: ls.y),
+                                   control: CGPoint(x: ls.x + inset, y: (ls.y + lh.y) / 2))
+                torso.closeSubpath()
+                context.fill(torso, with: white)
+            }
             limb(.leftShoulder, .leftElbow, .leftWrist, width: thickness)
             limb(.rightShoulder, .rightElbow, .rightWrist, width: thickness)
 
-            let leftShoulder = point(.leftShoulder)
-            let rightShoulder = point(.rightShoulder)
-            let leftHip = point(.leftHip)
-            let rightHip = point(.rightHip)
-            var torso = Path()
-            torso.move(to: leftShoulder)
-            torso.addCurve(to: rightShoulder,
-                           control1: CGPoint(x: leftShoulder.x + size.width * 0.06, y: leftShoulder.y - size.height * 0.04),
-                           control2: CGPoint(x: rightShoulder.x - size.width * 0.06, y: rightShoulder.y - size.height * 0.04))
-            torso.addCurve(to: rightHip,
-                           control1: CGPoint(x: rightShoulder.x + size.width * 0.06, y: rightShoulder.y + size.height * 0.07),
-                           control2: CGPoint(x: rightHip.x + size.width * 0.04, y: rightHip.y - size.height * 0.05))
-            torso.addCurve(to: leftHip,
-                           control1: CGPoint(x: rightHip.x, y: rightHip.y + size.height * 0.05),
-                           control2: CGPoint(x: leftHip.x, y: leftHip.y + size.height * 0.05))
-            torso.addCurve(to: leftShoulder,
-                           control1: CGPoint(x: leftHip.x - size.width * 0.04, y: leftHip.y - size.height * 0.05),
-                           control2: CGPoint(x: leftShoulder.x - size.width * 0.06, y: leftShoulder.y + size.height * 0.07))
-            torso.closeSubpath()
-            context.fill(torso, with: white)
-
-            let head = point(.nose)
-            let radius = max(7, size.width * 0.125)
-            var neck = Path()
-            neck.move(to: CGPoint(x: head.x, y: head.y + radius * 0.7))
-            neck.addLine(to: point(.neck))
-            context.stroke(neck, with: white,
-                           style: StrokeStyle(lineWidth: size.width * 0.095, lineCap: .round))
-            context.fill(Path(ellipseIn: CGRect(x: head.x - radius, y: head.y - radius,
-                                                width: radius * 2, height: radius * 2)), with: white)
+            if let head = point(.nose) {
+                let radius = max(6, size.width * 0.105)
+                if let neck = point(.neck) {
+                    var neckPath = Path()
+                    neckPath.move(to: CGPoint(x: head.x, y: head.y + radius * 0.7))
+                    neckPath.addLine(to: neck)
+                    context.stroke(neckPath, with: white,
+                                   style: StrokeStyle(lineWidth: thickness * 0.8, lineCap: .round))
+                }
+                context.fill(Path(ellipseIn: CGRect(x: head.x - radius, y: head.y - radius,
+                                                    width: radius * 2, height: radius * 2)), with: white)
+            }
         }
     }
 }

@@ -645,13 +645,13 @@ struct HomeView: View {
                     .foregroundStyle(.white.opacity(0.6))
             }
             VStack(spacing: 0) {
-                instruction(symbol: "iphone", title: "Camera", body: recipe.camera)
+                instruction(symbol: "iphone", title: "Camera", body: analysis?.geometry.distanceLabel ?? recipe.camera)
                 rowDivider
-                instruction(symbol: "figure.stand", title: "Pose", body: recipe.pose)
+                instruction(symbol: "figure.stand", title: "Pose", body: analysis.map { $0.poseSkeleton?.shortCue ?? "Pose not measured; use the photo as your guide." } ?? recipe.pose)
                 rowDivider
-                instruction(symbol: "sun.max", title: "Light", body: recipe.light)
+                instruction(symbol: "sun.max", title: "Light", body: analysis == nil ? recipe.light : "Match the light direction in the reference.")
                 rowDivider
-                instruction(symbol: "square.dashed", title: "Frame", body: recipe.framing)
+                instruction(symbol: "square.dashed", title: "Frame", body: analysis == nil ? recipe.framing : "Place the subject where they appear in the reference.")
             }
             Button {
                 openPoseGuide()

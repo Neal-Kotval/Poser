@@ -101,6 +101,33 @@ final class MatchingTests: XCTestCase {
         XCTAssertEqual(estimate.heightLabel, "Waist height")
     }
 
+    func testCroppedPoseDoesNotInventCameraMeasurements() {
+        let points: [PoseJoint: CGPoint] = [
+            .nose: CGPoint(x: 0.5, y: 0.2),
+            .leftShoulder: CGPoint(x: 0.4, y: 0.3), .rightShoulder: CGPoint(x: 0.6, y: 0.3),
+            .leftHip: CGPoint(x: 0.43, y: 0.8), .rightHip: CGPoint(x: 0.57, y: 0.8)
+        ]
+        let estimate = ShotGeometryEstimator.estimate(points: points, recipe: ShotRecipe.presets[0])
+        XCTAssertFalse(estimate.inferredFromPose)
+        XCTAssertEqual(estimate.distanceLabel, "Move until framing matches")
+        XCTAssertEqual(estimate.angleLabel, "Match background lines")
+    }
+
+    func testPoseNormalizationPreservesBodyProportionsAndMissingJoints() {
+        let raw: [PoseJoint: CGPoint] = [
+            .nose: CGPoint(x: 0.5, y: 0.1), .neck: CGPoint(x: 0.5, y: 0.2),
+            .leftShoulder: CGPoint(x: 0.4, y: 0.25), .rightShoulder: CGPoint(x: 0.6, y: 0.25),
+            .leftHip: CGPoint(x: 0.45, y: 0.6), .rightHip: CGPoint(x: 0.55, y: 0.6),
+            .leftAnkle: CGPoint(x: 0.45, y: 0.9)
+        ]
+        let pose = PoseSkeleton.normalized(raw)
+        XCTAssertNotNil(pose)
+        XCTAssertNil(pose?[.rightAnkle])
+        let shoulderWidth = pose![.rightShoulder]!.x - pose![.leftShoulder]!.x
+        let bodyHeight = pose![.leftAnkle]!.y - pose![.nose]!.y
+        XCTAssertEqual(shoulderWidth / bodyHeight, 0.25, accuracy: 0.001)
+    }
+
     @MainActor
     func testCompletedShotPersistsWithPhotoAndReference() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

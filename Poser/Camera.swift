@@ -272,14 +272,14 @@ struct CameraScreen: View {
                 }
                 if showGrid && !isGuideOverlayVisible { ThirdsGrid().ignoresSafeArea() }
                 if showPose && mode == .guide && !isGuideOverlayVisible,
-                   let guidePose = targetPose ?? recipe.map(PoseSkeleton.example) {
+                   let guidePose = targetPose {
                     GeometryReader { geometry in
                         let guideX = geometry.size.width * min(max(targetX, 0.25), 0.75)
                         BubblePoseFigure(target: guidePose, progress: 1)
                             .opacity(0.3)
                             .frame(width: 170, height: 310)
                             .position(x: guideX, y: geometry.size.height * 0.53)
-                        Text(targetPose == nil ? "POSE EXAMPLE" : "REFERENCE POSE")
+                        Text("REFERENCE POSE")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .tracking(1)
                             .foregroundStyle(.white)
@@ -358,8 +358,21 @@ struct CameraScreen: View {
                         .padding(.top, 8)
                         Spacer(minLength: 0)
                         Button { onPoseGuide?() } label: {
-                            MiniPoseGuide(skeleton: targetPose ?? .example(for: recipe),
-                                          geometry: shotGeometry ?? ShotGeometryEstimator.fallback(for: recipe))
+                            if let targetPose {
+                                MiniPoseGuide(skeleton: targetPose,
+                                              geometry: shotGeometry ?? ShotGeometryEstimator.fallback(for: recipe))
+                            } else {
+                                VStack(spacing: 6) {
+                                    Image(systemName: "figure.stand")
+                                        .font(.system(size: 27, weight: .light))
+                                    Text("SETUP GUIDE")
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .tracking(1)
+                                }
+                                .foregroundStyle(.white)
+                                .frame(width: 128, height: 110)
+                                .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: PoserRadius.control))
+                            }
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Open pose and camera setup")
@@ -367,12 +380,16 @@ struct CameraScreen: View {
                     .padding(.horizontal, 18)
                 }
 
-                if mode == .guide, let recipe, !showPose {
+                if mode == .guide, recipe != nil, !showPose {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "sparkle.viewfinder")
                             .foregroundStyle(Palette.primaryText)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text([recipe.camera, recipe.pose, recipe.framing][tutorialStep])
+                            Text(tutorialStep == 0
+                                 ? (shotGeometry?.distanceLabel ?? "Move until framing matches")
+                                 : tutorialStep == 1
+                                   ? (targetPose?.shortCue ?? "Use the reference to adjust your pose")
+                                   : "Match the subject's position in the reference")
                                 .font(.system(size: 15, weight: .medium, design: .rounded))
                             Text("Tap for next tip")
                                 .font(.caption)

@@ -86,17 +86,37 @@ struct PoseSkeleton {
         }
         guard raw.count >= 6,
               raw[.leftShoulder] != nil, raw[.rightShoulder] != nil else { return nil }
+        return normalized(raw)
+    }
+
+    static func normalized(_ raw: [PoseJoint: CGPoint]) -> PoseSkeleton? {
+        guard raw.count >= 6, raw[.leftShoulder] != nil, raw[.rightShoulder] != nil else { return nil }
         let xs = raw.values.map(\.x)
         let ys = raw.values.map(\.y)
         guard let minX = xs.min(), let maxX = xs.max(),
               let minY = ys.min(), let maxY = ys.max() else { return nil }
-        let width = max(maxX - minX, 0.1)
         let height = max(maxY - minY, 0.1)
+        let scale = min(0.82 / height, 0.64 / max(maxX - minX, 0.1))
+        let centerX = (minX + maxX) / 2
         let normalized = raw.mapValues { point in
-            CGPoint(x: 0.18 + 0.64 * (point.x - minX) / width,
-                    y: 0.10 + 0.82 * (point.y - minY) / height)
+            CGPoint(x: 0.5 + (point.x - centerX) * scale,
+                    y: 0.10 + (point.y - minY) * scale)
         }
         return PoseSkeleton(points: normalized)
+    }
+
+    var shortCue: String {
+        for side in ["left", "right"] {
+            let shoulder = side == "left" ? points[.leftShoulder] : points[.rightShoulder]
+            let wrist = side == "left" ? points[.leftWrist] : points[.rightWrist]
+            if let shoulder, let wrist, wrist.y < shoulder.y - 0.07 {
+                return "Raise your \(side) arm"
+            }
+        }
+        if let left = points[.leftAnkle], let right = points[.rightAnkle],
+           abs(left.x - right.x) > 0.25 { return "Stand with feet apart" }
+        if points[.leftWrist] != nil || points[.rightWrist] != nil { return "Match the arm positions" }
+        return "Match the visible pose"
     }
 }
 
