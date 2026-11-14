@@ -1,9 +1,7 @@
 import Foundation
 import UIKit
 import Vision
-import LinkPresentation
 import ImageIO
-import UniformTypeIdentifiers
 
 struct ShotRecipe: Identifiable, Hashable {
     let id: String
@@ -235,44 +233,9 @@ private extension CGImagePropertyOrientation {
 
 enum AnalysisError: LocalizedError {
     case invalidImage
-    case missingPreview
     var errorDescription: String? {
         switch self {
         case .invalidImage: "This image could not be opened. Try another photo."
-        case .missingPreview: "This link does not expose a public image preview. Save the photo and import it instead."
-        }
-    }
-}
-
-@MainActor
-enum LinkImageLoader {
-    static func image(from text: String) async throws -> UIImage {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            throw AnalysisError.missingPreview
-        }
-        if ["jpg", "jpeg", "png", "webp", "heic"].contains(url.pathExtension.lowercased()) {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw AnalysisError.missingPreview }
-            guard let image = UIImage(data: data) else { throw AnalysisError.invalidImage }
-            return image
-        }
-        let metadata: LPLinkMetadata
-        do { metadata = try await LPMetadataProvider().startFetchingMetadata(for: url) }
-        catch { throw AnalysisError.missingPreview }
-        guard let provider = metadata.imageProvider else { throw AnalysisError.missingPreview }
-        return try await withCheckedThrowingContinuation { continuation in
-            if provider.canLoadObject(ofClass: UIImage.self) {
-                provider.loadObject(ofClass: UIImage.self) { object, _ in
-                    if let image = object as? UIImage { continuation.resume(returning: image) }
-                    else { continuation.resume(throwing: AnalysisError.missingPreview) }
-                }
-            } else {
-                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-                    if let data, let image = UIImage(data: data) { continuation.resume(returning: image) }
-                    else { continuation.resume(throwing: AnalysisError.missingPreview) }
-                }
-            }
         }
     }
 }

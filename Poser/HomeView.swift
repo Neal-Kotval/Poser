@@ -20,11 +20,11 @@ struct HomeView: View {
     @StateObject private var shootStore = ShootStore()
     @StateObject private var profileStore = UserProfileStore()
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var deletingReference: InspirationItem?
     @State private var referenceImage: UIImage?
     @State private var analysis: PhotoAnalysis?
     @State private var selectedRecipe: ShotRecipe?
     @State private var capturedImage: UIImage?
-    @State private var showingLink = false
     @State private var showingScan = false
     @State private var showingPoseTutorial = false
     @State private var isAnalyzing = false
@@ -116,13 +116,6 @@ struct HomeView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingLink) {
-            LinkEntryView { image in
-                showingLink = false
-                Task { await importInspiration(image, source: .link) }
-            }
-            .presentationDetents([.medium])
-        }
         .fullScreenCover(isPresented: $showingScan) {
             CameraScreen(mode: .scan, recipe: nil, targetX: 0.5) { image in
                 Task { await scanScene(image) }
@@ -143,6 +136,25 @@ struct HomeView: View {
         )) {
             Button("OK", role: .cancel) { savedMessage = nil }
         } message: { Text(savedMessage ?? "") }
+        .confirmationDialog("Delete this reference photo?", isPresented: Binding(
+            get: { deletingReference != nil },
+            set: { if !$0 { deletingReference = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete reference", role: .destructive) {
+                guard let item = deletingReference else { return }
+                deletingReference = nil
+                do {
+                    try inspirationStore.remove(item)
+                    if shootQueue.contains(item.id) { reset() }
+                    selectedMatches.remove(item.id)
+                    sceneMatches.removeAll { $0.id == item.id }
+                } catch {
+                    errorMessage = "Could not delete this reference photo. \(error.localizedDescription)"
+                }
+            }
+        } message: {
+            Text("This removes the saved photo from Poser.")
+        }
     }
 
     private var pagePager: some View {
@@ -329,6 +341,7 @@ struct HomeView: View {
                 .opacity(selectedMatches.isEmpty ? 0.4 : 1)
                 .padding(.horizontal, PoserSpace.large)
                 .padding(.top, 10)
+                .padding(.bottom, 8)
             }
             HStack(spacing: 4) {
                 navigationItem(.home, title: "Home", symbol: "house", selectedSymbol: "house.fill")
@@ -397,9 +410,6 @@ struct HomeView: View {
                 }
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     feedAction(symbol: "plus", title: "Add photo")
-                }
-                Button { showingLink = true } label: {
-                    feedAction(symbol: "link", title: "Paste link")
                 }
             }
             .buttonStyle(.plain)
@@ -595,21 +605,9 @@ struct HomeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(asset.title) inspiration")
 
-            HStack(alignment: .center) {
-                Text(asset.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                Spacer()
-                if let source = asset.source {
-                    Link(destination: source) {
-                        Image(systemName: "link")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Palette.secondaryText)
-                            .frame(width: 38, height: 38)
-                    }
-                    .accessibilityLabel("Open original Pin")
-                }
-            }
+            Text(asset.title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
             .padding(.horizontal, 4)
         }
         .padding(12)
@@ -638,28 +636,40 @@ struct HomeView: View {
                     HStack(spacing: 11) {
                         ForEach(inspirationStore.items) { item in
                             if let image = inspirationStore.image(for: item) {
-                                Button {
-                                    Task {
-                                        let original = inspirationStore.originalData(for: item)
-                                        await analyze(original.flatMap(UIImage.init(data:)) ?? image,
-                                                      scene: false, imageData: original)
+                                ZStack(alignment: .topTrailing) {
+                                    Button {
+                                        Task {
+                                            let original = inspirationStore.originalData(for: item)
+                                            await analyze(original.flatMap(UIImage.init(data:)) ?? image,
+                                                          scene: false, imageData: original)
+                                        }
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 7) {
+                                            Image(uiImage: image)
+                                                .resizable()
+                                                .scaledToFill()
+                                                .frame(width: 132, height: 132)
+                                                .clipped()
+                                                .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                                            Text(item.title)
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundStyle(.white)
+                                                .lineLimit(1)
+                                        }
+                                        .frame(width: 132, alignment: .leading)
                                     }
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 132, height: 132)
-                                            .clipped()
-                                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                                        Text(item.title)
-                                            .font(.system(size: 12, weight: .medium))
+                                    .buttonStyle(.plain)
+                                    Button { deletingReference = item } label: {
+                                        Image(systemName: "trash")
+                                            .font(.system(size: 13, weight: .semibold))
                                             .foregroundStyle(.white)
-                                            .lineLimit(1)
+                                            .frame(width: 36, height: 36)
+                                            .background(.black.opacity(0.78), in: Circle())
                                     }
-                                    .frame(width: 132, alignment: .leading)
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("Delete \(item.title)")
+                                    .padding(6)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -778,9 +788,21 @@ struct HomeView: View {
                     .aspectRatio(1, contentMode: .fit)
             }
             VStack(spacing: 0) {
-                instruction(symbol: "iphone", title: "Camera", body: analysis?.geometry.distanceLabel ?? recipe.camera)
+                instruction(symbol: "arrow.left.and.right", title: "Distance", body: analysis?.geometry.distanceLabel ?? recipe.camera)
+                rowDivider
+                instruction(symbol: "iphone", title: "Phone height", body: analysis?.geometry.adjustmentLabel ?? "Analyzing reference")
+                rowDivider
+                instruction(symbol: "angle", title: "Camera tilt", body: analysis.map {
+                    $0.shotSpec.pitchDegrees == nil ? "Not estimated from this reference" : $0.geometry.angleLabel
+                } ?? "Analyzing reference")
                 rowDivider
                 instruction(symbol: "figure.stand", title: "Pose", body: analysis.map { $0.poseSkeleton?.shortCue ?? "Pose not measured; use the photo as your guide." } ?? recipe.pose)
+            }
+            if let analysis, analysis.shotSpec.source != .pose3D {
+                Text("Height and tilt could not be estimated from this photo. A clear full-body reference may help.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Button {
                 openPoseGuide()
@@ -1154,8 +1176,15 @@ struct HomeView: View {
     private func compare(_ image: UIImage) async {
         guard let result = try? await AnalysisService.analyze(image) else { return }
         guard capturedImage === image else { return }
-        if let reference = analysis,
-           let match = PoseMatcher.compare(reference: reference.poseSkeleton, live: result.poseSkeleton,
+        guard let reference = analysis, reference.poseSkeleton != nil else {
+            comparisonNote = "No measurable person pose was found in the reference photo. Choose a clearer reference to get a pose score."
+            return
+        }
+        guard result.poseSkeleton != nil else {
+            comparisonNote = "No measurable person pose was found in your photo. Keep your arms and legs in view, then try again."
+            return
+        }
+        if let match = PoseMatcher.compare(reference: reference.poseSkeleton, live: result.poseSkeleton,
                                            referenceOutline: reference.shotSpec.silhouette,
                                            liveOutline: result.shotSpec.silhouette) {
             poseScore = match.score
@@ -1177,16 +1206,7 @@ struct HomeView: View {
                 : match.cue
             return
         }
-        guard let referencePoint = analysis?.subjectPoint,
-              let capturedPoint = result.subjectPoint else { return }
-        let offset = capturedPoint.x - referencePoint.x
-        if abs(offset) < 0.08 {
-            comparisonNote = "Your subject is close to the reference position. Check the light and background next."
-        } else if offset < 0 {
-            comparisonNote = "Your subject sits farther left than in the reference. Shift the frame a little right."
-        } else {
-            comparisonNote = "Your subject sits farther right than in the reference. Shift the frame a little left."
-        }
+        comparisonNote = "Not enough matching arm and leg joints were visible to score this pose. Try a clearer full-body shot."
     }
 
     private func reset() {
@@ -1211,60 +1231,5 @@ struct HomeView: View {
         showingPoseTutorial = false
         isAnalyzing = false
         showShotDetails = false
-    }
-}
-
-struct LinkEntryView: View {
-    let onImage: (UIImage) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var link = ""
-    @State private var loading = false
-    @State private var errorMessage: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text("Paste a link")
-                    .font(.system(size: 25, weight: .bold, design: .rounded))
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }
-            }
-            Text("Use a public Pinterest or Instagram post, or a direct image URL.")
-                .font(.system(size: 14))
-                .foregroundStyle(.white.opacity(0.56))
-            TextField("https://…", text: $link)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .autocorrectionDisabled()
-                .padding(15)
-                .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: PoserRadius.control))
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            Button {
-                loading = true
-                errorMessage = nil
-                Task {
-                    do { onImage(try await LinkImageLoader.image(from: link)) }
-                    catch { errorMessage = error.localizedDescription }
-                    loading = false
-                }
-            } label: {
-                Text(loading ? "Loading preview…" : "Use this photo")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
-                    .background(.white, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-            }
-            .buttonStyle(.plain)
-            .disabled(loading || link.isEmpty)
-            Spacer()
-        }
-        .padding(24)
-        .background(Palette.background.ignoresSafeArea())
-        .foregroundStyle(.white)
     }
 }

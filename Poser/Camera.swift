@@ -34,7 +34,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     @Published var message: String?
     @Published var subjectHint = "Place the subject inside the guide"
     @Published var poseScore: Int?
-    @Published var scoreUsesOutline = false
+    @Published var outlineOverlap: Int?
     @Published var poseHint = "Looking for the reference pose"
     @Published var coachInstruction: CoachInstruction?
     @Published var liveFrameAspect: CGFloat = 3.0 / 4.0
@@ -59,7 +59,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             pendingReading = nil
             coachInstruction = nil
             poseScore = nil
-            scoreUsesOutline = false
+            outlineOverlap = nil
             coachEnabled = coach != nil
         }
     }
@@ -141,7 +141,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                     self.pendingReading = nil
                     if !coach.hasFreshReading {
                         self.poseScore = nil
-                        self.scoreUsesOutline = false
+                        self.outlineOverlap = nil
                         self.poseHint = "Looking for the reference pose"
                     }
                 }
@@ -205,23 +205,19 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         if coachEnabled {
             guard let reading = analyzer.analyze(sampleBuffer) else { return }
             let outline = referenceOutlineSnapshot
-            let poseMatch = PoseMatcher.compare(reference: targetPose, live: reading.pose,
-                                                referenceOutline: outline.points, liveOutline: reading.silhouette)
-            let mappedOutline = outline.points.map {
-                FrameMapping.map($0, fromAspect: outline.aspect,
-                                 intoAspect: reading.frameAspect ?? 3.0 / 4.0,
-                                 focalRatio: outline.focalRatio)
-            }
-            let frameOverlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
-                                                               live: reading.silhouette)
+            let scores = Self.scoreLivePose(referencePose: targetPose, livePose: reading.pose,
+                                            referenceOutline: outline.points, liveOutline: reading.silhouette,
+                                            referenceAspect: outline.aspect,
+                                            liveAspect: reading.frameAspect ?? 3.0 / 4.0,
+                                            focalRatio: outline.focalRatio)
             DispatchQueue.main.async {
                 self.pendingReading = reading
                 if let aspect = reading.frameAspect { self.liveFrameAspect = aspect }
-                self.poseScore = frameOverlap ?? poseMatch?.score
-                self.scoreUsesOutline = frameOverlap != nil
-                self.poseHint = frameOverlap.map { $0 < 65 && (poseMatch?.score ?? 0) >= 85
-                    ? "Align your outline with the guide" : poseMatch?.cue ?? "Match the outline" }
-                    ?? poseMatch?.cue
+                self.poseScore = scores.pose?.score
+                self.outlineOverlap = scores.frameOverlap
+                self.poseHint = scores.frameOverlap.map { $0 < 65 && (scores.pose?.score ?? 0) >= 85
+                    ? "Align your outline with the guide" : scores.pose?.cue ?? "Match the outline" }
+                    ?? scores.pose?.cue
                     ?? (reading.pose == nil ? "Looking for the reference pose" : "Move into view to match the pose")
             }
             return
@@ -266,6 +262,20 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         let hint = abs(delta) < 0.1 ? "Subject is in position" :
             (delta < 0 ? "Move subject a little right" : "Move subject a little left")
         DispatchQueue.main.async { self.subjectHint = hint }
+    }
+
+    static func scoreLivePose(referencePose: PoseSkeleton?, livePose: PoseSkeleton?,
+                              referenceOutline: [CGPoint], liveOutline: [CGPoint],
+                              referenceAspect: CGFloat, liveAspect: CGFloat,
+                              focalRatio: CGFloat) -> (pose: PoseMatch?, frameOverlap: Int?) {
+        let pose = PoseMatcher.compare(reference: referencePose, live: livePose,
+                                       referenceOutline: referenceOutline, liveOutline: liveOutline)
+        let mappedOutline = referenceOutline.map {
+            FrameMapping.map($0, fromAspect: referenceAspect, intoAspect: liveAspect,
+                             focalRatio: focalRatio)
+        }
+        let frameOverlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline, live: liveOutline)
+        return (pose, frameOverlap)
     }
 }
 
@@ -367,7 +377,7 @@ struct CameraScreen: View {
                    let shotSpec, shotSpec.silhouette.count > 2 {
                     GeometryReader { geometry in
                         let aligned = camera.coachInstruction?.kind == .hold &&
-                            camera.scoreUsesOutline && (camera.poseScore ?? 0) >= 65
+                            (camera.outlineOverlap ?? 0) >= 65
                         Path { path in
                             path.addLines(FrameMapping.cutout(for: shotSpec,
                                                               frameAspect: camera.liveFrameAspect,
@@ -421,7 +431,7 @@ struct CameraScreen: View {
                 HStack {
                     if embedded {
                         Text("poser")
-                            .font(.system(size: 25, weight: .bold))
+                            .font(PoserType.wordmark)
                             .tracking(-1.5)
                     } else {
                         Button { dismiss() } label: {
@@ -490,7 +500,7 @@ struct CameraScreen: View {
                     .padding(.horizontal, 18)
                 }
                 Spacer()
-                if mode == .guide, recipe != nil, camera.isReady, !camera.isDemo {
+                if mode == .guide, recipe != nil, camera.isReady {
                     HStack(spacing: 10) {
                         if let instruction = camera.coachInstruction {
                             Image(systemName: instruction.symbol)
@@ -507,18 +517,17 @@ struct CameraScreen: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 0)
-                        if let score = camera.poseScore,
-                           targetPose != nil || (shotSpec?.silhouette.count ?? 0) >= 3 {
+                        if targetPose != nil || (shotSpec?.silhouette.count ?? 0) >= 3 {
                             VStack(spacing: 1) {
-                                Text(camera.scoreUsesOutline ? "OUTLINE" : "POSE")
+                                Text("POSE")
                                     .font(.system(size: 8, weight: .bold))
                                     .tracking(0.5)
-                                Text("\(score)%")
+                                Text(camera.poseScore.map { "\($0)%" } ?? "—")
                                     .font(.system(size: 15, weight: .bold))
                                     .monospacedDigit()
                             }
-                            .accessibilityLabel(camera.scoreUsesOutline
-                                ? "Outline overlap \(score) percent" : "Pose match \(score) percent")
+                            .accessibilityLabel(camera.poseScore.map { "Pose match \($0) percent" }
+                                ?? "Looking for pose match")
                         }
                         Button { showPose.toggle() } label: {
                             Image(systemName: showPose ? "eye.slash" : "eye")
