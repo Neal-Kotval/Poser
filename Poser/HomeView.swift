@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 
 struct HomeView: View {
-    private enum Tab: Hashable { case camera, home, profile }
+    private enum Tab: Hashable { case home, camera, profile }
 
     @State private var activeTab: Tab = .camera
     @StateObject private var inspirationStore = InspirationStore()
@@ -37,10 +37,10 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             TabView(selection: $activeTab) {
-                cameraPage
-                    .tag(Tab.camera)
                 homePage
                     .tag(Tab.home)
+                cameraPage
+                    .tag(Tab.camera)
                 profilePage
                     .tag(Tab.profile)
             }
