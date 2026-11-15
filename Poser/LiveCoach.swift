@@ -4,6 +4,76 @@ import Foundation
 import Vision
 import simd
 
+/// User placement in normalized live-frame coordinates, after reference fitting.
+struct PoseGuidePlacement: Equatable {
+    var scale: CGFloat = 1
+    var offset: CGSize = .zero
+    static let identity = PoseGuidePlacement()
+
+    func applying(to points: [CGPoint]) -> [CGPoint] {
+        guard let bounds = FrameMapping.boundingBox(of: points) else { return points }
+        return points.map {
+            CGPoint(x: bounds.midX + ($0.x - bounds.midX) * scale + offset.width,
+                    y: bounds.midY + ($0.y - bounds.midY) * scale + offset.height)
+        }
+    }
+
+    func applying(to bounds: CGRect) -> CGRect {
+        CGRect(x: bounds.midX + offset.width - bounds.width * scale / 2,
+               y: bounds.midY + offset.height - bounds.height * scale / 2,
+               width: bounds.width * scale, height: bounds.height * scale)
+    }
+
+    func constrained(baseBounds: CGRect, visibleBounds: CGRect) -> PoseGuidePlacement {
+        let safeScale = scale.isFinite ? min(2.5, max(0.5, scale)) : 1
+        let x = offset.width.isFinite ? baseBounds.midX + offset.width : baseBounds.midX
+        let y = offset.height.isFinite ? baseBounds.midY + offset.height : baseBounds.midY
+        return PoseGuidePlacement(scale: safeScale, offset: CGSize(
+            width: min(visibleBounds.maxX, max(visibleBounds.minX, x)) - baseBounds.midX,
+            height: min(visibleBounds.maxY, max(visibleBounds.minY, y)) - baseBounds.midY))
+    }
+}
+
+/// Magnetic alignment uses preview-sized thresholds, independent of camera cropping.
+enum PoseGuideSnapping {
+    struct Lines: Equatable {
+        var vertical: CGFloat?
+        var horizontal: CGFloat?
+    }
+    struct Result {
+        var placement: PoseGuidePlacement
+        var lines: Lines
+    }
+
+    static func snap(_ placement: PoseGuidePlacement, base: CGRect, viewport: CGRect,
+                     threshold: CGSize, retaining previous: Lines = Lines()) -> Result {
+        let box = placement.applying(to: base)
+        func alignment(minimum: CGFloat, middle: CGFloat, maximum: CGFloat,
+                       low: CGFloat, center: CGFloat, high: CGFloat,
+                       threshold: CGFloat, previous: CGFloat?) -> (delta: CGFloat, line: CGFloat)? {
+            var candidates = [(delta: center - middle, line: center)]
+            if maximum - minimum <= high - low {
+                candidates += [(low - minimum, low), (high - maximum, high)]
+            }
+            // A wider release zone prevents flickering when a finger pauses at a guide.
+            if let previous, let retained = candidates.first(where: { $0.line == previous }),
+               abs(retained.delta) <= threshold * 1.7 { return retained }
+            return candidates.filter { abs($0.delta) <= threshold }
+                .min { abs($0.delta) < abs($1.delta) }
+        }
+        let x = alignment(minimum: box.minX, middle: box.midX, maximum: box.maxX,
+                          low: viewport.minX, center: viewport.midX, high: viewport.maxX,
+                          threshold: threshold.width, previous: previous.vertical)
+        let y = alignment(minimum: box.minY, middle: box.midY, maximum: box.maxY,
+                          low: viewport.minY, center: viewport.midY, high: viewport.maxY,
+                          threshold: threshold.height, previous: previous.horizontal)
+        var result = placement
+        result.offset.width += x?.delta ?? 0
+        result.offset.height += y?.delta ?? 0
+        return Result(placement: result, lines: Lines(vertical: x?.line, horizontal: y?.line))
+    }
+}
+
 /// What the live camera currently sees, in the same terms as `ShotSpec`.
 struct LiveReading {
     /// Width divided by height after applying the video orientation.
@@ -283,6 +353,7 @@ final class LiveCoach {
 
     private let referencePose: PoseSkeleton?
     private let referenceFocalRatio: CGFloat
+    private let guidePlacement: PoseGuidePlacement
     private let smoothing = 0.35
     private var smoothed = LiveReading()
     private var roll: Double?
@@ -292,8 +363,10 @@ final class LiveCoach {
     private(set) var hasFreshReading = false
 
     init(spec: ShotSpec, referencePose: PoseSkeleton? = nil, liveAspect: CGFloat = 3.0 / 4.0,
-         tolerances: CoachTolerances = CoachTolerances(), switchAfter: Int = 3) {
+         tolerances: CoachTolerances = CoachTolerances(), switchAfter: Int = 3,
+         guidePlacement: PoseGuidePlacement = .identity) {
         self.spec = spec
+        self.guidePlacement = guidePlacement
         self.referencePose = referencePose
         self.tolerances = tolerances
         self.switchAfter = switchAfter
@@ -307,7 +380,7 @@ final class LiveCoach {
         referenceFocalRatio = focalRatio
         targetBox = FrameMapping.mapTarget(silhouette: spec.silhouette, fallback: spec.subjectBox,
                                            fromAspect: spec.imageAspect, intoAspect: liveAspect,
-                                           focalRatio: focalRatio)
+                                           focalRatio: focalRatio).map { guidePlacement.applying(to: $0) }
     }
 
     /// Call on every motion update. Pass `reading` only when a new Vision result is available.
@@ -353,8 +426,8 @@ final class LiveCoach {
         if spec.silhouette.count >= 3 && smoothed.silhouette.count < 3 { return .checkSetup }
         if spec.silhouette.count >= 3 {
             let aspect = smoothed.frameAspect ?? 3.0 / 4.0
-            let mapped = FrameMapping.mapOutline(spec.silhouette, fromAspect: spec.imageAspect,
-                                                 intoAspect: aspect, focalRatio: referenceFocalRatio)
+            let mapped = guidePlacement.applying(to: FrameMapping.mapOutline(spec.silhouette, fromAspect: spec.imageAspect,
+                                                 intoAspect: aspect, focalRatio: referenceFocalRatio))
             if let overlap = SilhouetteMatcher.frameOverlap(reference: mapped, live: smoothed.silhouette),
                overlap < 65 {
                 return .adjustPose("Adjust your position to match the reference")
@@ -373,7 +446,8 @@ final class LiveCoach {
             let delta = targetPitch - livePitch
             if abs(delta) > limits.pitchDegrees { return .tilt(degrees: delta) }
         }
-        if let target = spec.distanceMeters, let live = smoothed.distanceMeters, target > 0 {
+        if let measured = spec.distanceMeters, let live = smoothed.distanceMeters, measured > 0 {
+            let target = measured / Double(guidePlacement.scale)
             let error = (live - target) / target
             if error > limits.distanceFraction { return .stepCloser(meters: live - target) }
             if error < -limits.distanceFraction { return .stepBack(meters: target - live) }
@@ -412,7 +486,7 @@ final class LiveCoach {
         if let aspect = reading.frameAspect, aspect.isFinite, aspect > 0 {
             targetBox = FrameMapping.mapTarget(silhouette: spec.silhouette, fallback: spec.subjectBox,
                                                fromAspect: spec.imageAspect, intoAspect: aspect,
-                                               focalRatio: referenceFocalRatio)
+                                               focalRatio: referenceFocalRatio).map { guidePlacement.applying(to: $0) }
         }
         guard let box = reading.subjectBox else {
             smoothed = LiveReading()
@@ -537,6 +611,17 @@ enum FrameMapping {
         let shown = CGSize(width: frameAspect * scale, height: scale)
         return CGPoint(x: (viewSize.width - shown.width) / 2 + point.x * shown.width,
                        y: (viewSize.height - shown.height) / 2 + point.y * shown.height)
+    }
+
+    static func framePoint(_ point: CGPoint, frameAspect: CGFloat, viewSize: CGSize) -> CGPoint {
+        let scale = max(viewSize.width / frameAspect, viewSize.height)
+        return CGPoint(x: (point.x - (viewSize.width - frameAspect * scale) / 2) / (frameAspect * scale),
+                       y: (point.y - (viewSize.height - scale) / 2) / scale)
+    }
+
+    static func frameTranslation(_ translation: CGSize, frameAspect: CGFloat, viewSize: CGSize) -> CGSize {
+        let scale = max(viewSize.width / frameAspect, viewSize.height)
+        return CGSize(width: translation.width / (frameAspect * scale), height: translation.height / scale)
     }
 
     /// The reference silhouette in preview coordinates, for drawing the pose cutout.

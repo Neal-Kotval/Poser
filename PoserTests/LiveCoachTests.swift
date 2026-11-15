@@ -2,6 +2,116 @@ import XCTest
 @testable import Poser
 
 final class LiveCoachTests: XCTestCase {
+    func testGuideSnapsToCenterAndKeepsItsScale() {
+        let base = CGRect(x: 0.2, y: 0.2, width: 0.2, height: 0.4)
+        let result = PoseGuideSnapping.snap(.init(scale: 1.2, offset: CGSize(width: 0.19, height: 0.09)),
+                                           base: base, viewport: CGRect(x: 0, y: 0, width: 1, height: 1),
+                                           threshold: CGSize(width: 0.02, height: 0.02))
+        let box = result.placement.applying(to: base)
+        XCTAssertEqual(box.midX, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(box.midY, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(result.placement.scale, 1.2)
+        XCTAssertEqual(result.lines, .init(vertical: 0.5, horizontal: 0.5))
+    }
+
+    func testGuideSnapsOutlineEdgesToPreviewMargins() {
+        let base = CGRect(x: 0.1, y: 0.3, width: 0.2, height: 0.3)
+        let viewport = CGRect(x: 0.05, y: 0.05, width: 0.9, height: 0.9)
+        for (offset, edge) in [(CGFloat(-0.04), CGFloat(0.05)), (CGFloat(0.64), CGFloat(0.95))] {
+            let result = PoseGuideSnapping.snap(.init(offset: CGSize(width: offset, height: 0.34)),
+                                               base: base, viewport: viewport,
+                                               threshold: CGSize(width: 0.02, height: 0.02))
+            let box = result.placement.applying(to: base)
+            XCTAssertEqual(offset < 0 ? box.minX : box.maxX, edge, accuracy: 0.0001)
+            XCTAssertEqual(box.maxY, viewport.maxY, accuracy: 0.0001)
+            XCTAssertEqual(result.lines.vertical ?? .nan, edge, accuracy: 0.0001)
+            XCTAssertEqual(result.lines.horizontal, viewport.maxY)
+        }
+    }
+
+    func testGuideSnapHasReleaseZoneAndAllowsFreeMovement() {
+        let base = CGRect(x: 0.4, y: 0.3, width: 0.2, height: 0.4)
+        let viewport = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let threshold = CGSize(width: 0.02, height: 0.02)
+        let near = PoseGuidePlacement(offset: CGSize(width: 0.03, height: 0.1))
+        let free = PoseGuideSnapping.snap(near, base: base, viewport: viewport, threshold: threshold)
+        XCTAssertEqual(free.placement, near)
+        XCTAssertNil(free.lines.vertical)
+        let retained = PoseGuideSnapping.snap(near, base: base, viewport: viewport, threshold: threshold,
+                                              retaining: .init(vertical: 0.5))
+        XCTAssertEqual(retained.placement.applying(to: base).midX, 0.5, accuracy: 0.0001)
+        let far = PoseGuidePlacement(offset: CGSize(width: 0.05, height: 0.1))
+        let released = PoseGuideSnapping.snap(far, base: base, viewport: viewport, threshold: threshold,
+                                              retaining: .init(vertical: 0.5))
+        XCTAssertEqual(released.placement, far)
+        XCTAssertNil(released.lines.vertical)
+    }
+
+    func testGuidePlacementMovesAndScalesOutlineWithoutChangingItsShape() throws {
+        let points = [CGPoint(x: 0.3, y: 0.2), CGPoint(x: 0.6, y: 0.2),
+                      CGPoint(x: 0.6, y: 0.8), CGPoint(x: 0.3, y: 0.8)]
+        let placement = PoseGuidePlacement(scale: 1.5, offset: CGSize(width: 0.1, height: -0.05))
+        let bounds = try XCTUnwrap(FrameMapping.boundingBox(of: placement.applying(to: points)))
+        XCTAssertEqual(bounds.midX, 0.55, accuracy: 0.0001)
+        XCTAssertEqual(bounds.midY, 0.45, accuracy: 0.0001)
+        XCTAssertEqual(bounds.width, 0.45, accuracy: 0.0001)
+        XCTAssertEqual(bounds.height, 0.9, accuracy: 0.0001)
+        let constrained = PoseGuidePlacement(scale: 99, offset: CGSize(width: 20, height: -20))
+            .constrained(baseBounds: CGRect(x: 0.3, y: 0.2, width: 0.3, height: 0.6),
+                         visibleBounds: CGRect(x: 0.2, y: 0, width: 0.6, height: 1))
+        XCTAssertEqual(constrained.scale, 2.5)
+        XCTAssertEqual(constrained.offset.width + 0.45, 0.8, accuracy: 0.0001)
+        XCTAssertEqual(constrained.offset.height + 0.5, 0, accuracy: 0.0001)
+    }
+
+    func testGuideDragMappingAccountsForAspectFillCropping() {
+        let size = CGSize(width: 393, height: 800)
+        let point = CGPoint(x: 0.35, y: 0.6)
+        let rendered = FrameMapping.viewPoint(point, frameAspect: 0.75, viewSize: size)
+        let restored = FrameMapping.framePoint(rendered, frameAspect: 0.75, viewSize: size)
+        XCTAssertEqual(restored.x, point.x, accuracy: 0.0001)
+        XCTAssertEqual(restored.y, point.y, accuracy: 0.0001)
+        let delta = FrameMapping.frameTranslation(CGSize(width: 60, height: -80), frameAspect: 0.75, viewSize: size)
+        let moved = FrameMapping.viewPoint(CGPoint(x: point.x + delta.width, y: point.y + delta.height),
+                                           frameAspect: 0.75, viewSize: size)
+        XCTAssertEqual(moved.x - rendered.x, 60, accuracy: 0.0001)
+        XCTAssertEqual(moved.y - rendered.y, -80, accuracy: 0.0001)
+    }
+
+    func testLiveOverlapAndCoachFramingFollowAdjustedGuide() throws {
+        let outline = [CGPoint(x: 0.3, y: 0.2), CGPoint(x: 0.6, y: 0.2),
+                       CGPoint(x: 0.6, y: 0.8), CGPoint(x: 0.3, y: 0.8)]
+        let placement = PoseGuidePlacement(scale: 0.8, offset: CGSize(width: 0.15, height: 0.04))
+        let mapped = FrameMapping.mapOutline(outline, fromAspect: 0.75, intoAspect: 0.75)
+        let live = placement.applying(to: mapped)
+        let scores = CameraModel.scoreLivePose(referencePose: nil, livePose: nil,
+                                               referenceOutline: outline, liveOutline: live,
+                                               referenceAspect: 0.75, liveAspect: 0.75, focalRatio: 1,
+                                               placement: placement)
+        XCTAssertEqual(scores.frameOverlap, 100)
+        let original = CameraModel.scoreLivePose(referencePose: nil, livePose: nil,
+                                                referenceOutline: outline, liveOutline: live,
+                                                referenceAspect: 0.75, liveAspect: 0.75, focalRatio: 1)
+        XCTAssertLessThan(original.frameOverlap ?? 100, 100)
+        let spec = ShotSpec(source: .fallback, subjectBox: CGRect(x: 0.3, y: 0.2, width: 0.3, height: 0.6),
+                            silhouette: outline, imageAspect: 0.75)
+        let pose = PoseSkeleton(points: [
+            .nose: CGPoint(x: 0.5, y: 0.1),
+            .leftShoulder: CGPoint(x: 0.3, y: 0.25), .rightShoulder: CGPoint(x: 0.7, y: 0.25),
+            .leftElbow: CGPoint(x: 0.2, y: 0.4), .rightElbow: CGPoint(x: 0.8, y: 0.4),
+            .leftKnee: CGPoint(x: 0.4, y: 0.75), .rightKnee: CGPoint(x: 0.6, y: 0.75)
+        ])
+        let coach = LiveCoach(spec: spec, referencePose: pose, switchAfter: 1, guidePlacement: placement)
+        let bounds = try XCTUnwrap(FrameMapping.boundingBox(of: live))
+        XCTAssertEqual(coach.targetBox?.midX ?? 0, bounds.midX, accuracy: 0.0001)
+        var reading = LiveReading()
+        reading.subjectBox = bounds
+        reading.pose = pose
+        reading.silhouette = live
+        reading.frameAspect = 0.75
+        XCTAssertEqual(coach.update(reading: reading, pitchDegrees: 0, rollDegrees: 0).kind, .hold)
+    }
+
     private let box = CGRect(x: 0.35, y: 0.1, width: 0.3, height: 0.8)
     private lazy var spec = ShotSpec(source: .pose3D, cameraHeightRatio: 0.3, distanceMeters: 2.0, pitchDegrees: 10,
                                      subjectYawDegrees: 0, subjectBox: box, subjectHeightMeters: 1.7, imageAspect: 0.75)

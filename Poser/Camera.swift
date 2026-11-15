@@ -16,6 +16,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     private var storedTargetX: CGFloat = 0.5
     private var storedTargetPose: PoseSkeleton?
     private var storedTargetOutline: [CGPoint] = []
+    private var storedGuidePlacement = PoseGuidePlacement.identity
     private var storedReferenceAspect: CGFloat = 3.0 / 4.0
     private var storedReferenceFocalRatio: CGFloat = 1
     private var storedCoachEnabled = false
@@ -42,11 +43,18 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         get { targetLock.lock(); defer { targetLock.unlock() }; return storedCoachEnabled }
         set { targetLock.lock(); storedCoachEnabled = newValue; targetLock.unlock() }
     }
+    var guidePlacement = PoseGuidePlacement.identity {
+        didSet {
+            let current = shotSpec
+            shotSpec = current
+        }
+    }
     /// Set on the main thread. A measured reference turns on step-by-step coaching.
     var shotSpec: ShotSpec? {
         didSet {
             targetLock.lock()
             storedTargetOutline = shotSpec?.silhouette ?? []
+            storedGuidePlacement = guidePlacement
             storedReferenceAspect = shotSpec?.imageAspect ?? 3.0 / 4.0
             if let source = shotSpec?.focalSource,
                case .exif(let millimeters) = source, millimeters > 0 {
@@ -55,7 +63,9 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                 storedReferenceFocalRatio = 1
             }
             targetLock.unlock()
-            coach = shotSpec.map { LiveCoach(spec: $0, referencePose: targetPose) }
+            coach = shotSpec.map { LiveCoach(spec: $0, referencePose: targetPose, liveAspect: liveFrameAspect,
+                                             guidePlacement: guidePlacement) }
+            if let center = coach?.targetBox?.midX { targetX = center }
             pendingReading = nil
             coachInstruction = nil
             poseScore = nil
@@ -71,10 +81,10 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         get { targetLock.lock(); defer { targetLock.unlock() }; return storedTargetPose }
         set { targetLock.lock(); storedTargetPose = newValue; targetLock.unlock() }
     }
-    private var referenceOutlineSnapshot: (points: [CGPoint], aspect: CGFloat, focalRatio: CGFloat) {
+    private var referenceOutlineSnapshot: (points: [CGPoint], aspect: CGFloat, focalRatio: CGFloat, placement: PoseGuidePlacement) {
         targetLock.lock()
         defer { targetLock.unlock() }
-        return (storedTargetOutline, storedReferenceAspect, storedReferenceFocalRatio)
+        return (storedTargetOutline, storedReferenceAspect, storedReferenceFocalRatio, storedGuidePlacement)
     }
     var onPhoto: ((UIImage) -> Void)?
 
@@ -209,7 +219,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
                                             referenceOutline: outline.points, liveOutline: reading.silhouette,
                                             referenceAspect: outline.aspect,
                                             liveAspect: reading.frameAspect ?? 3.0 / 4.0,
-                                            focalRatio: outline.focalRatio)
+                                            focalRatio: outline.focalRatio, placement: outline.placement)
             DispatchQueue.main.async {
                 self.pendingReading = reading
                 if let aspect = reading.frameAspect { self.liveFrameAspect = aspect }
@@ -267,12 +277,12 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     static func scoreLivePose(referencePose: PoseSkeleton?, livePose: PoseSkeleton?,
                               referenceOutline: [CGPoint], liveOutline: [CGPoint],
                               referenceAspect: CGFloat, liveAspect: CGFloat,
-                              focalRatio: CGFloat) -> (pose: PoseMatch?, frameOverlap: Int?) {
+                              focalRatio: CGFloat, placement: PoseGuidePlacement = .identity) -> (pose: PoseMatch?, frameOverlap: Int?) {
         let pose = PoseMatcher.compare(reference: referencePose, live: livePose,
                                        referenceOutline: referenceOutline, liveOutline: liveOutline)
         let mappedOutline = FrameMapping.mapOutline(referenceOutline, fromAspect: referenceAspect,
                                                     intoAspect: liveAspect, focalRatio: focalRatio)
-        let frameOverlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline, live: liveOutline)
+        let frameOverlap = SilhouetteMatcher.frameOverlap(reference: placement.applying(to: mappedOutline), live: liveOutline)
         return (pose, frameOverlap)
     }
 }
@@ -335,11 +345,13 @@ struct CameraScreen: View {
     @State private var showGrid = false
     @State private var showPose = true
     @State private var showReferencePreview = false
+    @Binding var guidePlacement: PoseGuidePlacement
 
-    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, shotSpec: ShotSpec? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil, onStartOver: (() -> Void)? = nil) {
+    init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, guidePlacement: Binding<PoseGuidePlacement>, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, shotSpec: ShotSpec? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil, onStartOver: (() -> Void)? = nil) {
         self.mode = mode
         self.recipe = recipe
         self.targetX = targetX
+        self._guidePlacement = guidePlacement
         self.targetPose = targetPose
         self.shotGeometry = shotGeometry
         self.shotSpec = shotSpec
@@ -373,38 +385,12 @@ struct CameraScreen: View {
                 }
                 if showGrid && !isGuideOverlayVisible { ThirdsGrid().ignoresSafeArea() }
                 if showPose && mode == .guide && !isGuideOverlayVisible,
-                   let shotSpec, shotSpec.silhouette.count > 2 {
-                    GeometryReader { geometry in
-                        let aligned = camera.coachInstruction?.kind == .hold &&
-                            (camera.outlineOverlap ?? 0) >= 65
-                        Path { path in
-                            path.addLines(FrameMapping.cutout(for: shotSpec,
-                                                              frameAspect: camera.liveFrameAspect,
-                                                              viewSize: geometry.size))
-                            path.closeSubpath()
-                        }
-                        .stroke(.white.opacity(aligned ? 0.95 : 0.7),
-                                style: StrokeStyle(lineWidth: aligned ? 3 : 2, lineJoin: .round, dash: aligned ? [] : [8, 6]))
-                    }
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                } else if showPose && mode == .guide && !isGuideOverlayVisible,
-                          let guidePose = targetPose {
-                    GeometryReader { geometry in
-                        let guideX = geometry.size.width * min(max(targetX, 0.25), 0.75)
-                        BubblePoseFigure(target: guidePose, progress: 1)
-                            .opacity(0.3)
-                            .frame(width: 170, height: 310)
-                            .position(x: guideX, y: geometry.size.height * 0.53)
-                        Text("REFERENCE POSE")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .tracking(1)
-                            .foregroundStyle(.white)
-                            .shadow(color: .black, radius: 5)
-                            .position(x: guideX, y: geometry.size.height * 0.53 + 170)
-                    }
-                    .allowsHitTesting(false)
+                   (shotSpec?.silhouette.count ?? 0) > 2 || targetPose != nil {
+                    AdjustableCameraGuide(spec: shotSpec, pose: targetPose, targetX: targetX,
+                                          frameAspect: camera.liveFrameAspect,
+                                          aligned: camera.coachInstruction?.kind == .hold && (camera.outlineOverlap ?? 0) >= 65,
+                                          placement: $guidePlacement)
+                        .ignoresSafeArea()
                 }
             } else {
                 VStack(spacing: 12) {
@@ -441,12 +427,6 @@ struct CameraScreen: View {
                         .accessibilityLabel("Close camera")
                     }
                     Spacer()
-                    if embedded, recipe != nil, let onStartOver {
-                        Button("Start over", action: onStartOver)
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(minHeight: 44)
-                            .accessibilityHint("Discard the current shoot and return to the camera")
-                    }
                     if !embedded {
                         Text(mode == .scan ? "Scan surroundings" : "Live coach")
                             .font(.system(size: 16, weight: .semibold))
@@ -469,7 +449,18 @@ struct CameraScreen: View {
                 .padding(.top, 10)
 
                 if mode == .guide, recipe != nil, let referenceImage {
-                    HStack(alignment: .center, spacing: 12) {
+                    HStack(alignment: .center, spacing: 8) {
+                        if let onStartOver {
+                            Button(action: onStartOver) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Back to camera")
+                        }
                         Button { showReferencePreview = true } label: {
                             Image(uiImage: referenceImage)
                                 .resizable()
@@ -591,6 +582,7 @@ struct CameraScreen: View {
             }
             camera.targetX = targetX
             camera.targetPose = targetPose
+            camera.guidePlacement = guidePlacement
             camera.shotSpec = shotSpec
             if isActive { camera.start() }
         }
@@ -609,6 +601,7 @@ struct CameraScreen: View {
             }
         }
         .onChange(of: queueProgress?.current) { _, _ in
+            guidePlacement = .identity
             camera.targetPose = targetPose
             camera.targetX = targetX
             camera.shotSpec = shotSpec
@@ -619,7 +612,17 @@ struct CameraScreen: View {
             camera.shotSpec = shotSpec
             camera.poseScore = nil
         }
-        .onChange(of: shotSpec) { _, newValue in camera.shotSpec = newValue }
+        .onChange(of: shotSpec) { _, newValue in
+            guidePlacement = .identity
+            camera.guidePlacement = .identity
+            camera.shotSpec = newValue
+        }
+        .onChange(of: guidePlacement) { _, placement in camera.guidePlacement = placement }
+        .onChange(of: referenceImage) { _, _ in
+            guidePlacement = .identity
+            camera.guidePlacement = .identity
+            showReferencePreview = false
+        }
         .onChange(of: targetX) { _, newValue in camera.targetX = newValue }
         .onDisappear { camera.stop() }
         .alert("Camera issue", isPresented: Binding(
@@ -628,6 +631,158 @@ struct CameraScreen: View {
         )) {
             Button("OK", role: .cancel) { camera.message = nil }
         } message: { Text(camera.message ?? "") }
+    }
+}
+
+struct CameraGuideInteractionFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .null
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isNull { value = next }
+    }
+}
+
+private struct AdjustableCameraGuide: View {
+    let spec: ShotSpec?
+    let pose: PoseSkeleton?
+    let targetX: CGFloat
+    let frameAspect: CGFloat
+    let aligned: Bool
+    @Binding var placement: PoseGuidePlacement
+    @GestureState private var translation: CGSize = .zero
+    @GestureState private var magnification: CGFloat = 1
+    @State private var snapLines = PoseGuideSnapping.Lines()
+
+    private func basePoints(in size: CGSize) -> [CGPoint] {
+        if let spec, spec.silhouette.count > 2 {
+            let ratio: CGFloat
+            if case .exif(let mm) = spec.focalSource, mm > 0 {
+                ratio = CGFloat(LensModel.phoneMainEquivalentMM / mm)
+            } else { ratio = 1 }
+            return FrameMapping.mapOutline(spec.silhouette, fromAspect: spec.imageAspect,
+                                            intoAspect: frameAspect, focalRatio: ratio)
+        }
+        let center = CGPoint(x: size.width * min(max(targetX, 0.25), 0.75), y: size.height * 0.53)
+        return [CGPoint(x: center.x - 85, y: center.y - 155),
+                CGPoint(x: center.x + 85, y: center.y - 155),
+                CGPoint(x: center.x + 85, y: center.y + 155),
+                CGPoint(x: center.x - 85, y: center.y + 155)].map {
+            FrameMapping.framePoint($0, frameAspect: frameAspect, viewSize: size)
+        }
+    }
+
+    private func adjusted(drag: CGSize, zoom: CGFloat, base: CGRect, visible: CGRect, size: CGSize) -> PoseGuidePlacement {
+        let delta = FrameMapping.frameTranslation(drag, frameAspect: frameAspect, viewSize: size)
+        return PoseGuidePlacement(scale: placement.scale * zoom,
+                                  offset: CGSize(width: placement.offset.width + delta.width,
+                                                 height: placement.offset.height + delta.height))
+            .constrained(baseBounds: base, visibleBounds: visible)
+    }
+
+    private func snapped(drag: CGSize, zoom: CGFloat, base: CGRect, visible: CGRect, size: CGSize) -> PoseGuideSnapping.Result {
+        let raw = adjusted(drag: drag, zoom: zoom, base: base, visible: visible, size: size)
+        guard drag != .zero else { return .init(placement: raw, lines: .init()) }
+        let threshold = FrameMapping.frameTranslation(CGSize(width: 12, height: 12), frameAspect: frameAspect, viewSize: size)
+        return PoseGuideSnapping.snap(raw, base: base, viewport: visible,
+                                      threshold: threshold, retaining: snapLines)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let points = basePoints(in: geometry.size)
+            let base = FrameMapping.boundingBox(of: points) ?? .zero
+            let topLeft = FrameMapping.framePoint(CGPoint(x: 16, y: 16), frameAspect: frameAspect, viewSize: geometry.size)
+            let bottomRight = FrameMapping.framePoint(CGPoint(x: geometry.size.width - 16, y: geometry.size.height - 16),
+                                                      frameAspect: frameAspect, viewSize: geometry.size)
+            let visible = CGRect(x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y)
+            let snap = snapped(drag: translation, zoom: magnification, base: base, visible: visible, size: geometry.size)
+            let current = snap.placement
+            let screenPoints = current.applying(to: points).map {
+                FrameMapping.viewPoint($0, frameAspect: frameAspect, viewSize: geometry.size)
+            }
+            let bounds = FrameMapping.boundingBox(of: screenPoints) ?? .zero
+            let committedPoints = placement.applying(to: points).map {
+                FrameMapping.viewPoint($0, frameAspect: frameAspect, viewSize: geometry.size)
+            }
+            let committedBounds = (FrameMapping.boundingBox(of: committedPoints) ?? .zero).insetBy(dx: -24, dy: -24)
+            let container = geometry.frame(in: .named("homePager"))
+            let isAligned = aligned && translation == .zero && magnification == 1
+
+            ZStack {
+                Path { path in
+                    if let x = snap.lines.vertical {
+                        let point = FrameMapping.viewPoint(CGPoint(x: x, y: 0), frameAspect: frameAspect, viewSize: geometry.size)
+                        path.move(to: CGPoint(x: point.x, y: 0))
+                        path.addLine(to: CGPoint(x: point.x, y: geometry.size.height))
+                    }
+                    if let y = snap.lines.horizontal {
+                        let point = FrameMapping.viewPoint(CGPoint(x: 0, y: y), frameAspect: frameAspect, viewSize: geometry.size)
+                        path.move(to: CGPoint(x: 0, y: point.y))
+                        path.addLine(to: CGPoint(x: geometry.size.width, y: point.y))
+                    }
+                }
+                .stroke(.cyan.opacity(0.75), lineWidth: 1)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                if (spec?.silhouette.count ?? 0) > 2 {
+                    Path { path in
+                        path.addLines(screenPoints)
+                        path.closeSubpath()
+                    }
+                    .stroke(.white.opacity(isAligned ? 0.95 : 0.7),
+                            style: StrokeStyle(lineWidth: isAligned ? 3 : 2,
+                                               lineJoin: .round, dash: isAligned ? [] : [8, 6]))
+                    .allowsHitTesting(false)
+                } else if let pose {
+                    BubblePoseFigure(target: pose, progress: 1)
+                        .opacity(0.3)
+                        .frame(width: bounds.width, height: bounds.height)
+                        .position(x: bounds.midX, y: bounds.midY)
+                        .allowsHitTesting(false)
+                }
+                Color.clear
+                    .frame(width: bounds.width + 48, height: bounds.height + 48)
+                    .contentShape(Rectangle())
+                    .position(x: bounds.midX, y: bounds.midY)
+                    .gesture(
+                        DragGesture(minimumDistance: 2, coordinateSpace: .named("cameraGuideCanvas"))
+                            .simultaneously(with: MagnificationGesture())
+                            .updating($translation) { value, state, _ in state = value.first?.translation ?? .zero }
+                            .updating($magnification) { value, state, _ in state = value.second ?? 1 }
+                            .onEnded { value in
+                                placement = snapped(drag: value.first?.translation ?? .zero, zoom: value.second ?? 1,
+                                                    base: base, visible: visible, size: geometry.size).placement
+                                snapLines = .init()
+                            }
+                    )
+                    .simultaneousGesture(TapGesture(count: 2).onEnded { placement = .identity })
+                    .accessibilityElement()
+                    .accessibilityLabel("Adjust pose outline")
+                    .accessibilityHint("Drag to move. Pinch to resize. Double tap to reset.")
+                    .accessibilityValue("\(Int(current.scale * 100)) percent size")
+                    .accessibilityAdjustableAction { direction in
+                        var next = placement
+                        switch direction {
+                        case .increment: next.scale += 0.1
+                        case .decrement: next.scale -= 0.1
+                        @unknown default: break
+                        }
+                        placement = next.constrained(baseBounds: base, visibleBounds: visible)
+                    }
+                    .accessibilityAction { placement = .identity }
+                    .accessibilityAction(named: Text("Reset pose outline")) { placement = .identity }
+            }
+            .onChange(of: snap.lines) { old, new in
+                if (new.vertical != nil && old.vertical != new.vertical)
+                    || (new.horizontal != nil && old.horizontal != new.horizontal) {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                }
+                snapLines = new
+            }
+            .preference(key: CameraGuideInteractionFrameKey.self,
+                        value: committedBounds.offsetBy(dx: container.minX, dy: container.minY))
+        }
+        .coordinateSpace(name: "cameraGuideCanvas")
     }
 }
 

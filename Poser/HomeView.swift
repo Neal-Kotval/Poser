@@ -69,6 +69,8 @@ struct HomeView: View {
     @State private var isEditingInspiration = false
     @State private var selectedInspiration: Set<UUID> = []
     @State private var savedInspirationFrame: CGRect = .null
+    @State private var cameraGuideInteractionFrame: CGRect = .null
+    @State private var liveGuidePlacement = PoseGuidePlacement.identity
     @State private var referenceImage: UIImage?
     @State private var analysis: PhotoAnalysis?
     @State private var selectedRecipe: ShotRecipe?
@@ -237,6 +239,8 @@ struct HomeView: View {
         SmoothPagePager(selection: activeTab.rawValue, pageCount: Tab.allCases.count,
                         canBegin: { start, translation, width in
             guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return false }
+            guard activeTab != .camera || cameraGuideInteractionFrame.isNull
+                || !cameraGuideInteractionFrame.contains(start) else { return false }
             guard activeTab != .home || savedInspirationFrame.isNull
                 || !savedInspirationFrame.insetBy(dx: -16, dy: -16).contains(start) else { return false }
             return HomePaging.allowsSwipe(start: start, translation: translation,
@@ -261,6 +265,7 @@ struct HomeView: View {
         .coordinateSpace(name: "homePager")
         .onPreferenceChange(ReferenceTagFrameKey.self) { referenceTagFrame = $0 }
         .onPreferenceChange(SavedInspirationFrameKey.self) { savedInspirationFrame = $0 }
+        .onPreferenceChange(CameraGuideInteractionFrameKey.self) { cameraGuideInteractionFrame = $0 }
     }
 
     @ViewBuilder
@@ -270,6 +275,7 @@ struct HomeView: View {
             mode: .guide,
             recipe: selectedRecipe,
             targetX: analysis?.subjectPoint?.x ?? 0.5,
+            guidePlacement: $liveGuidePlacement,
             targetPose: analysis?.poseSkeleton,
             shotGeometry: analysis?.geometry,
             shotSpec: analysis.map { $0.shotSpec.withSubjectBox($0.subjectBox) },
@@ -1297,6 +1303,7 @@ struct HomeView: View {
         shootQueue = []
         selectedMatches = []
         referenceImage = image
+        liveGuidePlacement = .identity
         isSceneScan = scene
         scannedScene = nil
         sceneMatches = []
@@ -1411,6 +1418,7 @@ struct HomeView: View {
         capturedImage = nil
         selectedRecipe = nil
         referenceImage = nil
+        liveGuidePlacement = .identity
         analysis = nil
         isAnalyzing = true
 
@@ -1484,6 +1492,7 @@ struct HomeView: View {
             let plan = await preprocessReference(image, analysis: result)
             guard requestID == flowID else { return }
             referenceImage = image
+            liveGuidePlacement = .identity
             analysis = result
             referencePlan = plan
             geminiShotFeedback = nil
@@ -1527,6 +1536,7 @@ struct HomeView: View {
             selectedRecipe = nil
             analysis = nil
             self.referenceImage = nil
+            liveGuidePlacement = .identity
             showLiveCamera = true
             withAnimation(.easeOut(duration: 0.32)) { activeTab = .profile }
         }
@@ -1564,7 +1574,7 @@ struct HomeView: View {
                                                         fromAspect: reference.shotSpec.imageAspect,
                                                         intoAspect: result.shotSpec.imageAspect,
                                                         focalRatio: focalRatio)
-            let overlap = SilhouetteMatcher.frameOverlap(reference: mappedOutline,
+            let overlap = SilhouetteMatcher.frameOverlap(reference: liveGuidePlacement.applying(to: mappedOutline),
                                                          live: result.shotSpec.silhouette)
             comparisonNote = match.score >= 85 && (overlap ?? 100) < 70
                 ? "Your pose shape is close. Move or reframe to match the reference."
@@ -1606,6 +1616,7 @@ struct HomeView: View {
         importReviewBatch = nil
         confirmedImports = []
         referenceImage = nil
+        liveGuidePlacement = .identity
         analysis = nil
         selectedRecipe = nil
         capturedImage = nil
