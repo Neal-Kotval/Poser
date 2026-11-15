@@ -334,6 +334,7 @@ struct CameraScreen: View {
     @StateObject private var camera = CameraModel()
     @State private var showGrid = false
     @State private var showPose = true
+    @State private var showReferencePreview = false
 
     init(mode: Mode, recipe: ShotRecipe?, targetX: CGFloat, targetPose: PoseSkeleton? = nil, shotGeometry: ShotGeometry? = nil, shotSpec: ShotSpec? = nil, referenceImage: UIImage? = nil, referenceTitle: String? = nil, queueProgress: (current: Int, total: Int)? = nil, embedded: Bool = false, isActive: Bool = true, isGuideOverlayVisible: Bool = false, onCapture: @escaping (UIImage) -> Void, onPoseGuide: (() -> Void)? = nil, onStartOver: (() -> Void)? = nil) {
         self.mode = mode
@@ -453,36 +454,37 @@ struct CameraScreen: View {
                     }
                     Button { showGrid.toggle() } label: {
                         Image(systemName: "square.grid.3x3")
-                            .font(.system(size: 18, weight: .regular))
+                            .font(.system(size: 15, weight: .regular))
                             .foregroundStyle(showGrid ? Palette.primaryText : Palette.secondaryText)
+                            .frame(width: 32, height: 32)
+                            .poserGlass(cornerRadius: 16, interactive: true)
                             .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Grid")
                     .accessibilityValue(showGrid ? "On" : "Off")
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
 
-                if mode == .guide, let recipe, let referenceImage {
+                if mode == .guide, recipe != nil, let referenceImage {
                     HStack(alignment: .center, spacing: 12) {
-                        Image(uiImage: referenceImage)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 60, height: 60)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                            .accessibilityLabel("Current reference photo")
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let queueProgress {
-                                Text("SHOT \(queueProgress.current) OF \(queueProgress.total)")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .tracking(1)
-                            }
-                            Text(referenceTitle ?? recipe.title)
-                                .font(.system(size: 15, weight: .semibold))
-                                .lineLimit(2)
+                        Button { showReferencePreview = true } label: {
+                            Image(uiImage: referenceImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 60, height: 60)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                                .contentShape(RoundedRectangle(cornerRadius: PoserRadius.image))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Expand reference photo")
+                        if let queueProgress {
+                            Text("SHOT \(queueProgress.current) OF \(queueProgress.total)")
+                                .font(.system(size: 10, weight: .bold))
+                                .tracking(1)
                         }
                         Spacer(minLength: 0)
                         Button { onPoseGuide?() } label: {
@@ -573,6 +575,15 @@ struct CameraScreen: View {
             .opacity(isGuideOverlayVisible ? 0 : 1)
             .allowsHitTesting(!isGuideOverlayVisible)
         }
+        .sheet(isPresented: $showReferencePreview) {
+            if let referenceImage {
+                CameraReferencePreview(image: referenceImage)
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(.black)
+                    .presentationCornerRadius(28)
+            }
+        }
         .onAppear {
             camera.onPhoto = { image in
                 onCapture(image)
@@ -584,7 +595,11 @@ struct CameraScreen: View {
             if isActive { camera.start() }
         }
         .onChange(of: isActive) { _, active in
-            if active { camera.start() } else { camera.stop() }
+            if active { camera.start() }
+            else {
+                showReferencePreview = false
+                camera.stop()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, isActive {
@@ -613,6 +628,36 @@ struct CameraScreen: View {
         )) {
             Button("OK", role: .cancel) { camera.message = nil }
         } message: { Text(camera.message ?? "") }
+    }
+}
+
+private struct CameraReferencePreview: View {
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.black)
+            .accessibilityLabel("Reference photo")
+            .safeAreaInset(edge: .top) {
+                HStack {
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .poserGlass(cornerRadius: 22, interactive: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close reference photo")
+                }
+                .padding(16)
+            }
     }
 }
 
