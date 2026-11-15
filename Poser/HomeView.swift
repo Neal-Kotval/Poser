@@ -82,6 +82,8 @@ struct HomeView: View {
     @State private var isSceneScan = false
     @State private var comparisonNote: String?
     @State private var poseScore: Int?
+    /// The running pose comparison for the captured shot; saving waits on it so the score is never dropped.
+    @State private var comparisonTask: Task<Void, Never>?
     @State private var referencePlan: GeminiReferencePlan?
     @State private var geminiShotFeedback: String?
     @State private var geminiMessage: String?
@@ -293,7 +295,7 @@ struct HomeView: View {
                 geminiShotFeedback = nil
                 geminiMessage = nil
                 withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
-                Task { await compare(image) }
+                comparisonTask = Task { await compare(image) }
             } else if selectedRecipe != nil, referenceImage != nil {
                 capturedImage = image
                 comparisonNote = nil
@@ -301,7 +303,7 @@ struct HomeView: View {
                 geminiShotFeedback = nil
                 geminiMessage = nil
                 withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
-                Task { await compare(image) }
+                comparisonTask = Task { await compare(image) }
             } else {
                 Task { await scanScene(image) }
             }
@@ -388,11 +390,17 @@ struct HomeView: View {
     }
 
     #if DEBUG
-    /// Launch with `-PoserDemoProfile` to fill an empty profile with sample shots and open it.
+    /// Launch with `-PoserDemoProfile` to fill an empty profile with sample shots and open it;
+    /// add `-PoserOpenFirstShot` to also open the newest post.
     private func seedDemoProfileIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("-PoserDemoProfile") else { return }
         activeTab = .profile
-        guard shootStore.shots.isEmpty else { return }
+        if !shootStore.shots.isEmpty {
+            if ProcessInfo.processInfo.arguments.contains("-PoserOpenFirstShot") {
+                selectedCompletedShot = shootStore.shots.first
+            }
+            return
+        }
         let references = ReferenceCatalog.items.prefix(16).compactMap { item in item.image.map { (item.id, $0) } }
         guard references.count >= 9 else { return }
         let scores = [61, 68, 64, 73, 79, 76, 84, 88, 91]
@@ -408,6 +416,13 @@ struct HomeView: View {
         }
         profileStore.updateDisplayName("Nathan")
         profileStore.updateBio("Golden hour enjoyer. Recreating Pinterest shots one pose at a time.")
+        if let first = shootStore.shots.first, first.commentList.isEmpty {
+            try? shootStore.toggleLike(first.id)
+            try? shootStore.addComment("Finally got the lean right 🙌", author: "Nathan", to: first.id)
+        }
+        if ProcessInfo.processInfo.arguments.contains("-PoserOpenFirstShot") {
+            selectedCompletedShot = shootStore.shots.first
+        }
     }
     #endif
 
@@ -1222,11 +1237,15 @@ struct HomeView: View {
                 if let referenceImage {
                     let added = shotAddedToProfile === image
                     Button {
-                        do {
-                            try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore)
-                            shotAddedToProfile = image
-                        } catch {
-                            errorMessage = "The shot could not be added to your profile. Try again."
+                        Task {
+                            await comparisonTask?.value
+                            guard capturedImage === image, shotAddedToProfile !== image else { return }
+                            do {
+                                try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore)
+                                shotAddedToProfile = image
+                            } catch {
+                                errorMessage = "The shot could not be added to your profile. Try again."
+                            }
                         }
                     } label: {
                         Label(added ? "Added to profile" : "Add to profile",
@@ -1516,6 +1535,9 @@ struct HomeView: View {
         guard let referenceImage, !shootQueue.isEmpty, !isSavingShot else { return }
         isSavingShot = true
         defer { isSavingShot = false }
+        // Tapping continue right after capture used to save before the score finished.
+        await comparisonTask?.value
+        guard capturedImage === image else { return }
         do {
             try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore,
                                referenceID: shootQueue[currentShotIndex])
@@ -1543,7 +1565,7 @@ struct HomeView: View {
     }
 
     private func completedShotDetail(_ shot: CompletedShot) -> some View {
-        ShotPostView(shot: shot, shootStore: shootStore) {
+        ShotFeedView(startShotID: shot.id, shootStore: shootStore, profileStore: profileStore) {
             selectedCompletedShot = nil
         }
     }

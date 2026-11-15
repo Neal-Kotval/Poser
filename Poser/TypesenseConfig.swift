@@ -3,7 +3,7 @@ import Foundation
 /// Reads Typesense Cloud (or local) credentials from `Secrets/Typesense.plist` when present.
 /// Copy `Secrets/Typesense.plist.example` → `Secrets/Typesense.plist` and fill in values.
 enum TypesenseConfig {
-    static let collection = "references"
+    static var collection: String { values["Collection"]?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "references" }
 
     private static let values: [String: String] = {
         guard let url = Bundle.main.url(forResource: "Typesense", withExtension: "plist",
@@ -24,6 +24,14 @@ enum TypesenseConfig {
         !host.isEmpty && !searchAPIKey.isEmpty
     }
 
+    /// Enable only after `references` has an image embedding field. Keyword-only clusters
+    /// use Vision labels with Typesense text search instead.
+    static var imageSearchEnabled: Bool { values["ImageSearchEnabled"] == "true" }
+
+    /// Enable after `references` contains 2048-dimensional Vision revision 1 vectors.
+    /// This path works without loading an embedding model on the Typesense server.
+    static var visionVectorSearchEnabled: Bool { values["VisionVectorSearchEnabled"] == "true" }
+
     static var baseURL: URL? {
         guard isConfigured else { return nil }
         var components = URLComponents()
@@ -34,4 +42,8 @@ enum TypesenseConfig {
         }
         return components.url
     }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }

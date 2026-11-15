@@ -10,6 +10,23 @@ struct CompletedShot: Codable, Identifiable, Equatable {
     var matchScore: Int?
     /// Which reference was recreated, so distinct poses can be counted.
     var referenceID: UUID?
+    /// When the owner liked the post. Nil means not liked. Optional so older saved shots still decode.
+    var likedAt: Date?
+    var comments: [ShotComment]?
+
+    var isLiked: Bool { likedAt != nil }
+    var likeCount: Int { isLiked ? 1 : 0 }
+    var commentList: [ShotComment] { comments ?? [] }
+}
+
+struct ShotComment: Codable, Identifiable, Equatable {
+    /// Instagram's comment limit.
+    static let limit = 2200
+
+    let id: UUID
+    let author: String
+    let text: String
+    let createdAt: Date
 }
 
 @MainActor
@@ -61,6 +78,57 @@ final class ShootStore: ObservableObject {
         shots = updated
         try? FileManager.default.removeItem(at: folder.appendingPathComponent(shot.photoFilename))
         try? FileManager.default.removeItem(at: folder.appendingPathComponent(shot.referenceFilename))
+    }
+
+    func toggleLike(_ shotID: UUID, now: Date = Date()) throws {
+        try update(shotID) { $0.likedAt = $0.likedAt == nil ? now : nil }
+    }
+
+    @discardableResult
+    func addComment(_ text: String, author: String, to shotID: UUID, now: Date = Date()) throws -> ShotComment? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let comment = ShotComment(id: UUID(), author: author,
+                                  text: String(trimmed.prefix(ShotComment.limit)), createdAt: now)
+        try update(shotID) { $0.comments = ($0.comments ?? []) + [comment] }
+        return comment
+    }
+
+    func removeComment(_ commentID: UUID, from shotID: UUID) throws {
+        try update(shotID) { shot in
+            let remaining = (shot.comments ?? []).filter { $0.id != commentID }
+            shot.comments = remaining.isEmpty ? nil : remaining
+        }
+    }
+
+    private var scoringAttempted: Set<UUID> = []
+
+    /// Scores shots saved without a match %: older shots, and ones saved before scoring finished.
+    /// Each shot is tried once per launch so photos with no visible pose aren't re-analyzed forever.
+    func scoreMissingMatches() async {
+        for shot in shots where shot.matchScore == nil && !scoringAttempted.contains(shot.id) {
+            scoringAttempted.insert(shot.id)
+            guard let photo = photo(for: shot), let reference = reference(for: shot),
+                  let score = await Self.matchScore(reference: reference, shot: photo) else { continue }
+            try? update(shot.id) { $0.matchScore = score }
+        }
+    }
+
+    static func matchScore(reference: UIImage, shot: UIImage) async -> Int? {
+        guard let target = try? await AnalysisService.analyze(reference),
+              let live = try? await AnalysisService.analyze(shot),
+              target.poseSkeleton != nil, live.poseSkeleton != nil else { return nil }
+        return PoseMatcher.compare(reference: target.poseSkeleton, live: live.poseSkeleton,
+                                   referenceOutline: target.shotSpec.silhouette,
+                                   liveOutline: live.shotSpec.silhouette)?.score
+    }
+
+    private func update(_ shotID: UUID, _ change: (inout CompletedShot) -> Void) throws {
+        guard let index = shots.firstIndex(where: { $0.id == shotID }) else { return }
+        var updated = shots
+        change(&updated[index])
+        try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
+        shots = updated
     }
 
     var bestMatch: Int? { shots.compactMap(\.matchScore).max() }

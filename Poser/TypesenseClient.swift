@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Vision
 
 struct TypesenseHit: Equatable {
     let id: UUID
@@ -70,6 +71,29 @@ actor TypesenseClient {
         if let filter = filterBy(setting: setting, pose: pose) {
             search["filter_by"] = filter
         }
+        return try await multiSearch(search)
+    }
+
+    /// Query a manually indexed Vision revision 1 feature vector. No server-side model is loaded.
+    func searchVisionSimilar(image: UIImage, limit: Int = 24) async throws -> [TypesenseHit] {
+        guard let cgImage = image.cgImage else { throw TypesenseError.decoding }
+        let request = VNGenerateImageFeaturePrintRequest()
+        request.revision = VNGenerateImageFeaturePrintRequestRevision1
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: image.sceneOrientation)
+        try handler.perform([request])
+        guard let feature = request.results?.first,
+              feature.elementType == .float, feature.elementCount == 2048 else {
+            throw TypesenseError.decoding
+        }
+        let values = feature.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        let vector = values.map { String($0) }.joined(separator: ",")
+        let search: [String: Any] = [
+            "collection": TypesenseConfig.collection,
+            "q": "*",
+            "vector_query": "vision_embedding:([\(vector)], k:\(limit))",
+            "exclude_fields": "vision_embedding",
+            "per_page": limit
+        ]
         return try await multiSearch(search)
     }
 
