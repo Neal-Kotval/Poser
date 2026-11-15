@@ -627,19 +627,35 @@ struct EditProfileView: View {
     }
 }
 
-/// A completed shot as a post: reference and shot side by side, the match score, and share.
+/// A completed shot as a post: reference and shot side by side, the match score, likes, comments and share.
 struct ShotPostView: View {
     let shot: CompletedShot
     @ObservedObject var shootStore: ShootStore
+    @ObservedObject var profileStore: UserProfileStore
     let onDeleted: () -> Void
 
     @State private var shareCard: UIImage?
     @State private var message: String?
     @State private var confirmingDelete = false
+    @State private var viewerStart: ViewerStart?
+    @State private var draft = ""
+    @State private var burstHeart = false
+    @FocusState private var composing: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private struct ViewerStart: Identifiable {
+        let index: Int
+        var id: Int { index }
+    }
+
+    /// The stored shot changes as it's liked or commented on; `shot` is only the snapshot it opened with.
+    private var current: CompletedShot { shootStore.shots.first { $0.id == shot.id } ?? shot }
 
     var body: some View {
         let photo = shootStore.photo(for: shot)
         let reference = shootStore.reference(for: shot)
+        let pages = viewerPages(reference: reference, photo: photo)
+        let post = current
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: PoserSpace.large) {
                 HStack {
@@ -667,9 +683,22 @@ struct ShotPostView: View {
                 }
 
                 HStack(spacing: 8) {
-                    if let reference { postImage(reference, label: "REFERENCE") }
-                    if let photo { postImage(photo, label: "MY SHOT") }
+                    ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
+                        postImage(page.image, label: page.label) { viewerStart = ViewerStart(index: index) }
+                    }
                 }
+                .overlay {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 88))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.35), radius: 12)
+                        .scaleEffect(burstHeart ? 1 : 0.4)
+                        .opacity(burstHeart ? 1 : 0)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+
+                actionRow(post)
 
                 if let score = shot.matchScore {
                     HStack(alignment: .firstTextBaseline) {
@@ -683,25 +712,21 @@ struct ShotPostView: View {
                     .accessibilityElement(children: .combine)
                 }
 
-                if let shareCard {
-                    ShareLink(item: Image(uiImage: shareCard),
-                              preview: SharePreview("My Poser shot", image: Image(uiImage: shareCard))) {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity, minHeight: 52)
-                            .background(.white, in: Capsule())
-                    }
-                }
+                commentsSection(post)
             }
             .padding(PoserSpace.large)
             .foregroundStyle(.white)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom) { composer }
         .background(Palette.background.ignoresSafeArea())
         .task {
             if let photo, let reference {
                 shareCard = ShareCardRenderer.render(reference: reference, shot: photo, score: shot.matchScore)
             }
+        }
+        .fullScreenCover(item: $viewerStart) { start in
+            ShotPhotoViewer(pages: pages, startIndex: start.index)
         }
         .confirmationDialog("Delete this shot?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("Delete shot", role: .destructive) {
@@ -720,7 +745,182 @@ struct ShotPostView: View {
         } message: { Text(message ?? "") }
     }
 
-    private func postImage(_ image: UIImage, label: String) -> some View {
+    private func viewerPages(reference: UIImage?, photo: UIImage?) -> [ShotPhotoViewer.Page] {
+        var pages: [ShotPhotoViewer.Page] = []
+        if let reference { pages.append(.init(image: reference, label: "REFERENCE")) }
+        if let photo { pages.append(.init(image: photo, label: "MY SHOT")) }
+        return pages
+    }
+
+    // MARK: Likes and comments
+
+    private func actionRow(_ post: CompletedShot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: PoserSpace.regular) {
+                Button { toggleLike() } label: {
+                    Image(systemName: post.isLiked ? "heart.fill" : "heart")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(post.isLiked ? Color.pink : .white)
+                        .contentTransition(.symbolEffect(.replace))
+                        .symbolEffect(.bounce, value: post.isLiked)
+                        .symbolEffectsRemoved(reduceMotion)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(post.isLiked ? "Unlike" : "Like")
+                .accessibilityAddTraits(post.isLiked ? [.isSelected] : [])
+
+                Button { composing = true } label: {
+                    Image(systemName: "bubble.right")
+                        .font(.system(size: 22, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Comment")
+
+                if let shareCard {
+                    ShareLink(item: Image(uiImage: shareCard),
+                              preview: SharePreview("My Poser shot", image: Image(uiImage: shareCard))) {
+                        Image(systemName: "paperplane")
+                            .font(.system(size: 22, weight: .medium))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Share")
+                }
+                Spacer()
+            }
+            .padding(.horizontal, -10)
+
+            Text(likeSummary(post))
+                .font(.system(size: 14, weight: .semibold))
+                .contentTransition(.numericText())
+        }
+    }
+
+    private func likeSummary(_ post: CompletedShot) -> String {
+        let comments = post.commentList.count
+        let likes = post.likeCount == 1 ? "1 like" : "\(post.likeCount) likes"
+        guard comments > 0 else { return likes }
+        return "\(likes) · \(comments) comment\(comments == 1 ? "" : "s")"
+    }
+
+    @ViewBuilder
+    private func commentsSection(_ post: CompletedShot) -> some View {
+        if !post.commentList.isEmpty {
+            VStack(alignment: .leading, spacing: PoserSpace.regular) {
+                ForEach(post.commentList) { comment in
+                    commentRow(comment)
+                }
+            }
+        }
+    }
+
+    private func commentRow(_ comment: ShotComment) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            commentAvatar(size: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                (Text(comment.author).fontWeight(.semibold) + Text("  ") + Text(comment.text))
+                    .font(.system(size: 14))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(comment.createdAt, format: .relative(presentation: .named))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.tertiaryText)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = comment.text }
+            Button("Delete comment", systemImage: "trash", role: .destructive) {
+                do { try shootStore.removeComment(comment.id, from: shot.id) }
+                catch { message = "This comment could not be deleted. Try again." }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Touch and hold to delete")
+    }
+
+    private func commentAvatar(size: CGFloat) -> some View {
+        Group {
+            if let image = profileStore.avatarImage {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Text(profileStore.initials)
+                    .font(.system(size: size * 0.38, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Palette.elevated)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
+    }
+
+    private var composer: some View {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return HStack(alignment: .bottom, spacing: 10) {
+            commentAvatar(size: 34)
+            TextField("Add a comment…", text: $draft, axis: .vertical)
+                .lineLimit(1...4)
+                .font(.system(size: 15))
+                .focused($composing)
+                .submitLabel(.send)
+                .onChange(of: draft) { _, new in
+                    if new.count > ShotComment.limit { draft = String(new.prefix(ShotComment.limit)) }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            Button("Post") { postComment() }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(trimmed.isEmpty ? Palette.tertiaryText : .white)
+                .disabled(trimmed.isEmpty)
+                .frame(minWidth: 44, minHeight: 38)
+        }
+        .padding(.horizontal, PoserSpace.regular)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private func toggleLike() {
+        do {
+            try withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                try shootStore.toggleLike(shot.id)
+            }
+        } catch {
+            message = "This like could not be saved. Try again."
+        }
+    }
+
+    /// Double-tap likes (never unlikes), like Instagram, with a heart burst over the photos.
+    private func doubleTapLike() {
+        if !current.isLiked { toggleLike() }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        guard !reduceMotion else { return }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.55)) { burstHeart = true }
+        Task {
+            try? await Task.sleep(for: .milliseconds(650))
+            withAnimation(.easeOut(duration: 0.25)) { burstHeart = false }
+        }
+    }
+
+    private func postComment() {
+        do {
+            try withAnimation {
+                _ = try shootStore.addComment(draft, author: profileStore.profile.displayName, to: shot.id)
+            }
+            draft = ""
+        } catch {
+            message = "This comment could not be posted. Try again."
+        }
+    }
+
+    private func postImage(_ image: UIImage, label: String, onOpen: @escaping () -> Void) -> some View {
         Color.clear
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             .overlay { Image(uiImage: image).resizable().scaledToFill() }
@@ -735,13 +935,170 @@ struct ShotPostView: View {
                     .background(.black.opacity(0.6), in: Capsule())
                     .padding(8)
             }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .onTapGesture(count: 2) { doubleTapLike() }
+            .onTapGesture { onOpen() }
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(label == "REFERENCE" ? "Reference photo" : "My shot")
+            .accessibilityHint("Opens full screen")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { onOpen() }
+            .accessibilityAction(named: "Like") { if !current.isLiked { toggleLike() } }
     }
 
     private func save(_ photo: UIImage) {
         PhotoLibrarySaver.save(photo) { success in
             message = success ? "Your shot is in Photos." : "Allow Photos access in Settings to save this shot."
         }
+    }
+}
+
+/// Full-screen, uncropped view of a post's photos. Swipe between reference and shot,
+/// pinch or double-tap to zoom, and swipe down to close.
+struct ShotPhotoViewer: View {
+    struct Page {
+        let image: UIImage
+        let label: String
+    }
+
+    let pages: [Page]
+    @State private var index: Int
+    @State private var zoomed = false
+    @State private var dismissDrag: CGFloat = 0
+    @Environment(\.dismiss) private var dismiss
+
+    init(pages: [Page], startIndex: Int) {
+        self.pages = pages
+        _index = State(initialValue: min(max(startIndex, 0), max(pages.count - 1, 0)))
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black
+                .opacity(1 - min(abs(dismissDrag) / 400, 0.6))
+                .ignoresSafeArea()
+
+            TabView(selection: $index) {
+                ForEach(Array(pages.enumerated()), id: \.offset) { offset, page in
+                    ZoomableImage(image: page.image, zoomed: $zoomed)
+                        .tag(offset)
+                        .accessibilityLabel(page.label == "REFERENCE" ? "Reference photo" : "My shot")
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: pages.count > 1 ? .always : .never))
+            .ignoresSafeArea()
+            .offset(y: dismissDrag)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 20)
+                    .onChanged { value in
+                        guard !zoomed, abs(value.translation.height) > abs(value.translation.width) else { return }
+                        dismissDrag = value.translation.height
+                    }
+                    .onEnded { value in
+                        guard !zoomed else { return }
+                        if abs(value.translation.height) > 140 || abs(value.predictedEndTranslation.height) > 320 {
+                            dismiss()
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { dismissDrag = 0 }
+                        }
+                    }
+            )
+
+            HStack {
+                if pages.indices.contains(index) {
+                    Text(pages[index].label)
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.55), in: Capsule())
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(.black.opacity(0.55), in: Circle())
+                }
+                .accessibilityLabel("Close")
+            }
+            .padding(.horizontal, PoserSpace.regular)
+            .opacity(dismissDrag == 0 ? 1 : 0)
+        }
+        .statusBarHidden()
+        .onChange(of: index) { _, _ in zoomed = false }
+    }
+}
+
+/// Fits the whole photo on screen; pinch or double-tap zooms, and dragging pans while zoomed.
+private struct ZoomableImage: View {
+    let image: UIImage
+    @Binding var zoomed: Bool
+
+    @State private var scale: CGFloat = 1
+    @State private var committedScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var committedOffset: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { geo in
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(width: geo.size.width, height: geo.size.height)
+                .scaleEffect(scale)
+                .offset(offset)
+                .gesture(
+                    MagnifyGesture()
+                        .onChanged { value in
+                            scale = min(max(committedScale * value.magnification, 1), 5)
+                        }
+                        .onEnded { _ in
+                            committedScale = scale
+                            if scale <= 1.01 { reset() } else { zoomed = true }
+                        }
+                )
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard scale > 1 else { return }
+                            offset = clamp(CGSize(width: committedOffset.width + value.translation.width,
+                                                  height: committedOffset.height + value.translation.height),
+                                           in: geo.size)
+                        }
+                        .onEnded { _ in committedOffset = offset },
+                    including: scale > 1 ? .all : .subviews
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        if scale > 1 { reset() } else {
+                            scale = 2.5
+                            committedScale = 2.5
+                            zoomed = true
+                        }
+                    }
+                }
+        }
+        .onChange(of: zoomed) { _, isZoomed in
+            if !isZoomed && scale != 1 { reset() }
+        }
+    }
+
+    private func reset() {
+        scale = 1
+        committedScale = 1
+        offset = .zero
+        committedOffset = .zero
+        zoomed = false
+    }
+
+    private func clamp(_ proposed: CGSize, in container: CGSize) -> CGSize {
+        let maxX = container.width * (scale - 1) / 2
+        let maxY = container.height * (scale - 1) / 2
+        return CGSize(width: min(max(proposed.width, -maxX), maxX),
+                      height: min(max(proposed.height, -maxY), maxY))
     }
 }
 

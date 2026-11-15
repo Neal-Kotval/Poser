@@ -382,11 +382,17 @@ struct HomeView: View {
     }
 
     #if DEBUG
-    /// Launch with `-PoserDemoProfile` to fill an empty profile with sample shots and open it.
+    /// Launch with `-PoserDemoProfile` to fill an empty profile with sample shots and open it;
+    /// add `-PoserOpenFirstShot` to also open the newest post.
     private func seedDemoProfileIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("-PoserDemoProfile") else { return }
         activeTab = .profile
-        guard shootStore.shots.isEmpty else { return }
+        if !shootStore.shots.isEmpty {
+            if ProcessInfo.processInfo.arguments.contains("-PoserOpenFirstShot") {
+                selectedCompletedShot = shootStore.shots.first
+            }
+            return
+        }
         let references = ReferenceCatalog.items.prefix(16).compactMap { item in item.image.map { (item.id, $0) } }
         guard references.count >= 9 else { return }
         let scores = [61, 68, 64, 73, 79, 76, 84, 88, 91]
@@ -402,6 +408,13 @@ struct HomeView: View {
         }
         profileStore.updateDisplayName("Nathan")
         profileStore.updateBio("Golden hour enjoyer. Recreating Pinterest shots one pose at a time.")
+        if let first = shootStore.shots.first, first.commentList.isEmpty {
+            try? shootStore.toggleLike(first.id)
+            try? shootStore.addComment("Finally got the lean right 🙌", author: "Nathan", to: first.id)
+        }
+        if ProcessInfo.processInfo.arguments.contains("-PoserOpenFirstShot") {
+            selectedCompletedShot = shootStore.shots.first
+        }
     }
     #endif
 
@@ -1563,7 +1576,7 @@ struct HomeView: View {
     }
 
     private func completedShotDetail(_ shot: CompletedShot) -> some View {
-        ShotPostView(shot: shot, shootStore: shootStore) {
+        ShotPostView(shot: shot, shootStore: shootStore, profileStore: profileStore) {
             selectedCompletedShot = nil
         }
     }

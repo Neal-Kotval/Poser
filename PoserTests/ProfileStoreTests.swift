@@ -85,4 +85,44 @@ final class ProfileInsightsTests: XCTestCase {
         let earned = Set(insights.milestones.filter(\.isEarned).map(\.id))
         XCTAssertEqual(earned, ["first", "sharp", "curator"])
     }
+
+    @MainActor func testLikesAndCommentsPersistOnShots() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { context in
+            UIColor.systemPink.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        }
+
+        let store = ShootStore(folder: folder)
+        let shot = try store.add(photo: image, reference: image)
+        let fresh = store.shots[0]
+        XCTAssertFalse(fresh.isLiked)
+
+        try store.toggleLike(shot.id)
+        let blank = try store.addComment("   ", author: "Nathan", to: shot.id)
+        XCTAssertNil(blank)
+        let added = try store.addComment("  nailed it  ", author: "Nathan", to: shot.id)
+        let comment = try XCTUnwrap(added)
+        try store.addComment("again", author: "Nathan", to: shot.id)
+
+        let reopened = ShootStore(folder: folder)
+        let saved = reopened.shots[0]
+        XCTAssertTrue(saved.isLiked)
+        XCTAssertEqual(saved.likeCount, 1)
+        XCTAssertEqual(saved.commentList.map(\.text), ["nailed it", "again"])
+
+        try reopened.removeComment(comment.id, from: shot.id)
+        try reopened.toggleLike(shot.id)
+        let edited = reopened.shots[0]
+        XCTAssertFalse(edited.isLiked)
+        XCTAssertEqual(edited.commentList.map(\.text), ["again"])
+    }
+
+    func testShotsSavedBeforeLikesStillDecode() throws {
+        let json = #"[{"id":"\#(UUID().uuidString)","createdAt":0,"photoFilename":"a.jpg","referenceFilename":"b.jpg"}]"#
+        let shots = try JSONDecoder().decode([CompletedShot].self, from: Data(json.utf8))
+        XCTAssertFalse(shots[0].isLiked)
+        XCTAssertTrue(shots[0].commentList.isEmpty)
+    }
 }
