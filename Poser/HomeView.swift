@@ -1637,14 +1637,14 @@ struct HomeView: View {
 }
 
 private struct InspirationCardEffect: ViewModifier {
-    let viewportWidth: CGFloat
+    let focusMidpoint: CGFloat
     let side: CGFloat
     let motionEnabled: Bool
 
     func body(content: Content) -> some View {
         content.visualEffect { effect, geometry in
             let midpoint: CGFloat = geometry.frame(in: .scrollView(axis: .horizontal)).midX
-            let progress: CGFloat = max(-1, min(1, (midpoint - viewportWidth / 2) / side))
+            let progress: CGFloat = max(-1, min(1, (midpoint - focusMidpoint) / side))
             let scale: CGFloat = motionEnabled ? 1 - abs(progress) * 0.08 : 1
             let angle: Double = motionEnabled ? Double(progress) * 4 : 0
             let offset: CGFloat = motionEnabled ? abs(progress) * 5 : 0
@@ -1658,36 +1658,36 @@ private struct InspirationCarousel<Card: View>: View {
     let isEditing: Bool
     @ViewBuilder let card: (InspirationItem) -> Card
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var centeredID: UUID?
+    @State private var focusedID: UUID?
 
     private let cardSide: CGFloat = 152
 
     var body: some View {
-        GeometryReader { viewport in
+        GeometryReader { _ in
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: isEditing ? 8 : -28) {
                     ForEach(items) { item in
                         card(item)
                             .frame(width: cardSide, height: cardSide)
-                            .modifier(InspirationCardEffect(viewportWidth: viewport.size.width,
+                            .modifier(InspirationCardEffect(focusMidpoint: cardSide / 2,
                                                             side: cardSide, motionEnabled: !reduceMotion && !isEditing))
                             .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 3)
-                            .zIndex(item.id == centeredID ? 1 : 0)
+                            .zIndex(item.id == focusedID ? 1 : 0)
                             .id(item.id)
                     }
                 }
                 .scrollTargetLayout()
                 .padding(.vertical, 12)
             }
-            .contentMargins(.horizontal, max(0, (viewport.size.width - cardSide) / 2), for: .scrollContent)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
             .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $centeredID, anchor: .center)
+            .scrollPosition(id: $focusedID, anchor: .leading)
             .animation(reduceMotion ? nil : .smooth(duration: 0.28), value: isEditing)
-            .onAppear { centeredID = centeredID ?? items.first?.id }
+            .onAppear { focusedID = focusedID ?? items.first?.id }
             .onChange(of: items.map(\.id)) { oldIDs, newIDs in
-                guard let current = centeredID, !newIDs.contains(current) else { return }
+                guard let current = focusedID, !newIDs.contains(current) else { return }
                 let previousIndex = oldIDs.firstIndex(of: current) ?? 0
-                centeredID = newIDs.isEmpty ? nil : newIDs[min(previousIndex, newIDs.count - 1)]
+                focusedID = newIDs.isEmpty ? nil : newIDs[min(previousIndex, newIDs.count - 1)]
             }
         }
         .frame(height: 180)
