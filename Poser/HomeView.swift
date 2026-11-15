@@ -529,12 +529,18 @@ struct HomeView: View {
                 .tracking(-1.5)
                 .foregroundStyle(.white)
             HStack {
-                Spacer()
                 if activeTab == .camera, !showLiveCamera {
-                    Button("Start over") { reset() }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.65))
+                    Button { reset() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Back to camera")
                 }
+                Spacer()
             }
         }
         .frame(height: 40)
@@ -1023,15 +1029,6 @@ struct HomeView: View {
 
     private func recipeDetail(_ recipe: ShotRecipe) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(recipe.title)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .tracking(-1)
-                    .foregroundStyle(.white)
-                Text(recipe.subtitle)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
             if let referenceImage {
                 Image(uiImage: referenceImage)
                     .resizable()
@@ -1045,10 +1042,6 @@ struct HomeView: View {
             }
             if let analysis {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("SHOT PLAN")
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(1.5)
-                        .foregroundStyle(Palette.secondaryText)
                     Text(referencePlan?.summary ?? analysis.summary)
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(.white)
