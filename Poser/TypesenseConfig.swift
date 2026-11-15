@@ -24,6 +24,10 @@ enum TypesenseConfig {
         !host.isEmpty && !searchAPIKey.isEmpty
     }
 
+    /// Enable only after `references` has an image embedding field. Keyword-only clusters
+    /// use Vision labels with Typesense text search instead.
+    static var imageSearchEnabled: Bool { values["ImageSearchEnabled"] == "true" }
+
     static var baseURL: URL? {
         guard isConfigured else { return nil }
         var components = URLComponents()
