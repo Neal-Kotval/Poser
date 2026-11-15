@@ -41,4 +41,9 @@ final class ReferenceSearchTests: XCTestCase {
         XCTAssertNotNil(settings["window"])
         XCTAssertNil(settings["beach"])
     }
+
+    func testSceneTermsKeepObjectsOutsideFixedSettings() {
+        let terms = SceneIntent.searchTerms(for: ["person", "flower", "red_flower", "museum", "chair"])
+        XCTAssertEqual(terms, ["flower", "red", "museum", "chair"])
+    }
 }

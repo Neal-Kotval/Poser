@@ -9,3 +9,4 @@ xcuserdata/
 __pycache__/
 Poser/Secrets/Typesense.plist
 Tools/Typesense/.venv/
+Tools/Typesense/.admin-key
