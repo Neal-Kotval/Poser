@@ -1585,7 +1585,7 @@ struct HomeView: View {
     }
 
     private func completedShotDetail(_ shot: CompletedShot) -> some View {
-        ShotPostView(shot: shot, shootStore: shootStore, profileStore: profileStore) {
+        ShotFeedView(startShotID: shot.id, shootStore: shootStore, profileStore: profileStore) {
             selectedCompletedShot = nil
         }
     }
