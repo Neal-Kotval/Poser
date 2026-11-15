@@ -745,10 +745,7 @@ struct HomeView: View {
 
     private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
         let post = asset.mockPost
-        let tags = [
-            asset.setting.map { ReferenceTag(kind: .setting, value: $0) },
-            asset.pose.map { ReferenceTag(kind: .pose, value: $0) }
-        ].compactMap { $0 }
+        let tags = asset.tags
         let shape = RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous)
         return ZStack(alignment: .bottomTrailing) {
             Button {
@@ -782,19 +779,8 @@ struct HomeView: View {
                     .accessibilityHidden(true)
                 }
                 .overlay(alignment: .bottomLeading) {
-                    HStack(spacing: 4) {
-                        ForEach(tags) { tag in
-                            Text(tag.title)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .background(.regularMaterial, in: Capsule())
-                        }
-                    }
-                    .padding(12)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                    PhotoTagPills(tags: tags)
+                        .padding(12)
                 }
                 .clipShape(shape)
                 // Bound the photo's tap area to its visible rounded card.
@@ -998,27 +984,26 @@ struct HomeView: View {
                             if selectedMatches.contains(match.id) { selectedMatches.remove(match.id) }
                             else { selectedMatches.insert(match.id) }
                         } label: {
-                            VStack(alignment: .leading, spacing: 7) {
-                                GeometryReader { tile in
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(width: tile.size.width, height: tile.size.height)
-                                        .clipped()
-                                }
-                                    .aspectRatio(1, contentMode: .fit)
-                                    .overlay(alignment: .topTrailing) {
-                                        Image(systemName: selectedMatches.contains(match.id) ? "checkmark.circle.fill" : "circle")
-                                            .font(.system(size: 24, weight: .medium))
-                                            .shadow(radius: 3)
-                                            .padding(10)
-                                    }
-                                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                                Text(matchingTitle(for: match.id))
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
+                            GeometryReader { tile in
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: tile.size.width, height: tile.size.height)
+                                    .clipped()
                             }
+                            .aspectRatio(1, contentMode: .fit)
+                            .overlay(alignment: .bottomLeading) {
+                                PhotoTagPills(tags: matchingTags(for: match.id))
+                                    .padding(8)
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                Image(systemName: selectedMatches.contains(match.id) ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 24, weight: .medium))
+                                    .shadow(radius: 3)
+                                    .padding(10)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous))
+                            .contentShape(RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("\(matchingTitle(for: match.id)), \(Int(match.score * 100)) percent match, \(selectedMatches.contains(match.id) ? "selected" : "not selected")")
@@ -1479,6 +1464,10 @@ struct HomeView: View {
         }
         guard let item = inspirationStore.items.first(where: { $0.id == id }) else { return nil }
         return inspirationStore.originalData(for: item)
+    }
+
+    private func matchingTags(for id: UUID) -> [ReferenceTag] {
+        ReferenceCatalog.items.first(where: { $0.id == id })?.tags ?? []
     }
 
     private func matchingTitle(for id: UUID) -> String {

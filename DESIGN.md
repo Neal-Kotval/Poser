@@ -26,6 +26,7 @@ The compatibility names `ink`, `panel`, `raised`, `cyan`, `cream`, and `muted` r
 - `SecondaryButton`: interactive Liquid Glass action for an alternative.
 - `poserGlass`: native regular Liquid Glass for navigation, controls, and floating camera guidance. Uses an opaque backing when Reduce Transparency is enabled.
 - Keep content cards on solid system surfaces; glass belongs above content, not behind every photograph. The Home search expands as one continuous glass bubble, with a text field and category chips on the same surface. Chips use solid selection fills rather than separate glass layers. Search matches the title, setting, and pose. Category chips support multiple selections: places match any selected place, poses match any selected pose, and the two groups combine. Search text further narrows results. Tapping a selected chip removes it; All clears category selections. Collapsed search shows individually removable active filters.
+- `PhotoTagPills`: shared compact setting/pose overlays for For you and Choose your shots. Place inside the bottom-left of the rounded image; narrow tiles stack pills without truncation. Photo tags never intercept taps or replace the accessible photo label.
 - `SectionLabel`: quiet supporting label for grouping content.
 - `PoserSurface`: a grouped dark surface with a subtle border.
 

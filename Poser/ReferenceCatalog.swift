@@ -40,6 +40,11 @@ struct ReferenceAsset: Identifiable {
     var setting: String? = nil
     var pose: String? = nil
 
+    var tags: [ReferenceTag] {
+        [setting.map { ReferenceTag(kind: .setting, value: $0) },
+         pose.map { ReferenceTag(kind: .pose, value: $0) }].compactMap { $0 }
+    }
+
     var mockPost: MockReferencePost {
         MockReferencePost(referenceID: assetName)
     }

@@ -72,6 +72,33 @@ enum PoserType {
 
 // MARK: - Components
 
+/// A shared photo overlay. Narrow grid tiles stack pills rather than truncate.
+struct PhotoTagPills: View {
+    let tags: [ReferenceTag]
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) { pills }
+                .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 4) { pills }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var pills: some View {
+        ForEach(tags) { tag in
+            Text(tag.title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(.regularMaterial, in: Capsule())
+                .fixedSize()
+        }
+    }
+}
+
 struct PrimaryButton: View {
     let title: String
     let symbol: String
