@@ -364,6 +364,8 @@ final class MatchingTests: XCTestCase {
         let store = InspirationStore(folder: folder)
         let item = try store.add(image, source: .photoLibrary, originalData: original)
 
+        XCTAssertNotNil(store.image(for: item)) // Populate the carousel's cache before deletion.
+
         try store.remove(item)
 
         XCTAssertTrue(store.items.isEmpty)

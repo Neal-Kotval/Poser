@@ -1631,17 +1631,24 @@ struct HomeView: View {
 
 private struct InspirationCardEffect: ViewModifier {
     let focusMidpoint: CGFloat
-    let side: CGFloat
+    let stride: CGFloat
+    let overlap: CGFloat
     let motionEnabled: Bool
 
     func body(content: Content) -> some View {
         content.visualEffect { effect, geometry in
             let midpoint: CGFloat = geometry.frame(in: .scrollView(axis: .horizontal)).midX
-            let progress: CGFloat = max(-1, min(1, (midpoint - focusMidpoint) / side))
-            let scale: CGFloat = motionEnabled ? 1 - abs(progress) * 0.08 : 1
-            let angle: Double = motionEnabled ? Double(progress) * 4 : 0
-            let offset: CGFloat = motionEnabled ? abs(progress) * 5 : 0
-            return effect.scaleEffect(scale).rotationEffect(.degrees(angle)).offset(y: offset)
+            let progress: CGFloat = max(-1, min(1, (midpoint - focusMidpoint) / stride))
+            let distance: CGFloat = abs(progress)
+            let eased: CGFloat = distance * distance * (3 - 2 * distance)
+            let scale: CGFloat = motionEnabled ? 1 - eased * 0.06 : 1
+            let angle: Double = motionEnabled ? Double(eased) * (progress < 0 ? -3 : 3) : 0
+            let vertical: CGFloat = motionEnabled ? eased * 4 : 0
+            // Earlier cards stay above later ones. Move a departing card clear
+            // by the next snap point instead of abruptly changing its z-index.
+            let horizontal: CGFloat = progress < 0 ? -eased * overlap : 0
+            return effect.scaleEffect(scale).rotationEffect(.degrees(angle))
+                .offset(x: horizontal, y: vertical)
         }
     }
 }
@@ -1659,13 +1666,15 @@ private struct InspirationCarousel<Card: View>: View {
         GeometryReader { _ in
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: isEditing ? 8 : -28) {
-                    ForEach(items) { item in
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         card(item)
                             .frame(width: cardSide, height: cardSide)
                             .modifier(InspirationCardEffect(focusMidpoint: cardSide / 2,
-                                                            side: cardSide, motionEnabled: !reduceMotion && !isEditing))
+                                                            stride: isEditing ? cardSide + 8 : cardSide - 28,
+                                                            overlap: isEditing ? 0 : 28,
+                                                            motionEnabled: !reduceMotion && !isEditing))
                             .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 3)
-                            .zIndex(item.id == focusedID ? 1 : 0)
+                            .zIndex(Double(items.count - index))
                             .id(item.id)
                     }
                 }

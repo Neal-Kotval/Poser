@@ -37,6 +37,12 @@ final class InspirationStore: ObservableObject {
 
     private let folder: URL
     private let indexURL: URL
+    private let imageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 24
+        cache.totalCostLimit = 40 * 1024 * 1024
+        return cache
+    }()
 
     init(folder customFolder: URL? = nil, fileManager: FileManager = .default) {
         let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -86,7 +92,12 @@ final class InspirationStore: ObservableObject {
     }
 
     func image(for item: InspirationItem) -> UIImage? {
-        UIImage(contentsOfFile: folder.appendingPathComponent(item.filename).path)
+        let key = item.filename as NSString
+        if let cached = imageCache.object(forKey: key) { return cached }
+        guard let image = UIImage(contentsOfFile: folder.appendingPathComponent(item.filename).path) else { return nil }
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        imageCache.setObject(image, forKey: key, cost: cost)
+        return image
     }
 
     /// Original bytes preserve EXIF lens and depth metadata for later shot analysis.
@@ -105,6 +116,7 @@ final class InspirationStore: ObservableObject {
         // Commit the index once for the whole selection before deleting files.
         try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
         items = updated
+        for item in removed { imageCache.removeObject(forKey: item.filename as NSString) }
         for item in removed {
             let imageURL = folder.appendingPathComponent(item.filename)
             let originalURL = folder.appendingPathComponent("\(item.id.uuidString).original")
