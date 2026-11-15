@@ -80,6 +80,8 @@ struct HomeView: View {
     @State private var isSceneScan = false
     @State private var comparisonNote: String?
     @State private var poseScore: Int?
+    /// The running pose comparison for the captured shot; saving waits on it so the score is never dropped.
+    @State private var comparisonTask: Task<Void, Never>?
     @State private var referencePlan: GeminiReferencePlan?
     @State private var geminiShotFeedback: String?
     @State private var geminiMessage: String?
@@ -287,7 +289,7 @@ struct HomeView: View {
                 geminiShotFeedback = nil
                 geminiMessage = nil
                 withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
-                Task { await compare(image) }
+                comparisonTask = Task { await compare(image) }
             } else if selectedRecipe != nil, referenceImage != nil {
                 capturedImage = image
                 comparisonNote = nil
@@ -295,7 +297,7 @@ struct HomeView: View {
                 geminiShotFeedback = nil
                 geminiMessage = nil
                 withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
-                Task { await compare(image) }
+                comparisonTask = Task { await compare(image) }
             } else {
                 Task { await scanScene(image) }
             }
@@ -1263,11 +1265,15 @@ struct HomeView: View {
                 if let referenceImage {
                     let added = shotAddedToProfile === image
                     Button {
-                        do {
-                            try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore)
-                            shotAddedToProfile = image
-                        } catch {
-                            errorMessage = "The shot could not be added to your profile. Try again."
+                        Task {
+                            await comparisonTask?.value
+                            guard capturedImage === image, shotAddedToProfile !== image else { return }
+                            do {
+                                try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore)
+                                shotAddedToProfile = image
+                            } catch {
+                                errorMessage = "The shot could not be added to your profile. Try again."
+                            }
                         }
                     } label: {
                         Label(added ? "Added to profile" : "Add to profile",
@@ -1550,6 +1556,9 @@ struct HomeView: View {
         guard let referenceImage, !shootQueue.isEmpty, !isSavingShot else { return }
         isSavingShot = true
         defer { isSavingShot = false }
+        // Tapping continue right after capture used to save before the score finished.
+        await comparisonTask?.value
+        guard capturedImage === image else { return }
         do {
             try shootStore.add(photo: image, reference: referenceImage, matchScore: poseScore,
                                referenceID: shootQueue[currentShotIndex])

@@ -58,6 +58,7 @@ struct ProfileView: View {
         }
         .background(Palette.background)
         .task(id: cardKey) { renderProfileCard() }
+        .task(id: shootStore.shots.count) { await shootStore.scoreMissingMatches() }
         .onChange(of: posePicks) { _, items in
             guard !items.isEmpty else { return }
             posePicks = []

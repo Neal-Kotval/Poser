@@ -101,6 +101,28 @@ final class ShootStore: ObservableObject {
         }
     }
 
+    private var scoringAttempted: Set<UUID> = []
+
+    /// Scores shots saved without a match %: older shots, and ones saved before scoring finished.
+    /// Each shot is tried once per launch so photos with no visible pose aren't re-analyzed forever.
+    func scoreMissingMatches() async {
+        for shot in shots where shot.matchScore == nil && !scoringAttempted.contains(shot.id) {
+            scoringAttempted.insert(shot.id)
+            guard let photo = photo(for: shot), let reference = reference(for: shot),
+                  let score = await Self.matchScore(reference: reference, shot: photo) else { continue }
+            try? update(shot.id) { $0.matchScore = score }
+        }
+    }
+
+    static func matchScore(reference: UIImage, shot: UIImage) async -> Int? {
+        guard let target = try? await AnalysisService.analyze(reference),
+              let live = try? await AnalysisService.analyze(shot),
+              target.poseSkeleton != nil, live.poseSkeleton != nil else { return nil }
+        return PoseMatcher.compare(reference: target.poseSkeleton, live: live.poseSkeleton,
+                                   referenceOutline: target.shotSpec.silhouette,
+                                   liveOutline: live.shotSpec.silhouette)?.score
+    }
+
     private func update(_ shotID: UUID, _ change: (inout CompletedShot) -> Void) throws {
         guard let index = shots.firstIndex(where: { $0.id == shotID }) else { return }
         var updated = shots
