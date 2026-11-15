@@ -445,34 +445,43 @@ struct BubblePoseFigure: View, Animatable {
                                style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
             }
 
-            // Sign-style silhouettes: generous, continuous capsules with round joints.
-            let thickness = max(4, size.width * 0.115)
-            limb(.leftHip, .leftKnee, .leftAnkle, width: thickness)
-            limb(.rightHip, .rightKnee, .rightAnkle, width: thickness)
+            // Keep limbs distinct when a detected pose turns or folds across the body.
+            let armThickness = max(4, size.width * 0.085)
+            let legThickness = max(4, size.width * 0.10)
+            limb(.leftHip, .leftKnee, .leftAnkle, width: legThickness)
+            limb(.rightHip, .rightKnee, .rightAnkle, width: legThickness)
+            limb(.leftShoulder, .leftElbow, .leftWrist, width: armThickness)
+            limb(.rightShoulder, .rightElbow, .rightWrist, width: armThickness)
             if let ls = point(.leftShoulder), let rs = point(.rightShoulder),
                let lh = point(.leftHip), let rh = point(.rightHip) {
-                // Share the limb radius at every join, so shoulders and hips
-                // merge into the body without separate circular protrusions.
+                // Follow the body's lean, but bound the chest and waist widths so
+                // skewed or crossed joints cannot stretch the silhouette.
+                let shoulders = CGPoint(x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2)
+                let hips = CGPoint(x: (lh.x + rh.x) / 2, y: (lh.y + rh.y) / 2)
+                let axis = CGVector(dx: hips.x - shoulders.x, dy: hips.y - shoulders.y)
+                let axisLength = max(1, hypot(axis.dx, axis.dy))
+                let side = CGVector(dx: -axis.dy / axisLength, dy: axis.dx / axisLength)
+                func offset(_ point: CGPoint, by width: CGFloat) -> CGPoint {
+                    CGPoint(x: point.x + side.dx * width, y: point.y + side.dy * width)
+                }
+                let chestHalfWidth = size.width * 0.17
+                let waistHalfWidth = size.width * 0.12
                 var torso = Path()
-                torso.move(to: ls)
-                torso.addLine(to: rs)
-                torso.addLine(to: rh)
-                torso.addLine(to: lh)
+                torso.move(to: offset(shoulders, by: chestHalfWidth))
+                torso.addLine(to: offset(shoulders, by: -chestHalfWidth))
+                torso.addLine(to: offset(hips, by: -waistHalfWidth))
+                torso.addLine(to: offset(hips, by: waistHalfWidth))
                 torso.closeSubpath()
                 let observedTorso = [.leftShoulder, .rightShoulder, .leftHip, .rightHip]
                     .allSatisfy { target[$0] != nil }
-                // A rounded contour softens both the shoulders and the hip corners.
-                // Draw in one layer so illustrative bodies do not accumulate opacity.
                 context.drawLayer { body in
                     body.opacity = observedTorso ? 1 : 0.35
                     body.fill(torso, with: white)
                     body.stroke(torso, with: white,
-                                style: StrokeStyle(lineWidth: thickness,
+                                style: StrokeStyle(lineWidth: max(3, size.width * 0.035),
                                                    lineCap: .round, lineJoin: .round))
                 }
             }
-            limb(.leftShoulder, .leftElbow, .leftWrist, width: thickness)
-            limb(.rightShoulder, .rightElbow, .rightWrist, width: thickness)
 
             if let head = point(.nose) {
                 let radius = max(6, size.width * 0.135)
