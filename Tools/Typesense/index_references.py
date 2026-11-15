@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import getpass
 import json
 import os
 import plistlib
@@ -47,12 +48,12 @@ VISION_SCHEMA = {
 }
 
 
-def client_from_env():
+def client_from_env(prompt_for_api_key: bool = False):
     import typesense
     plist_path = Path(__file__).resolve().parents[2] / "Poser/Secrets/Typesense.plist"
     app_config = plistlib.loads(plist_path.read_bytes()) if plist_path.exists() else {}
     host = os.environ.get("TYPESENSE_HOST") or app_config.get("Host")
-    api_key = os.environ.get("TYPESENSE_API_KEY")
+    api_key = getpass.getpass("Typesense import key: ").strip() if prompt_for_api_key else os.environ.get("TYPESENSE_API_KEY")
     key_file = Path(__file__).with_name(".admin-key")
     if not api_key and key_file.exists():
         api_key = key_file.read_text().strip()
@@ -134,6 +135,7 @@ def main() -> None:
     parser.add_argument("--vectors", type=Path, help="JSON feature vectors from classify_previews.swift")
     parser.add_argument("--dry-run", action="store_true", help="Validate documents without changing Typesense")
     parser.add_argument("--replace-collection", action="store_true", help="Delete and recreate an incompatible collection")
+    parser.add_argument("--prompt-api-key", action="store_true", help="Read a temporary import key without echoing it")
     args = parser.parse_args()
 
     catalog = json.loads(args.catalog.read_text())
@@ -150,7 +152,7 @@ def main() -> None:
         if missing:
             sys.exit(f"Missing 2048-dimensional vectors for {len(missing)} references; first: {missing[0]}")
 
-    client = None if args.dry_run else client_from_env()
+    client = None if args.dry_run else client_from_env(args.prompt_api_key)
     if client:
         schema = {**{"keywords": KEYWORD_SCHEMA, "vision": VISION_SCHEMA,
                      "clip": CLIP_SCHEMA}[args.mode], "name": args.collection}
