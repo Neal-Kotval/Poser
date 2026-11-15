@@ -544,12 +544,6 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             savedInspiration
 
-            if GeminiImageCoach.isConfigured {
-                Text("Reference photos are sent to Gemini for shot suggestions.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.secondaryText)
-            }
-
             HStack {
                 Text("For you")
                     .font(.system(size: 24, weight: .semibold, design: .rounded))
@@ -854,16 +848,10 @@ struct HomeView: View {
                     .foregroundStyle(Palette.secondaryText)
                     .padding(.vertical, 8)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 11) {
-                        ForEach(inspirationStore.items) { item in
-                            if let image = inspirationStore.image(for: item) {
-                                savedInspirationCard(item, image: image)
-                            }
-                        }
+                InspirationCarousel(items: inspirationStore.items, isEditing: isEditingInspiration) { item in
+                    if let image = inspirationStore.image(for: item) {
+                        savedInspirationCard(item, image: image, side: 152)
                     }
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 3)
                 }
                 .background {
                     GeometryReader { geometry in
@@ -875,7 +863,7 @@ struct HomeView: View {
         }
     }
 
-    private func savedInspirationCard(_ item: InspirationItem, image: UIImage) -> some View {
+    private func savedInspirationCard(_ item: InspirationItem, image: UIImage, side: CGFloat = 132) -> some View {
         let selected = selectedInspiration.contains(item.id)
         return Button {
             if isEditingInspiration {
@@ -893,7 +881,7 @@ struct HomeView: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 132, height: 132)
+                    .frame(width: side, height: side)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
                     .contentShape(Rectangle())
@@ -914,7 +902,7 @@ struct HomeView: View {
                         }
                     }
             }
-            .frame(width: 132, alignment: .leading)
+            .frame(width: side, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1645,6 +1633,64 @@ struct HomeView: View {
         isAnalyzing = false
         showShotDetails = false
         startingSetup = ReferenceStartingSetup()
+    }
+}
+
+private struct InspirationCardEffect: ViewModifier {
+    let viewportWidth: CGFloat
+    let side: CGFloat
+    let motionEnabled: Bool
+
+    func body(content: Content) -> some View {
+        content.visualEffect { effect, geometry in
+            let midpoint: CGFloat = geometry.frame(in: .scrollView(axis: .horizontal)).midX
+            let progress: CGFloat = max(-1, min(1, (midpoint - viewportWidth / 2) / side))
+            let scale: CGFloat = motionEnabled ? 1 - abs(progress) * 0.08 : 1
+            let angle: Double = motionEnabled ? Double(progress) * 4 : 0
+            let offset: CGFloat = motionEnabled ? abs(progress) * 5 : 0
+            return effect.scaleEffect(scale).rotationEffect(.degrees(angle)).offset(y: offset)
+        }
+    }
+}
+
+private struct InspirationCarousel<Card: View>: View {
+    let items: [InspirationItem]
+    let isEditing: Bool
+    @ViewBuilder let card: (InspirationItem) -> Card
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var centeredID: UUID?
+
+    private let cardSide: CGFloat = 152
+
+    var body: some View {
+        GeometryReader { viewport in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: isEditing ? 8 : -28) {
+                    ForEach(items) { item in
+                        card(item)
+                            .frame(width: cardSide, height: cardSide)
+                            .modifier(InspirationCardEffect(viewportWidth: viewport.size.width,
+                                                            side: cardSide, motionEnabled: !reduceMotion && !isEditing))
+                            .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 3)
+                            .zIndex(item.id == centeredID ? 1 : 0)
+                            .id(item.id)
+                    }
+                }
+                .scrollTargetLayout()
+                .padding(.vertical, 12)
+            }
+            .contentMargins(.horizontal, max(0, (viewport.size.width - cardSide) / 2), for: .scrollContent)
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $centeredID, anchor: .center)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.28), value: isEditing)
+            .onAppear { centeredID = centeredID ?? items.first?.id }
+            .onChange(of: items.map(\.id)) { oldIDs, newIDs in
+                guard let current = centeredID, !newIDs.contains(current) else { return }
+                let previousIndex = oldIDs.firstIndex(of: current) ?? 0
+                centeredID = newIDs.isEmpty ? nil : newIDs[min(previousIndex, newIDs.count - 1)]
+            }
+        }
+        .frame(height: 180)
     }
 }
 

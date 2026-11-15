@@ -54,3 +54,5 @@ Manual tab changes reset transient page state: Home search, filters, editing sel
 Page gestures begin within 28 points of an outside edge and move inward with clear horizontal intent. They must travel at least 28% of the page width (96-point minimum). Search and saved-photo controls include protected margins, and their horizontal scrolling never triggers a page turn. Bottom navigation remains available for direct switching.
 
 For you ordering mixes setting/pose groups once per launch, penalizing recently shown tags and spreading category usage across the feed. Filtering preserves this session order. Every reference remains available; liking a card does not reorder the feed.
+
+Your inspiration uses a center-snapping native horizontal carousel with a 28-point photo overlap, slight depth/tilt effects, and a raised focused card. Edit mode fans cards out to expose selection controls. Reduce Motion removes rotation and scale effects. Deleting the focused photo keeps a nearby photo centered. The Gemini preparation notice is omitted from the Home section.
