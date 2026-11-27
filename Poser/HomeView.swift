@@ -10,15 +10,6 @@ private struct ReferenceTagFrameKey: PreferenceKey {
     }
 }
 
-private struct SavedInspirationFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .null
-    // Pages without this view report .null; never let them erase a real frame.
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if !next.isNull { value = next }
-    }
-}
-
 enum HomePaging {
     static func allowsSwipe(start: CGPoint, translation: CGSize, excluding frame: CGRect,
                             viewportWidth: CGFloat? = nil) -> Bool {
@@ -47,8 +38,11 @@ private enum PageMotion {
 
 struct HomeView: View {
     private enum Tab: Int, CaseIterable { case home, camera, profile }
+    private enum HomeFeedMode: String, CaseIterable { case forYou = "For you", saved = "Saved" }
 
     @State private var activeTab: Tab = .camera
+    @State private var homeFeedMode: HomeFeedMode = .forYou
+    @Namespace private var homeFeedModeNamespace
     @State private var homePageID = UUID()
     @State private var cameraPageID = UUID()
     @State private var profilePageID = UUID()
@@ -68,7 +62,6 @@ struct HomeView: View {
     @State private var pendingReferenceDeletion: Set<UUID> = []
     @State private var isEditingInspiration = false
     @State private var selectedInspiration: Set<UUID> = []
-    @State private var savedInspirationFrame: CGRect = .null
     @State private var cameraGuideInteractionFrame: CGRect = .null
     @State private var liveGuidePlacement = PoseGuidePlacement.identity
     @State private var referenceImage: UIImage?
@@ -243,8 +236,6 @@ struct HomeView: View {
             guard !isReferenceSearchFocused && !isSearchKeyboardVisible else { return false }
             guard activeTab != .camera || cameraGuideInteractionFrame.isNull
                 || !cameraGuideInteractionFrame.contains(start) else { return false }
-            guard activeTab != .home || savedInspirationFrame.isNull
-                || !savedInspirationFrame.insetBy(dx: -16, dy: -16).contains(start) else { return false }
             return HomePaging.allowsSwipe(start: start, translation: translation,
                                          excluding: activeTab == .home ? referenceTagFrame : .null,
                                          viewportWidth: width)
@@ -266,7 +257,6 @@ struct HomeView: View {
         }
         .coordinateSpace(name: "homePager")
         .onPreferenceChange(ReferenceTagFrameKey.self) { referenceTagFrame = $0 }
-        .onPreferenceChange(SavedInspirationFrameKey.self) { savedInspirationFrame = $0 }
         .onPreferenceChange(CameraGuideInteractionFrameKey.self) { cameraGuideInteractionFrame = $0 }
     }
 
@@ -318,34 +308,54 @@ struct HomeView: View {
     }
 
     private var homePage: some View {
-        ScrollViewReader { scroll in
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    header
-                    landing
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                switch homeFeedMode {
+                case .forYou:
+                    forYouFeed
+                case .saved:
+                    savedFeed
                 }
-                .frame(maxWidth: 620)
-                .padding(.horizontal, PoserSpace.large)
-                .padding(.top, PoserSpace.medium)
-                .padding(.bottom, 86)
-                .frame(maxWidth: .infinity)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: isReferenceSearchExpanded) { _, expanded in
-                if expanded { centerReferenceSearch(using: scroll) }
+            .frame(maxWidth: 620)
+            .padding(.bottom, 104)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                homeTopBar
+                if homeFeedMode == .forYou, isReferenceSearchExpanded {
+                    referenceSearchBubble
+                        .padding(.horizontal, PoserSpace.regular)
+                        .padding(.top, PoserSpace.xSmall)
+                        .padding(.bottom, PoserSpace.small)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                // Center again in the final keyboard-adjusted viewport, rather
-                // than leaving suggestions below the keyboard after expansion.
-                if isReferenceSearchFocused { centerReferenceSearch(using: scroll) }
-            }
+            .background(
+                LinearGradient(
+                    colors: [
+                        Palette.background.opacity(0.94),
+                        Palette.background.opacity(0.76),
+                        Palette.background.opacity(0.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea(edges: .top)
+            )
         }
         .background(Palette.background)
-    }
-
-    private func centerReferenceSearch(using scroll: ScrollViewProxy) {
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
-            scroll.scrollTo("reference-search-bubble", anchor: .center)
+        .onChange(of: referenceQuery) { _, _ in scheduleReferenceSearch() }
+        .onChange(of: selectedReferenceTags) { _, _ in scheduleReferenceSearch() }
+        .onChange(of: homeFeedMode) { _, mode in
+            if mode == .saved {
+                closeReferenceSearch()
+            } else {
+                isEditingInspiration = false
+                selectedInspiration = []
+            }
         }
     }
 
@@ -392,8 +402,23 @@ struct HomeView: View {
     #if DEBUG
     /// Launch with `-PoserDemoProfile` to fill an empty profile with sample shots and open it;
     /// add `-PoserOpenFirstShot` to also open the newest post.
+    /// Launch with `-PoserOpenHome` (optionally with `-PoserOpenSaved`) to open the Home feed directly.
     private func seedDemoProfileIfRequested() {
-        guard ProcessInfo.processInfo.arguments.contains("-PoserDemoProfile") else { return }
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-PoserOpenHome") {
+            activeTab = .home
+            if args.contains("-PoserOpenSaved") {
+                homeFeedMode = .saved
+                if inspirationStore.items.isEmpty {
+                    let samples = ReferenceCatalog.items.prefix(6).compactMap(\.image)
+                    for sample in samples {
+                        try? inspirationStore.add(sample, source: .photoLibrary)
+                    }
+                }
+            }
+            return
+        }
+        guard args.contains("-PoserDemoProfile") else { return }
         activeTab = .profile
         if !shootStore.shots.isEmpty {
             if ProcessInfo.processInfo.arguments.contains("-PoserOpenFirstShot") {
@@ -521,6 +546,7 @@ struct HomeView: View {
             cameraPageID = UUID()
         }
         if tab == .home {
+            homeFeedMode = .forYou
             closeReferenceSearch()
             selectedReferenceTags = []
             referenceQuery = ""
@@ -567,26 +593,114 @@ struct HomeView: View {
         .frame(height: 40)
     }
 
-    private var landing: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            savedInspiration
+    private var homeTopBar: some View {
+        HStack(spacing: PoserSpace.medium) {
+            Text("poser")
+                .font(PoserType.wordmark)
+                .tracking(-1.4)
+                .foregroundStyle(Palette.primaryText)
 
-            HStack {
-                Text("For you")
-                    .font(.system(size: 24, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
-                Spacer()
-                if isRemoteSearching {
-                    ProgressView().tint(.white).scaleEffect(0.8)
+            Spacer(minLength: PoserSpace.small)
+
+            HStack(spacing: 2) {
+                ForEach(HomeFeedMode.allCases, id: \.self) { mode in
+                    let isSelected = homeFeedMode == mode
+                    Button {
+                        withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86)) {
+                            homeFeedMode = mode
+                        }
+                    } label: {
+                        Text(mode.rawValue)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(isSelected ? Palette.background : Palette.secondaryText)
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .background {
+                                if isSelected {
+                                    Capsule()
+                                        .fill(Palette.primaryText)
+                                        .matchedGeometryEffect(id: "homeFeedMode", in: homeFeedModeNamespace)
+                                }
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(isSelected ? [.isSelected] : [])
                 }
-                Text("\(filteredReferences.count) photos")
-                    .font(PoserType.caption)
-                    .foregroundStyle(Palette.secondaryText)
+            }
+            .padding(.horizontal, 4)
+            .frame(height: 44)
+            .poserGlass(cornerRadius: 22)
+            .sensoryFeedback(.selection, trigger: homeFeedMode)
+
+            Spacer(minLength: PoserSpace.small)
+
+            if homeFeedMode == .forYou {
+                Button {
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86)) {
+                        if isReferenceSearchExpanded {
+                            closeReferenceSearch()
+                        } else {
+                            isReferenceSearchExpanded = true
+                            isReferenceSearchFocused = true
+                        }
+                    }
+                } label: {
+                    Image(systemName: isReferenceSearchExpanded ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Palette.primaryText)
+                        .frame(width: 44, height: 44)
+                        .poserGlass(cornerRadius: 22, interactive: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isReferenceSearchExpanded ? "Close search" : "Search references")
+            } else {
+                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10,
+                             selectionBehavior: .ordered, matching: .images) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Palette.primaryText)
+                        .frame(width: 44, height: 44)
+                        .poserGlass(cornerRadius: 22, interactive: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add reference photos")
+            }
+        }
+        .padding(.horizontal, PoserSpace.regular)
+        .padding(.top, PoserSpace.small)
+        .padding(.bottom, PoserSpace.small)
+        .frame(maxWidth: 620)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var forYouFeed: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !isReferenceSearchExpanded {
+                homeFilterStrip
             }
 
-            referenceSearchBubble
-                .padding(.top, -4)
-                .id("reference-search-bubble")
+            if !referenceQuery.isEmpty && !isReferenceSearchExpanded {
+                HStack(spacing: PoserSpace.small) {
+                    Text("Results for “\(referenceQuery)”")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                        .lineLimit(1)
+                    if isRemoteSearching {
+                        ProgressView().tint(.white).scaleEffect(0.75)
+                    }
+                    Spacer()
+                    Button("Clear") {
+                        referenceQuery = ""
+                        remoteReferences = nil
+                    }
+                    .font(PoserType.caption.weight(.semibold))
+                    .foregroundStyle(Palette.primaryText)
+                    .frame(minHeight: 44)
+                }
+                .padding(.horizontal, PoserSpace.regular)
+            }
 
             if filteredReferences.isEmpty {
                 ContentUnavailableView {
@@ -600,18 +714,61 @@ struct HomeView: View {
                         remoteReferences = nil
                     }
                 }
-            }
-
-            LazyVStack(alignment: .leading, spacing: 20) {
-                ForEach(filteredReferences) { asset in
-                    if let image = asset.preview {
-                        feedCard(asset, image: image)
+                .padding(.top, PoserSpace.xLarge)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 22) {
+                    ForEach(Array(filteredReferences.enumerated()), id: \.element.id) { index, asset in
+                        if let image = asset.preview {
+                            feedCard(asset, image: image, showCount: index == 0)
+                        }
                     }
                 }
+                .padding(.top, PoserSpace.xSmall)
             }
         }
-        .onChange(of: referenceQuery) { _, _ in scheduleReferenceSearch() }
-        .onChange(of: selectedReferenceTags) { _, _ in scheduleReferenceSearch() }
+    }
+
+    private var homeFilterStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: PoserSpace.small) {
+                quickFilterChip(nil)
+                ForEach(ReferenceCatalog.tags) { tag in
+                    quickFilterChip(tag)
+                }
+            }
+            .padding(.horizontal, PoserSpace.regular)
+            .padding(.vertical, 6)
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: ReferenceTagFrameKey.self,
+                                       value: geometry.frame(in: .named("homePager")))
+            }
+        }
+    }
+
+    private func quickFilterChip(_ tag: ReferenceTag?) -> some View {
+        let isSelected = tag.map { selectedReferenceTags.contains($0) } ?? selectedReferenceTags.isEmpty
+        return Button {
+            if let tag {
+                if selectedReferenceTags.contains(tag) { selectedReferenceTags.remove(tag) }
+                else { selectedReferenceTags.insert(tag) }
+            } else {
+                selectedReferenceTags = []
+            }
+        } label: {
+            Text(tag?.title ?? "All")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(isSelected ? Palette.background : Palette.secondaryText)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 34)
+                .background(isSelected ? Palette.primaryText : Color.white.opacity(0.08), in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityHint(tag.map { "\(isSelected ? "Remove" : "Add") \($0.title) filter" } ?? "Clear all category filters")
     }
 
     private var filteredReferences: [ReferenceAsset] {
@@ -643,18 +800,21 @@ struct HomeView: View {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(Palette.secondaryText)
-                    .frame(width: 24, height: 52)
+                    .frame(width: 24, height: 48)
                     .contentShape(Rectangle())
                     .onTapGesture { isReferenceSearchFocused = true }
                 TextField("Search references", text: $referenceQuery)
                     .font(PoserType.body)
-                    .frame(minHeight: 52)
+                    .frame(minHeight: 48)
                     .focused($isReferenceSearchFocused)
                     .submitLabel(.search)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("referenceSearchField")
                     .onSubmit { closeReferenceSearch() }
+                if isRemoteSearching {
+                    ProgressView().tint(.white).scaleEffect(0.8)
+                }
                 if !referenceQuery.isEmpty {
                     Button {
                         referenceQuery = ""
@@ -666,65 +826,33 @@ struct HomeView: View {
                     }
                     .accessibilityLabel("Clear search")
                 }
-                if isReferenceSearchExpanded {
-                    Button(action: closeReferenceSearch) {
-                        Image(systemName: "chevron.up")
-                            .frame(width: 44, height: 44)
-                    }
-                    .accessibilityLabel("Collapse search")
-                }
             }
-            .frame(minHeight: 52)
+            .frame(minHeight: 48)
 
-            if isReferenceSearchExpanded {
-                VStack(alignment: .leading, spacing: 12) {
-                    Divider().overlay(Palette.border)
-                    Text("Explore categories")
-                        .font(PoserType.caption)
-                        .foregroundStyle(Palette.secondaryText)
-                    ScrollView(.vertical) {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8)], spacing: 8) {
-                            referenceTagButton(nil)
-                            ForEach(ReferenceCatalog.tags) { tag in
-                                referenceTagButton(tag)
-                            }
-                        }
-                        .padding(.bottom, 4)
-                    }
-                    .frame(height: 188)
-                    .scrollIndicators(.hidden)
-                    .accessibilityIdentifier("referenceCategorySuggestions")
-                }
-                .padding(.bottom, 16)
-                .transition(.opacity)
-            } else if !selectedReferenceTags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(ReferenceCatalog.tags.filter { selectedReferenceTags.contains($0) }) { tag in
-                            Button { selectedReferenceTags.remove(tag) } label: {
-                                Label(tag.title, systemImage: "xmark.circle.fill")
-                                    .font(PoserType.caption)
-                                    .foregroundStyle(Palette.secondaryText)
-                                    .padding(.horizontal, 10)
-                                    .frame(minHeight: 44)
-                                    .background(.white.opacity(0.06), in: Capsule())
-                            }
-                            .accessibilityLabel("Remove \(tag.title) filter")
+            VStack(alignment: .leading, spacing: 10) {
+                Divider().overlay(Palette.border)
+                Text("Explore categories")
+                    .font(PoserType.caption)
+                    .foregroundStyle(Palette.secondaryText)
+                ScrollView(.vertical) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8)], spacing: 8) {
+                        referenceTagButton(nil)
+                        ForEach(ReferenceCatalog.tags) { tag in
+                            referenceTagButton(tag)
                         }
                     }
+                    .padding(.bottom, 4)
                 }
-                .padding(.bottom, 8)
+                .frame(height: 164)
+                .scrollIndicators(.hidden)
+                .accessibilityIdentifier("referenceCategorySuggestions")
             }
+            .padding(.bottom, 14)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
         .foregroundStyle(Palette.primaryText)
-        .poserGlass(cornerRadius: isReferenceSearchExpanded ? 28 : 26)
-        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86),
-                   value: isReferenceSearchExpanded)
-        .onChange(of: isReferenceSearchFocused) { _, focused in
-            if focused { isReferenceSearchExpanded = true }
-        }
+        .poserGlass(cornerRadius: 26)
         .onChange(of: activeTab) { _, tab in
             if tab != .home { closeReferenceSearch() }
         }
@@ -754,7 +882,7 @@ struct HomeView: View {
             isReferenceSearchFocused = false
         } label: {
             Text(tag?.title ?? "All")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .foregroundStyle(isSelected ? Palette.background : Palette.primaryText)
                 .background(isSelected ? .white : .white.opacity(0.08), in: Capsule())
@@ -764,133 +892,113 @@ struct HomeView: View {
         .accessibilityHint(tag.map { "\(isSelected ? "Remove" : "Add") \($0.title) filter" } ?? "Clear all category filters")
     }
 
-    private func feedCard(_ asset: ReferenceAsset, image: UIImage) -> some View {
+    private func openReferenceShoot(_ asset: ReferenceAsset) {
+        if let data = asset.imageData, let fullImage = UIImage(data: data) {
+            Task { await analyze(fullImage, scene: false, imageData: data) }
+        }
+    }
+
+    private func feedCard(_ asset: ReferenceAsset, image: UIImage, showCount: Bool) -> some View {
         let post = asset.mockPost
-        let tags = asset.tags
-        let shape = RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous)
-        return ZStack(alignment: .bottomTrailing) {
-            Button {
-                if let data = asset.imageData, let fullImage = UIImage(data: data) {
-                    Task { await analyze(fullImage, scene: false, imageData: data) }
+        let isLiked = referenceLikes.isLiked(asset.assetName)
+        return ReferenceFeedCard(
+            asset: asset,
+            placeholder: image,
+            post: post,
+            isLiked: isLiked,
+            likeCount: post.likeCount + (isLiked ? 1 : 0),
+            totalCount: showCount ? filteredReferences.count : nil,
+            onOpen: { openReferenceShoot(asset) },
+            onToggleLike: { referenceLikes.toggle(asset.assetName) },
+            onDoubleTapLike: {
+                if !referenceLikes.isLiked(asset.assetName) {
+                    referenceLikes.toggle(asset.assetName)
                 }
-            } label: {
-                GeometryReader { tile in
-                    ReferenceFeedPhoto(asset: asset, placeholder: image)
-                        .frame(width: tile.size.width, height: tile.size.height)
-                        .clipped()
-                }
-                .aspectRatio(1, contentMode: .fit)
-                .overlay(alignment: .topLeading) {
-                    HStack(spacing: 4) {
-                        Text(post.initials)
-                            .font(.system(size: 8, weight: .semibold))
-                            .frame(width: 18, height: 18)
-                            .background(.white.opacity(0.14), in: Circle())
-                        Text(post.accountName)
-                            .font(.system(size: 11, weight: .medium))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.leading, 3)
-                    .padding(.trailing, 8)
-                    .padding(.vertical, 3)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(12)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                }
-                .overlay(alignment: .bottomLeading) {
-                    PhotoTagPills(tags: tags)
-                        .padding(12)
-                }
-                .clipShape(shape)
-                // Bound the photo's tap area to its visible rounded card.
-                .contentShape(shape)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open \(asset.title) inspiration. Demo account \(post.accountName).")
-
-            ReferenceLikeButton(isLiked: referenceLikes.isLiked(asset.assetName),
-                                count: post.likeCount + (referenceLikes.isLiked(asset.assetName) ? 1 : 0)) {
-                referenceLikes.toggle(asset.assetName)
-            }
-            .padding(12)
-        }
+        )
     }
 
-    private var savedInspiration: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            VStack(alignment: .leading, spacing: -12) {
-                HStack {
-                    Text("Your inspiration")
-                        .font(.system(size: 24, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Spacer()
-                    if !isEditingInspiration {
-                        PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10,
-                                     selectionBehavior: .ordered, matching: .images) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 17, weight: .semibold))
-                                .frame(width: 44, height: 44)
-                                .poserGlass(interactive: true)
+    private var savedFeed: some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+        return VStack(alignment: .leading, spacing: PoserSpace.small) {
+            if !inspirationStore.items.isEmpty {
+                HStack(spacing: PoserSpace.small) {
+                    Text(isEditingInspiration ? "\(selectedInspiration.count) selected"
+                         : "\(inspirationStore.items.count) saved")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                        .monospacedDigit()
+                    Spacer(minLength: 0)
+                    if isEditingInspiration {
+                        Button(selectedInspiration.count == inspirationStore.items.count ? "Deselect all" : "Select all") {
+                            selectedInspiration = selectedInspiration.count == inspirationStore.items.count
+                                ? [] : Set(inspirationStore.items.map(\.id))
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Add reference photos")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.primaryText)
+                        .frame(minHeight: 44)
+                        Button("Delete (\(selectedInspiration.count))", role: .destructive) {
+                            pendingReferenceDeletion = selectedInspiration
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .frame(minHeight: 44)
+                        .disabled(selectedInspiration.isEmpty)
                     }
-                }
-                .frame(minHeight: 44)
-                if !inspirationStore.items.isEmpty {
-                    HStack(spacing: 8) {
-                        Text(isEditingInspiration ? "\(selectedInspiration.count) selected"
-                             : "\(inspirationStore.items.count) saved")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Palette.secondaryText)
-                        Button(isEditingInspiration ? "Done" : "Edit") {
-                            isEditingInspiration.toggle()
-                            selectedInspiration = []
-                        }
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
-                        Spacer(minLength: 0)
-                        if isEditingInspiration {
-                            Button(selectedInspiration.count == inspirationStore.items.count ? "Deselect all" : "Select all") {
-                                selectedInspiration = selectedInspiration.count == inspirationStore.items.count
-                                    ? [] : Set(inspirationStore.items.map(\.id))
-                            }
-                            .frame(minHeight: 44)
-                            Button("Delete (\(selectedInspiration.count))", role: .destructive) {
-                                pendingReferenceDeletion = selectedInspiration
-                            }
-                            .frame(minHeight: 44)
-                            .disabled(selectedInspiration.isEmpty)
-                        }
+                    Button(isEditingInspiration ? "Done" : "Edit") {
+                        isEditingInspiration.toggle()
+                        selectedInspiration = []
                     }
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.primaryText)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .accessibilityLabel(isEditingInspiration ? "Finish editing inspiration" : "Edit saved inspiration")
                 }
+                .padding(.horizontal, PoserSpace.regular)
             }
+
             if inspirationStore.items.isEmpty {
-                Text("Add photos to save inspiration for your next shoot.")
-                    .font(PoserType.supporting)
-                    .foregroundStyle(Palette.secondaryText)
-                    .padding(.vertical, 8)
-            } else {
-                InspirationCarousel(items: inspirationStore.items, isEditing: isEditingInspiration) { item in
-                    if let image = inspirationStore.image(for: item) {
-                        savedInspirationCard(item, image: image, side: 152)
+                VStack(spacing: PoserSpace.regular) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 36, weight: .light))
+                        .foregroundStyle(Palette.secondaryText)
+                        .accessibilityHidden(true)
+                    VStack(spacing: 6) {
+                        Text("No saved poses yet")
+                            .font(PoserType.title)
+                            .foregroundStyle(Palette.primaryText)
+                        Text("Import reference photos from your library to build your shoot list.")
+                            .font(PoserType.supporting)
+                            .foregroundStyle(Palette.secondaryText)
+                            .multilineTextAlignment(.center)
                     }
+                    PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 10,
+                                 selectionBehavior: .ordered, matching: .images) {
+                        Label("Add reference photos", systemImage: "plus")
+                            .font(PoserType.action)
+                            .foregroundStyle(Palette.background)
+                            .padding(.horizontal, 20)
+                            .frame(minHeight: 48)
+                            .background(Palette.primaryText, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
                 }
-                .background {
-                    GeometryReader { geometry in
-                        Color.clear.preference(key: SavedInspirationFrameKey.self,
-                                               value: geometry.frame(in: .named("homePager")))
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, PoserSpace.xLarge)
+                .padding(.top, 72)
+            } else {
+                LazyVGrid(columns: columns, spacing: 2) {
+                    ForEach(inspirationStore.items) { item in
+                        if let image = inspirationStore.image(for: item) {
+                            savedGridTile(item, image: image)
+                        }
                     }
                 }
             }
         }
     }
 
-    private func savedInspirationCard(_ item: InspirationItem, image: UIImage, side: CGFloat = 132) -> some View {
+    private func savedGridTile(_ item: InspirationItem, image: UIImage) -> some View {
         let selected = selectedInspiration.contains(item.id)
         return Button {
             if isEditingInspiration {
@@ -904,33 +1012,30 @@ struct HomeView: View {
                 }
             }
         } label: {
-            VStack(alignment: .leading, spacing: 7) {
+            GeometryReader { tile in
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: side, height: side)
+                    .frame(width: tile.size.width, height: tile.size.height)
                     .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: PoserRadius.image))
-                    .contentShape(Rectangle())
-                    .overlay {
-                        if isEditingInspiration && selected {
-                            RoundedRectangle(cornerRadius: PoserRadius.image)
-                                .stroke(.white, lineWidth: 3)
-                        }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        if isEditingInspiration {
-                            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 26, height: 26)
-                                .background(.black.opacity(0.6), in: Circle())
-                                .padding(8)
-                        }
-                    }
             }
-            .frame(width: side, alignment: .leading)
+            .aspectRatio(3 / 4, contentMode: .fit)
             .contentShape(Rectangle())
+            .overlay {
+                if isEditingInspiration && selected {
+                    Rectangle().stroke(Palette.primaryText, lineWidth: 3)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if isEditingInspiration {
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(.black.opacity(0.6), in: Circle())
+                        .padding(8)
+                }
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isEditingInspiration ? "Select saved reference" : "Open saved reference")
@@ -1662,70 +1767,137 @@ struct HomeView: View {
     }
 }
 
-private struct InspirationCardEffect: ViewModifier {
-    let focusMidpoint: CGFloat
-    let stride: CGFloat
-    let overlap: CGFloat
-    let motionEnabled: Bool
+private struct ReferenceFeedCard: View {
+    let asset: ReferenceAsset
+    let placeholder: UIImage
+    let post: MockReferencePost
+    let isLiked: Bool
+    let likeCount: Int
+    let totalCount: Int?
+    let onOpen: () -> Void
+    let onToggleLike: () -> Void
+    let onDoubleTapLike: () -> Void
 
-    func body(content: Content) -> some View {
-        content.visualEffect { effect, geometry in
-            let midpoint: CGFloat = geometry.frame(in: .scrollView(axis: .horizontal)).midX
-            let progress: CGFloat = max(-1, min(1, (midpoint - focusMidpoint) / stride))
-            let distance: CGFloat = abs(progress)
-            let eased: CGFloat = distance * distance * (3 - 2 * distance)
-            let scale: CGFloat = motionEnabled ? 1 - eased * 0.06 : 1
-            let angle: Double = motionEnabled ? Double(eased) * (progress < 0 ? -3 : 3) : 0
-            let vertical: CGFloat = motionEnabled ? eased * 4 : 0
-            // Earlier cards stay above later ones. Move a departing card clear
-            // by the next snap point instead of abruptly changing its z-index.
-            let horizontal: CGFloat = progress < 0 ? -eased * overlap : 0
-            return effect.scaleEffect(scale).rotationEffect(.degrees(angle))
-                .offset(x: horizontal, y: vertical)
-        }
-    }
-}
-
-private struct InspirationCarousel<Card: View>: View {
-    let items: [InspirationItem]
-    let isEditing: Bool
-    @ViewBuilder let card: (InspirationItem) -> Card
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var focusedID: UUID?
+    @State private var showHeartBurst = false
+    @State private var heartBurstTrigger = 0
 
-    private let cardSide: CGFloat = 152
+    private var subtitle: String {
+        asset.tags.map(\.title).joined(separator: " · ")
+    }
 
     var body: some View {
-        GeometryReader { _ in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: isEditing ? 8 : -28) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        card(item)
-                            .frame(width: cardSide, height: cardSide)
-                            .modifier(InspirationCardEffect(focusMidpoint: cardSide / 2,
-                                                            stride: isEditing ? cardSide + 8 : cardSide - 28,
-                                                            overlap: isEditing ? 0 : 28,
-                                                            motionEnabled: !reduceMotion && !isEditing))
-                            .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 3)
-                            .zIndex(Double(items.count - index))
-                            .id(item.id)
+        let shape = RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous)
+        VStack(alignment: .leading, spacing: PoserSpace.small) {
+            HStack(spacing: 10) {
+                Text(post.initials)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Palette.primaryText)
+                    .frame(width: 30, height: 30)
+                    .background(Color.white.opacity(0.10), in: Circle())
+                    .overlay(Circle().stroke(Palette.border, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(post.accountName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.primaryText)
+                        .lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(Palette.secondaryText)
+                            .lineLimit(1)
                     }
                 }
-                .scrollTargetLayout()
-                .padding(.vertical, 12)
+                Spacer(minLength: PoserSpace.small)
+                if let totalCount {
+                    Text("\(totalCount) poses")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                        .monospacedDigit()
+                }
             }
-            .contentMargins(.horizontal, 0, for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $focusedID, anchor: .leading)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.28), value: isEditing)
-            .onAppear { focusedID = focusedID ?? items.first?.id }
-            .onChange(of: items.map(\.id)) { oldIDs, newIDs in
-                guard let current = focusedID, !newIDs.contains(current) else { return }
-                let previousIndex = oldIDs.firstIndex(of: current) ?? 0
-                focusedID = newIDs.isEmpty ? nil : newIDs[min(previousIndex, newIDs.count - 1)]
+            .padding(.horizontal, 14)
+
+            ZStack(alignment: .bottom) {
+                GeometryReader { tile in
+                    ReferenceFeedPhoto(asset: asset, placeholder: placeholder)
+                        .frame(width: tile.size.width, height: tile.size.height)
+                        .clipped()
+                }
+                .aspectRatio(4 / 5, contentMode: .fit)
+                .overlay(alignment: .bottom) {
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.48)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 96)
+                    .allowsHitTesting(false)
+                }
+                .overlay {
+                    if showHeartBurst {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 76, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+                            .transition(reduceMotion ? .opacity : .scale(scale: 0.45).combined(with: .opacity))
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .clipShape(shape)
+                .contentShape(shape)
+                .onTapGesture(count: 2) {
+                    triggerDoubleTapLike()
+                }
+                .onTapGesture(count: 1) {
+                    onOpen()
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Open \(asset.title) inspiration. Demo account \(post.accountName).")
+                .accessibilityAction(named: isLiked ? "Unlike" : "Like") {
+                    onToggleLike()
+                }
+
+                HStack(alignment: .bottom, spacing: PoserSpace.small) {
+                    ReferenceLikeButton(isLiked: isLiked, count: likeCount, onToggle: onToggleLike)
+                    Spacer(minLength: PoserSpace.small)
+                    Button(action: onOpen) {
+                        Label("Try pose", systemImage: "camera.fill")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Palette.background)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 36)
+                            .background(Palette.primaryText, in: Capsule())
+                            .frame(minHeight: 44, alignment: .bottom)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Try \(asset.title) pose in camera")
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            }
+            .padding(.horizontal, 6)
+            .sensoryFeedback(.impact(weight: .light), trigger: heartBurstTrigger)
+        }
+    }
+
+    private func triggerDoubleTapLike() {
+        onDoubleTapLike()
+        heartBurstTrigger += 1
+        let burstID = heartBurstTrigger
+        withAnimation(reduceMotion ? .easeOut(duration: 0.16) : .spring(response: 0.3, dampingFraction: 0.65)) {
+            showHeartBurst = true
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            guard burstID == heartBurstTrigger else { return }
+            withAnimation(reduceMotion ? .easeOut(duration: 0.16) : .easeOut(duration: 0.25)) {
+                showHeartBurst = false
             }
         }
-        .frame(height: 180)
     }
 }
 
@@ -1737,26 +1909,27 @@ private struct ReferenceLikeButton: View {
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
-                    .foregroundStyle(isLiked ? Color.pink : .white.opacity(0.9))
+                    .foregroundStyle(isLiked ? Color.pink : .white.opacity(0.95))
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce, value: isLiked)
                     .symbolEffectsRemoved(reduceMotion)
                 Text(count.formatted())
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(.white.opacity(0.95))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: Double(count)))
             }
-            .font(.system(size: 12, weight: .medium))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(.regularMaterial, in: Capsule())
-            .frame(minWidth: 44, minHeight: 44, alignment: .bottomTrailing)
+            .font(.footnote.weight(.semibold))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 36)
+            .poserGlass(cornerRadius: 18, interactive: true)
+            .frame(minWidth: 44, minHeight: 44, alignment: .bottomLeading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 0.7), value: isLiked)
+        .sensoryFeedback(.impact(weight: .light), trigger: isLiked)
         .accessibilityLabel(isLiked ? "Unlike reference" : "Like reference")
         .accessibilityValue("\(count) likes, including mock engagement")
         .accessibilityAddTraits(isLiked ? [.isSelected] : [])
