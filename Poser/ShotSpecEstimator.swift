@@ -216,14 +216,6 @@ enum Pose3DReader {
         }
     }
 
-    static func feetAndHeadInFrame(_ observation: VNHumanBodyPose3DObservation) -> Bool {
-        let joints: [VNHumanBodyPose3DObservation.JointName] = [.topHead, .leftAnkle, .rightAnkle]
-        return joints.allSatisfy { joint in
-            guard let point = imagePoint(observation, joint) else { return false }
-            return (0...1).contains(point.x) && (0...1.02).contains(point.y)
-        }
-    }
-
     /// Bounding box of the projected joints plus room for the feet, and the head-to-ankle span.
     static func subjectBox(_ observation: VNHumanBodyPose3DObservation) -> (box: CGRect, headToAnkle: CGFloat)? {
         let points = observation.availableJointNames.compactMap { imagePoint(observation, $0) }
@@ -343,7 +335,9 @@ enum ShotSpecEstimator {
     }
 
     static func estimate(cgImage: CGImage, orientation: CGImagePropertyOrientation, imageData: Data?,
-                         subjectHeightMeters: Double) -> (spec: ShotSpec, diagnostics: ShotSpecDiagnostics) {
+                         subjectHeightMeters: Double,
+                         pose2D: VNHumanBodyPoseObservation? = nil,
+                         reusePose2D: Bool = false) -> (spec: ShotSpec, diagnostics: ShotSpecDiagnostics) {
         var log = ShotSpecDiagnostics()
         let rawSize = CGSize(width: cgImage.width, height: cgImage.height)
         let size = orientation.swapsDimensions ? CGSize(width: rawSize.height, height: rawSize.width) : rawSize
@@ -359,19 +353,21 @@ enum ShotSpecEstimator {
         let handler = imageData.map { VNImageRequestHandler(data: $0, orientation: orientation, options: options) }
             ?? VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: options)
         let pose3D = VNDetectHumanBodyPose3DRequest()
-        let pose2D = VNDetectHumanBodyPoseRequest()
+        let pose2DRequest = reusePose2D ? nil : VNDetectHumanBodyPoseRequest()
         let horizon = VNDetectHorizonRequest()
         let segmentation = VNGeneratePersonSegmentationRequest()
         segmentation.qualityLevel = .balanced
         segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
         // Run separately so one unavailable model does not block the others.
-        let requests: [(String, VNRequest)] = [("3D pose", pose3D), ("2D pose", pose2D),
-                                               ("horizon", horizon), ("segmentation", segmentation)]
+        var requests: [(String, VNRequest)] = [("3D pose", pose3D)]
+        if let pose2DRequest { requests.append(("2D pose", pose2DRequest)) }
+        requests += [("horizon", horizon), ("segmentation", segmentation)]
         for (name, request) in requests {
             log.add("\(name): \(VisionRunner.perform(request, on: handler).map { "FAILED \($0)" } ?? "ok")")
         }
 
-        let points2D = pose2D.results?.first.map(Pose2DReader.points) ?? [:]
+        let resolvedPose2D = reusePose2D ? pose2D : pose2DRequest?.results?.first
+        let points2D = resolvedPose2D.map(Pose2DReader.points) ?? [:]
         let horizonDegrees = horizon.results?.first.map { Double($0.angle) * 180 / .pi }
         let personBox = Pose2DReader.box(points2D)
         let silhouette = segmentation.results?.first.map {
@@ -519,7 +515,7 @@ enum ShotSpecEstimator {
     private static func fmt(_ value: Double) -> String { String(format: "%.3f", value) }
 }
 
-private extension CGImagePropertyOrientation {
+extension CGImagePropertyOrientation {
     init(_ orientation: UIImage.Orientation) {
         switch orientation {
         case .up: self = .up
@@ -534,9 +530,6 @@ private extension CGImagePropertyOrientation {
         }
     }
 
-}
-
-extension CGImagePropertyOrientation {
     var swapsDimensions: Bool {
         switch self {
         case .left, .right, .leftMirrored, .rightMirrored: true

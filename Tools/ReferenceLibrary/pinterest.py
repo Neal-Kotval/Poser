@@ -276,6 +276,7 @@ def annotate(records, vision, work):
     """Rank AI suggestions; never turn ML predictions into human approvals."""
     from PIL import Image
     hashes = {}
+    by_id = {r['id']: r for r in records}
     for record in records:
         suggestions = vision.get(record['id'], {})
         record['visionSuggestions'] = suggestions
@@ -294,9 +295,9 @@ def annotate(records, vision, work):
             pixels = list(tiny.get_flattened_data() if hasattr(tiny, 'get_flattened_data') else tiny.getdata())
             value = sum(int(pixels[y * 9 + x] > pixels[y * 9 + x + 1]) << (y * 8 + x) for y in range(8) for x in range(8))
         for other, previous in hashes.items():
-            if (value ^ previous).bit_count() <= 5:
+            if bin(value ^ previous).count('1') <= 5:
                 record['nearDuplicates'].append(other)
-                next(r for r in records if r['id'] == other)['nearDuplicates'].append(record['id'])
+                by_id[other]['nearDuplicates'].append(record['id'])
         hashes[record['id']] = value
     return records
 
@@ -350,6 +351,7 @@ def import_local(args):
     records = json.loads(records_path.read_text()) if records_path.exists() else []
     imported, failures = 0, []
     args.output.mkdir(parents=True, exist_ok=True)
+    existing_hashes = {hashlib.sha256(library.safe_file(args.output, r['image']).read_bytes()).hexdigest() for r in records}
     for candidate in candidates:
         if candidate.get('approved') is not True:
             continue
@@ -381,7 +383,6 @@ def import_local(args):
                 created.append(destination)
                 library.normalize(source, destination, size)
             digest = hashlib.sha256((args.output / record['image']).read_bytes()).hexdigest()
-            existing_hashes = {hashlib.sha256(library.safe_file(args.output, r['image']).read_bytes()).hexdigest() for r in records}
             if digest in existing_hashes:
                 raise ValueError('Duplicate image content')
             _, errors, _ = library.validate([record], args.output, target=1, coverage=False)
@@ -389,6 +390,7 @@ def import_local(args):
                 raise ValueError('; '.join(errors))
             library.save(records_path, records + [record])
             records.append(record)
+            existing_hashes.add(digest)
             imported += 1
         except (ValueError, KeyError, OSError, Image.DecompressionBombError) as error:
             for path in created:

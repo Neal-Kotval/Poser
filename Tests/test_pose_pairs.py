@@ -26,6 +26,16 @@ class PosePairEvaluationTests(unittest.TestCase):
         self.assertEqual(overall["cue_accuracy"], 2 / 3)
         self.assertEqual(result["slices"]["view=side"]["score_coverage"], 0.5)
 
+    def test_bool_score_is_not_treated_as_number(self):
+        records = [
+            {"reference_id": "a", "match": True, "score": True},
+            {"reference_id": "a", "match": False, "score": False},
+        ]
+        result = evaluate(records)
+        self.assertEqual(result["overall"]["pairs"], 2)
+        self.assertEqual(result["overall"]["score_coverage"], 0.0)
+        self.assertIsNone(result["overall"]["ranking_auc"])
+
 
 if __name__ == "__main__":
     unittest.main()

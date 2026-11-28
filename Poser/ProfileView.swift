@@ -15,49 +15,78 @@ struct ProfileView: View {
     @State private var editingProfile = false
     @State private var selectedTab: ProfileTab = .shots
     @State private var posePicks: [PhotosPickerItem] = []
-
-    private enum ProfileTab { case shots, poses, progress }
     @State private var avatarPicker: PhotosPickerItem?
     @State private var avatarDraft: AvatarDraft?
     @State private var avatarError: String?
+    @State private var avatarVersion = 0
     @State private var profileCard: UIImage?
+    @Namespace private var tabNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
+    private enum ProfileTab: CaseIterable {
+        case shots, poses, progress
+
+        var title: String {
+            switch self {
+            case .shots: "Shots"
+            case .poses: "Poses"
+            case .progress: "Progress"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .shots: "square.grid.3x3"
+            case .poses: "figure.stand"
+            case .progress: "chart.line.uptrend.xyaxis"
+            }
+        }
+    }
+
+    private let mediaColumns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+    private let milestoneColumns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 
     private var insights: ProfileInsights {
         ProfileInsights(shots: shootStore.shots, savedPoses: inspirationStore.items.count)
     }
 
-    /// Changes whenever something shown on the share card changes.
     private var cardKey: String {
         let profile = profileStore.profile
         return [profile.displayName, profile.bio ?? "", "\(shootStore.shots.count)",
-                "\(shootStore.bestMatch ?? -1)", "\(inspirationStore.items.count)"].joined(separator: "|")
+                "\(shootStore.bestMatch ?? -1)", "\(inspirationStore.items.count)",
+                "\(insights.currentStreak)", shootStore.shots.first?.id.uuidString ?? "",
+                "\(avatarVersion)"].joined(separator: "|")
     }
 
     var body: some View {
         let insights = self.insights
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: PoserSpace.large) {
+            VStack(alignment: .leading, spacing: 0) {
                 header(insights)
-                VStack(spacing: PoserSpace.medium) {
-                    tabBar
-                    switch selectedTab {
-                    case .shots: gallery
-                    case .poses: poses
-                    case .progress: progress(insights)
-                    }
+                    .padding(.horizontal, PoserSpace.regular)
+                    .padding(.top, PoserSpace.medium)
+                    .padding(.bottom, PoserSpace.regular)
+
+                tabBar
+
+                switch selectedTab {
+                case .shots:
+                    gallery
+                case .poses:
+                    poses
+                case .progress:
+                    progress(insights)
+                        .padding(.horizontal, PoserSpace.regular)
+                        .padding(.top, PoserSpace.regular)
                 }
             }
             .foregroundStyle(Palette.primaryText)
             .frame(maxWidth: 620)
-            .padding(.horizontal, PoserSpace.large)
-            .padding(.top, PoserSpace.large)
-            .padding(.bottom, 86)
+            .padding(.bottom, 96)
             .frame(maxWidth: .infinity)
         }
         .background(Palette.background)
-        .task(id: cardKey) { renderProfileCard() }
+        .task(id: cardKey) { await renderProfileCard() }
         .task(id: shootStore.shots.count) { await shootStore.scoreMissingMatches() }
         .onChange(of: posePicks) { _, items in
             guard !items.isEmpty else { return }
@@ -93,7 +122,7 @@ struct ProfileView: View {
                 do {
                     try profileStore.updateAvatar(cropped)
                     avatarDraft = nil
-                    renderProfileCard()
+                    avatarVersion += 1
                 } catch {
                     avatarDraft = nil
                     avatarError = "Your profile photo could not be saved. Try again."
@@ -126,10 +155,10 @@ struct ProfileView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: PoserSpace.xSmall) {
                 HStack(spacing: PoserSpace.small) {
                     Text(profileStore.profile.displayName)
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(.title3, design: .rounded, weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                     if insights.currentStreak > 0 {
@@ -149,6 +178,7 @@ struct ProfileView: View {
                     headerButtonLabel("Edit profile", symbol: nil)
                 }
                 .buttonStyle(.plain)
+
                 if let profileCard {
                     ShareLink(item: Image(uiImage: profileCard),
                               preview: SharePreview("\(profileStore.profile.displayName) on Poser",
@@ -156,6 +186,11 @@ struct ProfileView: View {
                         headerButtonLabel("Share profile", symbol: "square.and.arrow.up")
                     }
                     .buttonStyle(.plain)
+                } else {
+                    headerButtonLabel("Share profile", symbol: "square.and.arrow.up")
+                        .opacity(0.4)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
         }
@@ -163,28 +198,38 @@ struct ProfileView: View {
 
     private func headerButtonLabel(_ title: String, symbol: String?) -> some View {
         HStack(spacing: 6) {
-            if let symbol { Image(systemName: symbol).font(.system(size: 13, weight: .semibold)) }
-            Text(title).font(.system(size: 14, weight: .semibold))
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.footnote.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
         .foregroundStyle(Palette.primaryText)
-        .frame(maxWidth: .infinity, minHeight: 40)
-        .background(Palette.elevated, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .poserGlass(cornerRadius: PoserRadius.control, interactive: true)
     }
 
     private func streakChip(_ days: Int) -> some View {
         HStack(spacing: 3) {
-            Image(systemName: "flame.fill").font(.system(size: 11, weight: .bold))
-            Text("\(days)").font(.system(size: 12, weight: .bold)).monospacedDigit()
+            Image(systemName: "flame.fill")
+                .font(.caption2.weight(.bold))
+                .accessibilityHidden(true)
+            Text("\(days)")
+                .font(.caption.weight(.bold))
+                .monospacedDigit()
         }
-        .foregroundStyle(.black)
-        .padding(.horizontal, 7)
+        .foregroundStyle(Palette.background)
+        .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(.white, in: Capsule())
+        .background(Palette.primaryText, in: Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(days)-day shooting streak")
     }
 
-    /// A white ring marks an active streak, the way stories rings mark something new.
     private func avatar(onStreak: Bool) -> some View {
         ZStack {
             if let image = profileStore.avatarImage {
@@ -193,7 +238,7 @@ struct ProfileView: View {
                     .scaledToFill()
             } else {
                 Text(profileStore.initials)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(.system(.title, design: .rounded, weight: .bold))
                     .foregroundStyle(Palette.primaryText)
             }
         }
@@ -205,16 +250,15 @@ struct ProfileView: View {
         .overlay(Circle().stroke(onStreak ? Palette.primaryText : .clear, lineWidth: 2))
     }
 
-    /// Instagram-style count: value over label, equal thirds, long values shrink.
     private func headerStat(value: String, title: String) -> some View {
         VStack(spacing: 2) {
             Text(value)
-                .font(.system(size: 18, weight: .bold))
+                .font(.headline.weight(.bold))
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.75)
             Text(title)
-                .font(.system(size: 12))
+                .font(.caption)
                 .foregroundStyle(Palette.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -223,17 +267,315 @@ struct ProfileView: View {
         .accessibilityElement(children: .combine)
     }
 
-    // MARK: Match trend
+    // MARK: Tabs
 
-    /// Poser's own stat: are your recreations getting closer to the reference?
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(ProfileTab.allCases, id: \.self) { tab in
+                tabButton(tab)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Palette.border).frame(height: 1)
+        }
+        .sensoryFeedback(.selection, trigger: selectedTab)
+    }
+
+    private func tabButton(_ tab: ProfileTab) -> some View {
+        let isSelected = selectedTab == tab
+        return Button {
+            withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86)) {
+                selectedTab = tab
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: tab.symbol)
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityHidden(true)
+                Text(tab.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(isSelected ? Palette.primaryText : Palette.secondaryText)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .overlay(alignment: .bottom) {
+                if isSelected {
+                    Rectangle()
+                        .fill(Palette.primaryText)
+                        .frame(height: 2)
+                        .matchedGeometryEffect(id: "profileTabIndicator", in: tabNamespace)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    // MARK: Shots Grid
+
+    @ViewBuilder
+    private var gallery: some View {
+        if shootStore.shots.isEmpty {
+            VStack(spacing: PoserSpace.regular) {
+                Image(systemName: "camera.aperture")
+                    .font(.system(size: 36, weight: .light))
+                    .foregroundStyle(Palette.secondaryText)
+                    .accessibilityHidden(true)
+                VStack(spacing: 6) {
+                    Text("Your shoots will live here")
+                        .font(PoserType.title)
+                        .foregroundStyle(Palette.primaryText)
+                    Text("Take a shot from the camera tab to start your collection.")
+                        .font(PoserType.supporting)
+                        .foregroundStyle(Palette.secondaryText)
+                        .multilineTextAlignment(.center)
+                }
+                Button(action: onOpenCamera) {
+                    Label("Open camera", systemImage: "camera")
+                        .font(PoserType.action)
+                        .foregroundStyle(Palette.background)
+                        .padding(.horizontal, 20)
+                        .frame(minHeight: 48)
+                        .background(Palette.primaryText, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, PoserSpace.xLarge)
+            .padding(.top, 64)
+        } else {
+            LazyVGrid(columns: mediaColumns, spacing: 2) {
+                ForEach(pinnedOrder) { shot in
+                    if let photo = shootStore.photoThumbnail(for: shot) {
+                        Button { onSelectShot(shot) } label: {
+                            shotGridTile(photo: photo, score: shot.matchScore, isPinned: shot.id == pinnedShotID)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Shot from \(shot.createdAt.formatted(date: .abbreviated, time: .omitted))"
+                            + (shot.matchScore.map { ", \($0) percent match" } ?? "")
+                            + (shot.id == pinnedShotID ? ", pinned best shot" : ""))
+                    }
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private func shotGridTile(photo: UIImage, score: Int?, isPinned: Bool) -> some View {
+        GeometryReader { tile in
+            Image(uiImage: photo)
+                .resizable()
+                .scaledToFill()
+                .frame(width: tile.size.width, height: tile.size.height)
+                .clipped()
+                .overlay(alignment: .bottom) {
+                    if score != nil {
+                        LinearGradient(
+                            colors: [.clear, .black.opacity(0.45)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 44)
+                        .allowsHitTesting(false)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(.black.opacity(0.55), in: Circle())
+                            .padding(6)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if let score {
+                        Text("\(score)%")
+                            .font(.caption2.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.58), in: Capsule())
+                            .padding(6)
+                    }
+                }
+        }
+        .aspectRatio(3 / 4, contentMode: .fit)
+        .background(Palette.surface)
+        .contentShape(Rectangle())
+    }
+
+    private var pinnedShotID: UUID? {
+        guard shootStore.shots.count > 1 else { return nil }
+        return shootStore.shots.filter { $0.matchScore != nil }
+            .max { ($0.matchScore ?? 0, $0.createdAt) < ($1.matchScore ?? 0, $1.createdAt) }?.id
+    }
+
+    private var pinnedOrder: [CompletedShot] {
+        guard let pinned = pinnedShotID, let shot = shootStore.shots.first(where: { $0.id == pinned }) else {
+            return shootStore.shots
+        }
+        return [shot] + shootStore.shots.filter { $0.id != pinned }
+    }
+
+    // MARK: Poses Grid
+
+    private var poses: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if inspirationStore.items.isEmpty {
+                VStack(spacing: PoserSpace.regular) {
+                    Image(systemName: "figure.stand")
+                        .font(.system(size: 36, weight: .light))
+                        .foregroundStyle(Palette.secondaryText)
+                        .accessibilityHidden(true)
+                    VStack(spacing: 6) {
+                        Text("No saved poses yet")
+                            .font(PoserType.title)
+                            .foregroundStyle(Palette.primaryText)
+                        Text("Add poses you love so they are one tap away when you shoot.")
+                            .font(PoserType.supporting)
+                            .foregroundStyle(Palette.secondaryText)
+                            .multilineTextAlignment(.center)
+                    }
+                    PhotosPicker(selection: $posePicks, maxSelectionCount: 10,
+                                 selectionBehavior: .ordered, matching: .images) {
+                        Label("Add poses", systemImage: "plus")
+                            .font(PoserType.action)
+                            .foregroundStyle(Palette.background)
+                            .padding(.horizontal, 20)
+                            .frame(minHeight: 48)
+                            .background(Palette.primaryText, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 4)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, PoserSpace.xLarge)
+                .padding(.top, 64)
+            } else {
+                HStack(spacing: PoserSpace.small) {
+                    Text("\(inspirationStore.items.count) \(inspirationStore.items.count == 1 ? "pose" : "poses")")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                        .monospacedDigit()
+                    Spacer(minLength: 0)
+                    PhotosPicker(selection: $posePicks, maxSelectionCount: 10,
+                                 selectionBehavior: .ordered, matching: .images) {
+                        Label("Add pose", systemImage: "plus")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Palette.primaryText)
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 36)
+                            .poserGlass(cornerRadius: 18, interactive: true)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add poses from your photos")
+                }
+                .padding(.horizontal, PoserSpace.regular)
+                .padding(.vertical, 4)
+
+                LazyVGrid(columns: mediaColumns, spacing: 2) {
+                    ForEach(inspirationStore.items) { item in
+                        if let image = inspirationStore.image(for: item) {
+                            Button { onOpenReference(item) } label: {
+                                GeometryReader { tile in
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: tile.size.width, height: tile.size.height)
+                                        .clipped()
+                                }
+                                .aspectRatio(3 / 4, contentMode: .fit)
+                                .background(Palette.surface)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Try this pose")
+                            .contextMenu {
+                                Button("Try this pose", systemImage: "camera") { onOpenReference(item) }
+                                Button("Remove from profile", systemImage: "trash", role: .destructive) {
+                                    onDeleteReference(item.id)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Progress
+
+    private func progress(_ insights: ProfileInsights) -> some View {
+        VStack(alignment: .leading, spacing: PoserSpace.large) {
+            HStack(spacing: 0) {
+                progressStatColumn(value: "\(insights.currentStreak)", title: "Day streak", symbol: "flame.fill")
+                Rectangle().fill(Palette.border).frame(width: 1, height: 36)
+                progressStatColumn(value: "\(insights.longestStreak)", title: "Longest", symbol: "calendar")
+                Rectangle().fill(Palette.border).frame(width: 1, height: 36)
+                progressStatColumn(value: insights.averageScore.map { "\($0)%" } ?? "—", title: "Avg match",
+                                   symbol: "scope")
+            }
+            .padding(.vertical, PoserSpace.regular)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous)
+                .stroke(Palette.border, lineWidth: 1))
+
+            if insights.recentScores.count >= 2 {
+                trendCard(insights)
+            } else {
+                Text("Finish a couple of shots from a shoot to see your match trend here.")
+                    .font(PoserType.supporting)
+                    .foregroundStyle(Palette.secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(PoserSpace.regular)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous)
+                        .stroke(Palette.border, lineWidth: 1))
+            }
+
+            milestonesSection(insights)
+        }
+    }
+
+    private func progressStatColumn(value: String, title: String, symbol: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.secondaryText)
+                .accessibilityHidden(true)
+            Text(value)
+                .font(.title3.weight(.bold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(Palette.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+    }
+
     private func trendCard(_ insights: ProfileInsights) -> some View {
         let points = Array(insights.recentScores.enumerated())
         return VStack(alignment: .leading, spacing: PoserSpace.medium) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Match trend").font(.system(size: 15, weight: .semibold))
+                Text("Match trend").font(.subheadline.weight(.semibold))
                 Spacer()
                 Text(insights.trendHeadline)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(Palette.secondaryText)
             }
             Chart {
@@ -256,77 +598,31 @@ struct ProfileView: View {
             .chartYAxis {
                 AxisMarks(position: .leading, values: [0, 50, 100]) { value in
                     AxisGridLine().foregroundStyle(Palette.border)
-                    AxisValueLabel { Text("\(value.as(Int.self) ?? 0)%").font(.system(size: 10)) }
+                    AxisValueLabel { Text("\(value.as(Int.self) ?? 0)%").font(.caption2) }
                         .foregroundStyle(Palette.tertiaryText)
                 }
             }
-            .frame(height: 110)
+            .frame(height: 116)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Match trend over your last \(points.count) scored shots. \(insights.trendHeadline).")
         }
         .padding(PoserSpace.regular)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: PoserRadius.image, style: .continuous)
+            .stroke(Palette.border, lineWidth: 1))
     }
 
-    // MARK: Progress
-
-    private func progress(_ insights: ProfileInsights) -> some View {
-        VStack(alignment: .leading, spacing: PoserSpace.large) {
-            HStack(spacing: 10) {
-                progressFact(value: "\(insights.currentStreak)", title: "Day streak", symbol: "flame.fill")
-                progressFact(value: "\(insights.longestStreak)", title: "Longest streak", symbol: "calendar")
-                progressFact(value: insights.averageScore.map { "\($0)%" } ?? "—", title: "Average match",
-                             symbol: "scope")
-            }
-            if insights.recentScores.count >= 2 {
-                trendCard(insights)
-            } else {
-                Text("Finish a couple of shots from a shoot to see your match trend here.")
-                    .font(PoserType.supporting)
-                    .foregroundStyle(Palette.secondaryText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(PoserSpace.regular)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            milestonesSection(insights)
-        }
-    }
-
-    private func progressFact(value: String, title: String, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.secondaryText)
-            Text(value)
-                .font(.system(size: 22, weight: .bold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Palette.secondaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(PoserSpace.medium)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: Milestones
-
-    /// A grid, not a horizontal scroller, so it never fights the page swipe.
     private func milestonesSection(_ insights: ProfileInsights) -> some View {
         VStack(alignment: .leading, spacing: PoserSpace.medium) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Milestones").font(.system(size: 15, weight: .semibold))
+                Text("Milestones").font(.subheadline.weight(.semibold))
                 Spacer()
                 Text("\(insights.earnedCount) of \(insights.milestones.count)")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(Palette.secondaryText)
+                    .monospacedDigit()
             }
-            LazyVGrid(columns: columns, spacing: 10) {
+            LazyVGrid(columns: milestoneColumns, spacing: 10) {
                 ForEach(insights.milestones) { milestone in
                     milestoneTile(milestone)
                 }
@@ -337,223 +633,52 @@ struct ProfileView: View {
     private func milestoneTile(_ milestone: ProfileInsights.Milestone) -> some View {
         VStack(spacing: 6) {
             Image(systemName: milestone.symbol)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(milestone.isEarned ? Color.black : Palette.tertiaryText)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(milestone.isEarned ? Palette.background : Palette.tertiaryText)
                 .frame(width: 40, height: 40)
-                .background(milestone.isEarned ? Color.white : Palette.elevated, in: Circle())
+                .background(milestone.isEarned ? Palette.primaryText : Palette.elevated, in: Circle())
             Text(milestone.title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(milestone.isEarned ? Palette.primaryText : Palette.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text(milestone.isEarned ? "Earned" : "\(milestone.progress)/\(milestone.goal)")
-                .font(.system(size: 11, weight: .medium))
+                .font(.caption2.weight(.medium))
                 .monospacedDigit()
                 .foregroundStyle(Palette.tertiaryText)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, PoserSpace.medium)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 6)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .stroke(milestone.isEarned ? Color.white.opacity(0.22) : Palette.border, lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(milestone.title): \(milestone.detail). "
             + (milestone.isEarned ? "Earned." : "\(milestone.progress) of \(milestone.goal)."))
     }
 
-    private func renderProfileCard() {
-        let best = shootStore.shots
+    private func renderProfileCard() async {
+        let name = profileStore.profile.displayName
+        let bio = profileStore.profile.bio
+        let avatar = profileStore.avatarImage
+        let initials = profileStore.initials
+        let snapshot = insights
+        let tiles = shootStore.shots
             .sorted { ($0.matchScore ?? -1, $0.createdAt) > ($1.matchScore ?? -1, $1.createdAt) }
             .prefix(3)
             .compactMap { shot -> ProfileCardRenderer.Tile? in
                 guard let photo = shootStore.photoThumbnail(for: shot) else { return nil }
                 return .init(photo: photo, reference: shootStore.referenceThumbnail(for: shot), score: shot.matchScore)
             }
-        profileCard = ProfileCardRenderer.render(
-            name: profileStore.profile.displayName, bio: profileStore.profile.bio,
-            avatar: profileStore.avatarImage, initials: profileStore.initials,
-            insights: insights, tiles: best)
-    }
-
-    // MARK: Tabs
-
-    @ViewBuilder
-    private var gallery: some View {
-        VStack(alignment: .leading, spacing: PoserSpace.medium) {
-            if shootStore.shots.isEmpty {
-                VStack(alignment: .leading, spacing: PoserSpace.medium) {
-                    Text("Your shoots will live here")
-                        .font(.system(size: 19, weight: .semibold))
-                    Text("Take a shot from the camera tab to start a collection.")
-                        .font(PoserType.supporting)
-                        .foregroundStyle(Palette.secondaryText)
-                    Button("Open camera", action: onOpenCamera)
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(.top, 4)
-                }
-                .padding(.top, PoserSpace.large)
-            } else {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(pinnedOrder) { shot in
-                        if let photo = shootStore.photoThumbnail(for: shot) {
-                            Button { onSelectShot(shot) } label: {
-                                pairedTile(photo: photo, reference: shootStore.referenceThumbnail(for: shot),
-                                           score: shot.matchScore)
-                                    .overlay(alignment: .topTrailing) {
-                                        if shot.id == pinnedShotID {
-                                            Image(systemName: "pin.fill")
-                                                .font(.system(size: 11, weight: .bold))
-                                                .foregroundStyle(.white)
-                                                .padding(6)
-                                                .background(.black.opacity(0.6), in: Circle())
-                                                .padding(5)
-                                                .accessibilityLabel("Best shot")
-                                        }
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Shot from \(shot.createdAt.formatted(date: .abbreviated, time: .omitted))"
-                                + (shot.matchScore.map { ", \($0) percent match" } ?? ""))
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// The best-scoring shot is pinned first, like a pinned post; the rest stay newest first.
-    private var pinnedShotID: UUID? {
-        guard shootStore.shots.count > 1 else { return nil }
-        return shootStore.shots.filter { $0.matchScore != nil }
-            .max { ($0.matchScore ?? 0, $0.createdAt) < ($1.matchScore ?? 0, $1.createdAt) }?.id
-    }
-
-    private var pinnedOrder: [CompletedShot] {
-        guard let pinned = pinnedShotID, let shot = shootStore.shots.first(where: { $0.id == pinned }) else {
-            return shootStore.shots
-        }
-        return [shot] + shootStore.shots.filter { $0.id != pinned }
-    }
-
-    private var tabBar: some View {
-        HStack(spacing: 0) {
-            tabButton(.shots, symbol: "square.grid.3x3", title: "Shots")
-            tabButton(.poses, symbol: "figure.stand", title: "Poses")
-            tabButton(.progress, symbol: "chart.line.uptrend.xyaxis", title: "Progress")
-        }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Palette.border).frame(height: 1)
-        }
-    }
-
-    private func tabButton(_ tab: ProfileTab, symbol: String, title: String) -> some View {
-        let isSelected = selectedTab == tab
-        return Button {
-            withAnimation(.easeOut(duration: 0.2)) { selectedTab = tab }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
-                Text(title).font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
-            }
-            .foregroundStyle(isSelected ? Palette.primaryText : Palette.tertiaryText)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(isSelected ? Palette.primaryText : .clear)
-                    .frame(height: 2)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    /// References this person recommends: their saved inspiration, shown for others to try.
-    private var poses: some View {
-        VStack(alignment: .leading, spacing: PoserSpace.medium) {
-            LazyVGrid(columns: columns, spacing: 10) {
-                PhotosPicker(selection: $posePicks, maxSelectionCount: 10,
-                             selectionBehavior: .ordered, matching: .images) {
-                    Color.clear
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay {
-                            VStack(spacing: 6) {
-                                Image(systemName: "plus").font(.system(size: 22, weight: .semibold))
-                                Text("Add pose").font(.system(size: 12, weight: .semibold))
-                            }
-                            .foregroundStyle(Palette.primaryText)
-                        }
-                        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(Palette.border, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Add poses from your photos")
-
-                ForEach(inspirationStore.items) { item in
-                    if let image = inspirationStore.image(for: item) {
-                        Button { onOpenReference(item) } label: {
-                            Color.clear
-                                .aspectRatio(1, contentMode: .fit)
-                                .overlay { Image(uiImage: image).resizable().scaledToFill() }
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Try this pose")
-                        .contextMenu {
-                            Button("Try this pose", systemImage: "camera") { onOpenReference(item) }
-                            Button("Remove from profile", systemImage: "trash", role: .destructive) {
-                                onDeleteReference(item.id)
-                            }
-                        }
-                    }
-                }
-            }
-            if inspirationStore.items.isEmpty {
-                Text("Add poses you love. They show here for you to try, and later for friends to see.")
-                    .font(PoserType.supporting)
-                    .foregroundStyle(Palette.secondaryText)
-            }
-        }
-    }
-
-    /// My shot fills the tile; the reference it recreates sits in the corner, like BeReal's front-camera bubble.
-    private func pairedTile(photo: UIImage, reference: UIImage?, score: Int?) -> some View {
-        GeometryReader { tile in
-            Image(uiImage: photo)
-                .resizable()
-                .scaledToFill()
-                .frame(width: tile.size.width, height: tile.size.height)
-                .clipped()
-                .overlay(alignment: .topLeading) {
-                    if let reference {
-                        Image(uiImage: reference)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: tile.size.width * 0.36, height: tile.size.width * 0.36)
-                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .stroke(.black, lineWidth: 1.5))
-                            .padding(5)
-                    }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    if let score {
-                        Text("\(score)%")
-                            .font(.system(size: 11, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(.black.opacity(0.65), in: Capsule())
-                            .padding(5)
-                    }
-                }
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .contentShape(Rectangle())
-        .background(Palette.surface)
+        let rendered = await Task.detached(priority: .utility) {
+            ProfileCardRenderer.render(
+                name: name, bio: bio,
+                avatar: avatar, initials: initials,
+                insights: snapshot, tiles: tiles)
+        }.value
+        guard !Task.isCancelled else { return }
+        profileCard = rendered
     }
 }
 
@@ -570,42 +695,66 @@ struct EditProfileView: View {
         _bio = State(initialValue: profile.bio ?? "")
     }
 
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: PoserSpace.regular) {
-            HStack {
-                Button("Cancel", action: onCancel)
-                    .frame(minHeight: 44)
-                Spacer()
-                Text("Edit profile").font(.system(size: 17, weight: .semibold))
-                Spacer()
-                Button("Save") { onSave(name, bio) }
-                    .fontWeight(.semibold)
-                    .frame(minHeight: 44)
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            field("Name", count: name.count, limit: UserProfile.nameLimit) {
-                TextField("Your name", text: $name)
-                    .textInputAutocapitalization(.words)
-                    .onChange(of: name) { _, value in
-                        let clean = value.replacingOccurrences(of: "\n", with: " ")
-                        let limited = String(clean.prefix(UserProfile.nameLimit))
-                        if limited != value { name = limited }
+        VStack(alignment: .leading, spacing: PoserSpace.large) {
+            ZStack {
+                Text("Edit profile")
+                    .font(.headline.weight(.semibold))
+                HStack {
+                    Button("Cancel", action: onCancel)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.secondaryText)
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    Spacer()
+                    Button { onSave(name, bio) } label: {
+                        Text("Save")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(canSave ? Palette.background : Palette.tertiaryText)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 36)
+                            .background(canSave ? Palette.primaryText : Palette.elevated, in: Capsule())
+                            .frame(minHeight: 44)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(!canSave)
+                }
             }
-            field("Bio", count: bio.count, limit: UserProfile.bioLimit) {
-                TextField("Tell people about you", text: $bio, axis: .vertical)
-                    .lineLimit(3...6)
-                    .onChange(of: bio) { _, value in
-                        if value.count > UserProfile.bioLimit { bio = String(value.prefix(UserProfile.bioLimit)) }
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: PoserSpace.regular) {
+                    field("Name", count: name.count, limit: UserProfile.nameLimit) {
+                        TextField("Your name", text: $name)
+                            .font(PoserType.body)
+                            .textInputAutocapitalization(.words)
+                            .onChange(of: name) { _, value in
+                                let clean = value.replacingOccurrences(of: "\n", with: " ")
+                                let limited = String(clean.prefix(UserProfile.nameLimit))
+                                if limited != value { name = limited }
+                            }
                     }
+                    field("Bio", count: bio.count, limit: UserProfile.bioLimit) {
+                        TextField("Tell people about you", text: $bio, axis: .vertical)
+                            .font(PoserType.body)
+                            .lineLimit(3...6)
+                            .onChange(of: bio) { _, value in
+                                if value.count > UserProfile.bioLimit { bio = String(value.prefix(UserProfile.bioLimit)) }
+                            }
+                    }
+                    Text("Your profile stays on this phone. No account is required.")
+                        .font(PoserType.caption)
+                        .foregroundStyle(Palette.secondaryText)
+                        .padding(.top, PoserSpace.xSmall)
+                }
             }
-            Text("Your profile stays on this phone. No account is required.")
-                .font(PoserType.caption)
-                .foregroundStyle(Palette.secondaryText)
-            Spacer()
+            .scrollDismissesKeyboard(.interactively)
         }
-        .padding(PoserSpace.large)
-        .foregroundStyle(.white)
+        .padding(.horizontal, PoserSpace.regular)
+        .padding(.top, PoserSpace.medium)
+        .foregroundStyle(Palette.primaryText)
         .background(Palette.background.ignoresSafeArea())
     }
 
@@ -623,13 +772,13 @@ struct EditProfileView: View {
             .foregroundStyle(Palette.secondaryText)
             content()
                 .padding(14)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Palette.border, lineWidth: 1))
         }
     }
 }
 
-/// All of a person's posts in one scrolling feed, like Instagram's profile feed.
-/// Opens at the post that was tapped in the grid.
 struct ShotFeedView: View {
     let startShotID: UUID
     @ObservedObject var shootStore: ShootStore
@@ -638,53 +787,60 @@ struct ShotFeedView: View {
 
     @State private var commentsShotID: CommentsTarget?
     @State private var message: String?
-    @State private var didScrollToStart = false
 
     private struct CommentsTarget: Identifiable {
         let id: UUID
     }
 
+    private var shot: CompletedShot? {
+        shootStore.shots.first { $0.id == startShotID }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
+        ScrollView(showsIndicators: false) {
+            if let shot {
+                ShotPostCard(shot: shot, shootStore: shootStore, profileStore: profileStore,
+                             onComments: { commentsShotID = CommentsTarget(id: shot.id) },
+                             onError: { message = $0 })
+                    .frame(maxWidth: 620)
+                    .padding(.top, PoserSpace.xSmall)
+                    .padding(.bottom, PoserSpace.xLarge)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
             ZStack {
-                Text("Posts")
-                    .font(.system(size: 17, weight: .semibold))
+                Text("Post")
+                    .font(.headline.weight(.semibold))
                 HStack {
                     Button(action: onClose) {
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Palette.primaryText)
                             .frame(width: 44, height: 44)
+                            .poserGlass(cornerRadius: 22, interactive: true)
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Close")
                     Spacer()
                 }
             }
-            .padding(.horizontal, PoserSpace.small)
+            .padding(.horizontal, PoserSpace.regular)
             .padding(.top, PoserSpace.small)
-
-            ScrollViewReader { proxy in
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: PoserSpace.xLarge) {
-                        ForEach(shootStore.shots) { shot in
-                            ShotPostCard(shot: shot, shootStore: shootStore, profileStore: profileStore,
-                                         onComments: { commentsShotID = CommentsTarget(id: shot.id) },
-                                         onError: { message = $0 })
-                                .id(shot.id)
-                        }
-                    }
-                    .padding(.vertical, PoserSpace.regular)
-                }
-                .onAppear {
-                    guard !didScrollToStart else { return }
-                    didScrollToStart = true
-                    proxy.scrollTo(startShotID, anchor: .top)
-                }
-            }
+            .padding(.bottom, PoserSpace.medium)
+            .background(
+                LinearGradient(
+                    colors: [Palette.background, Palette.background.opacity(0.92), .clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea(edges: .top)
+            )
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Palette.primaryText)
         .background(Palette.background.ignoresSafeArea())
-        .onChange(of: shootStore.shots.isEmpty) { _, isEmpty in
-            if isEmpty { onClose() }
+        .onChange(of: shot == nil) { _, isRemoved in
+            if isRemoved { onClose() }
         }
         .sheet(item: $commentsShotID) { target in
             ShotCommentsSheet(shotID: target.id, shootStore: shootStore, profileStore: profileStore)
@@ -697,7 +853,6 @@ struct ShotFeedView: View {
     }
 }
 
-/// One post in the feed: who and when, reference and shot side by side, likes, comments and share.
 struct ShotPostCard: View {
     let shot: CompletedShot
     @ObservedObject var shootStore: ShootStore
@@ -726,19 +881,28 @@ struct ShotPostCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PoserSpace.medium) {
+        VStack(alignment: .leading, spacing: PoserSpace.small) {
             header
+                .padding(.horizontal, PoserSpace.regular)
             images
+                .padding(.horizontal, 6)
             actionRow
+                .padding(.horizontal, PoserSpace.regular)
             details
+                .padding(.horizontal, PoserSpace.regular)
         }
-        .padding(.horizontal, PoserSpace.regular)
         .task(id: shot.id) {
-            // Full-size files load per visible post; the lazy feed keeps offscreen posts unloaded.
-            photo = shootStore.photo(for: shot)
-            reference = shootStore.reference(for: shot)
-            if let photo, let reference {
-                shareCard = ShareCardRenderer.render(reference: reference, shot: photo, score: shot.matchScore)
+            let loadedPhoto = shootStore.photo(for: shot)
+            let loadedReference = shootStore.reference(for: shot)
+            photo = loadedPhoto
+            reference = loadedReference
+            if let loadedPhoto, let loadedReference {
+                let score = shot.matchScore
+                let rendered = await Task.detached(priority: .utility) {
+                    ShareCardRenderer.render(reference: loadedReference, shot: loadedPhoto, score: score)
+                }.value
+                guard !Task.isCancelled else { return }
+                shareCard = rendered
             }
         }
         .fullScreenCover(item: $viewerStart) { start in
@@ -759,11 +923,12 @@ struct ShotPostCard: View {
             ProfileAvatarBadge(profileStore: profileStore, size: 34)
             VStack(alignment: .leading, spacing: 1) {
                 Text(profileStore.profile.displayName)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                 if let score = shot.matchScore {
                     Text("\(score)% match")
-                        .font(.system(size: 12))
+                        .font(.caption)
                         .foregroundStyle(Palette.secondaryText)
+                        .monospacedDigit()
                 }
             }
             Spacer()
@@ -776,7 +941,8 @@ struct ShotPostCard: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.primaryText)
                     .frame(width: 44, height: 44)
             }
             .accessibilityLabel("More")
@@ -784,10 +950,10 @@ struct ShotPostCard: View {
     }
 
     private var images: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             if pages.isEmpty {
                 Color.clear.aspectRatio(3.0 / 2.0, contentMode: .fit)
-                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
             ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
                 postImage(page.image, label: page.label) { viewerStart = ViewerStart(index: index) }
@@ -798,7 +964,7 @@ struct ShotPostCard: View {
                 .font(.system(size: 88))
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.35), radius: 12)
-                .scaleEffect(burstHeart ? 1 : 0.4)
+                .scaleEffect(reduceMotion ? 1 : (burstHeart ? 1 : 0.4))
                 .opacity(burstHeart ? 1 : 0)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -806,11 +972,11 @@ struct ShotPostCard: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: PoserSpace.regular) {
+        HStack(spacing: PoserSpace.small) {
             Button { toggleLike() } label: {
                 Image(systemName: shot.isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(shot.isLiked ? Color.pink : .white)
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(shot.isLiked ? Color.pink : Palette.primaryText)
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.bounce, value: shot.isLiked)
                     .symbolEffectsRemoved(reduceMotion)
@@ -823,7 +989,8 @@ struct ShotPostCard: View {
 
             Button(action: onComments) {
                 Image(systemName: "bubble.right")
-                    .font(.system(size: 22, weight: .medium))
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(Palette.primaryText)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
@@ -834,7 +1001,8 @@ struct ShotPostCard: View {
                 ShareLink(item: Image(uiImage: shareCard),
                           preview: SharePreview("My Poser shot", image: Image(uiImage: shareCard))) {
                     Image(systemName: "paperplane")
-                        .font(.system(size: 22, weight: .medium))
+                        .font(.title3.weight(.medium))
+                        .foregroundStyle(Palette.primaryText)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
@@ -844,36 +1012,37 @@ struct ShotPostCard: View {
             Spacer()
         }
         .padding(.horizontal, -10)
-        .padding(.vertical, -8)
+        .padding(.vertical, -6)
     }
 
     private var details: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(shot.likeCount == 1 ? "1 like" : "\(shot.likeCount) likes")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
             ForEach(shot.commentList.suffix(2)) { comment in
                 (Text(comment.author).fontWeight(.semibold) + Text(" ") + Text(comment.text))
-                    .font(.system(size: 14))
+                    .font(.subheadline)
                     .lineLimit(2)
             }
             if shot.commentList.count > 2 {
                 Button("View all \(shot.commentList.count) comments", action: onComments)
-                    .font(.system(size: 14))
+                    .font(.subheadline)
                     .foregroundStyle(Palette.secondaryText)
             } else if shot.commentList.isEmpty {
                 Button("Add a comment…", action: onComments)
-                    .font(.system(size: 14))
+                    .font(.subheadline)
                     .foregroundStyle(Palette.secondaryText)
             }
             Text(shot.createdAt.formatted(date: .abbreviated, time: .shortened))
-                .font(.system(size: 12))
+                .font(.caption)
                 .foregroundStyle(Palette.tertiaryText)
         }
     }
 
     private func toggleLike() {
         do {
-            try withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            try withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.7)) {
                 try shootStore.toggleLike(shot.id)
             }
         } catch {
@@ -881,12 +1050,14 @@ struct ShotPostCard: View {
         }
     }
 
-    /// Double-tap likes (never unlikes), like Instagram, with a heart burst over the photos.
     private func doubleTapLike() {
         if !shot.isLiked { toggleLike() }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        guard !reduceMotion else { return }
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.55)) { burstHeart = true }
+        if reduceMotion {
+            withAnimation(.easeInOut(duration: 0.18)) { burstHeart = true }
+        } else {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.55)) { burstHeart = true }
+        }
         Task {
             try? await Task.sleep(for: .milliseconds(650))
             withAnimation(.easeOut(duration: 0.25)) { burstHeart = false }
@@ -897,18 +1068,18 @@ struct ShotPostCard: View {
         Color.clear
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             .overlay { Image(uiImage: image).resizable().scaledToFill() }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(alignment: .topLeading) {
                 Text(label)
-                    .font(.system(size: 10, weight: .bold))
-                    .tracking(1)
+                    .font(.caption2.weight(.bold))
+                    .tracking(0.8)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(.black.opacity(0.6), in: Capsule())
+                    .background(.black.opacity(0.58), in: Capsule())
                     .padding(8)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .onTapGesture(count: 2) { doubleTapLike() }
             .onTapGesture { onOpen() }
             .accessibilityElement(children: .ignore)
@@ -1225,8 +1396,8 @@ enum ShareCardRenderer {
             let width = (size.width - margin * 2 - gap) / 2
             let height = width * 4 / 3
             let y: CGFloat = 220
-            drawFilled(reference, in: CGRect(x: margin, y: y, width: width, height: height), context: context.cgContext)
-            drawFilled(shot, in: CGRect(x: margin + width + gap, y: y, width: width, height: height), context: context.cgContext)
+            reference.drawFilled(in: CGRect(x: margin, y: y, width: width, height: height), cornerRadius: 28, context: context.cgContext)
+            shot.drawFilled(in: CGRect(x: margin + width + gap, y: y, width: width, height: height), cornerRadius: 28, context: context.cgContext)
 
             let label: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: 26, weight: .bold), .foregroundColor: UIColor(white: 0.7, alpha: 1), .kern: 2
@@ -1254,21 +1425,11 @@ enum ShareCardRenderer {
             }
         }
     }
-
-    private static func drawFilled(_ image: UIImage, in rect: CGRect, context: CGContext) {
-        context.saveGState()
-        UIBezierPath(roundedRect: rect, cornerRadius: 28).addClip()
-        let scale = max(rect.width / max(image.size.width, 1), rect.height / max(image.size.height, 1))
-        let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        image.draw(in: CGRect(x: rect.midX - drawSize.width / 2, y: rect.midY - drawSize.height / 2,
-                              width: drawSize.width, height: drawSize.height))
-        context.restoreGState()
-    }
 }
 
 /// A story-sized (9:16) image of a profile, for sharing to Instagram or TikTok before accounts exist.
 enum ProfileCardRenderer {
-    struct Tile {
+    struct Tile: Sendable {
         let photo: UIImage
         let reference: UIImage?
         let score: Int?
@@ -1301,7 +1462,7 @@ enum ProfileCardRenderer {
             UIColor(white: 0.14, alpha: 1).setFill()
             cg.fill(avatarRect)
             if let avatar {
-                drawFilled(avatar, in: avatarRect)
+                avatar.drawFilled(in: avatarRect)
             } else {
                 draw(initials, font: .systemFont(ofSize: 110, weight: .bold), color: .white,
                      in: CGRect(x: avatarRect.minX, y: avatarRect.midY - 66, width: avatarRect.width, height: 132),
@@ -1346,17 +1507,14 @@ enum ProfileCardRenderer {
             for (index, tile) in tiles.prefix(3).enumerated() {
                 let rect = CGRect(x: 60 + CGFloat(index) * (tileWidth + gap), y: tileY,
                                   width: tileWidth, height: tileHeight)
-                cg.saveGState()
-                UIBezierPath(roundedRect: rect, cornerRadius: 28).addClip()
-                drawFilled(tile.photo, in: rect)
-                cg.restoreGState()
+                tile.photo.drawFilled(in: rect, cornerRadius: 28, context: cg)
                 if let reference = tile.reference {
                     let inset = CGRect(x: rect.minX + 12, y: rect.minY + 12, width: rect.width * 0.38,
                                        height: rect.width * 0.38)
                     cg.saveGState()
                     let path = UIBezierPath(roundedRect: inset, cornerRadius: 14)
                     path.addClip()
-                    drawFilled(reference, in: inset)
+                    reference.drawFilled(in: inset)
                     cg.restoreGState()
                     UIColor.black.setStroke()
                     path.lineWidth = 4
@@ -1388,12 +1546,21 @@ enum ProfileCardRenderer {
                                                                 : [.usesLineFragmentOrigin],
                                     attributes: attributes, context: nil)
     }
+}
 
-    private static func drawFilled(_ image: UIImage, in rect: CGRect) {
-        let scale = max(rect.width / max(image.size.width, 1), rect.height / max(image.size.height, 1))
-        let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-        image.draw(in: CGRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2,
-                              width: drawn.width, height: drawn.height))
+private extension UIImage {
+    func drawFilled(in rect: CGRect, cornerRadius: CGFloat? = nil, context: CGContext? = nil) {
+        if let cornerRadius, let context {
+            context.saveGState()
+            UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius).addClip()
+        }
+        let scale = max(rect.width / max(size.width, 1), rect.height / max(size.height, 1))
+        let drawn = CGSize(width: size.width * scale, height: size.height * scale)
+        draw(in: CGRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2,
+                        width: drawn.width, height: drawn.height))
+        if cornerRadius != nil, let context {
+            context.restoreGState()
+        }
     }
 }
 

@@ -9,7 +9,9 @@ struct PoseMatch {
 
 enum PoseMatcher {
     static func compare(reference: PoseSkeleton?, live: PoseSkeleton?,
-                        referenceOutline: [CGPoint] = [], liveOutline: [CGPoint] = []) -> PoseMatch? {
+                        referenceOutline: [CGPoint] = [],
+                        referenceMask: SilhouetteMatcher.Mask? = nil,
+                        liveOutline: [CGPoint] = []) -> PoseMatch? {
         let priority: [PoseJoint] = [
             .nose, .leftShoulder, .rightShoulder,
             .leftElbow, .rightElbow, .leftWrist, .rightWrist,
@@ -22,13 +24,15 @@ enum PoseMatcher {
             let dy = current.y - target.y
             return (joint, hypot(dx, dy), dx, dy)
         }
-        let outlineScore = SilhouetteMatcher.score(reference: referenceOutline, live: liveOutline)
         let compared = Set(differences.map(\.0))
         let hasArm = !compared.isDisjoint(with: [.leftElbow, .rightElbow, .leftWrist, .rightWrist])
         let hasLeg = !compared.isDisjoint(with: [.leftKnee, .rightKnee, .leftAnkle, .rightAnkle])
         let jointEvidence = differences.count >= 5 && hasArm && hasLeg
         // A segmented shape alone is not evidence of a person or a measurable pose.
         guard jointEvidence else { return nil }
+
+        let outlineScore = referenceMask.flatMap { SilhouetteMatcher.score(referenceMask: $0, live: liveOutline) }
+            ?? SilhouetteMatcher.score(reference: referenceOutline, live: liveOutline)
 
         // Body-box normalized coordinates make this independent of camera distance.
         // Give arm and leg endpoints extra weight because they carry the pose.
@@ -53,19 +57,32 @@ enum PoseMatcher {
             return PoseMatch(score: score, cue: "Adjust your body shape to match the reference", comparedJoints: differences.count)
         }
         if let worst = differences.max(by: { $0.1 < $1.1 }) {
-            return PoseMatch(score: score, cue: cue(for: worst.0, dx: worst.2, dy: worst.3), comparedJoints: differences.count)
+            let facingCamera = isFacingCamera(live: live, reference: reference)
+            return PoseMatch(score: score, cue: cue(for: worst.0, dx: worst.2, dy: worst.3, facingCamera: facingCamera),
+                             comparedJoints: differences.count)
         }
         return PoseMatch(score: score, cue: "Match the reference pose", comparedJoints: 0)
     }
 
-    private static func cue(for joint: PoseJoint, dx: CGFloat, dy: CGFloat) -> String {
+    private static func isFacingCamera(live: PoseSkeleton?, reference: PoseSkeleton?) -> Bool {
+        for skeleton in [live, reference] {
+            if let left = skeleton?[.leftShoulder], let right = skeleton?[.rightShoulder],
+               abs(right.x - left.x) > 0.01 {
+                return right.x - left.x < 0
+            }
+        }
+        return false
+    }
+
+    private static func cue(for joint: PoseJoint, dx: CGFloat, dy: CGFloat, facingCamera: Bool) -> String {
+        let signedDX = facingCamera ? -dx : dx
         switch joint {
         case .leftWrist, .leftElbow:
             if abs(dy) > abs(dx) { return dy > 0 ? "Raise your left arm" : "Lower your left arm" }
-            return dx > 0 ? "Move your left arm outward" : "Bring your left arm inward"
+            return signedDX > 0 ? "Move your left arm outward" : "Bring your left arm inward"
         case .rightWrist, .rightElbow:
             if abs(dy) > abs(dx) { return dy > 0 ? "Raise your right arm" : "Lower your right arm" }
-            return dx < 0 ? "Move your right arm outward" : "Bring your right arm inward"
+            return signedDX < 0 ? "Move your right arm outward" : "Bring your right arm inward"
         case .leftKnee, .leftAnkle:
             return "Adjust your left leg to match the guide"
         case .rightKnee, .rightAnkle:
@@ -81,11 +98,23 @@ enum PoseMatcher {
 }
 
 enum SilhouetteMatcher {
+    struct Mask {
+        fileprivate let pixels: [Bool]
+    }
+
+    static func mask(for points: [CGPoint], normalizeBox: Bool) -> Mask? {
+        raster(points, normalizeBox: normalizeBox)
+    }
+
     /// Shape overlap after normalizing each person to its own bounding box.
     /// This leaves framing and camera distance to the separate setup checks.
     static func score(reference: [CGPoint], live: [CGPoint]) -> Int? {
-        guard let target = raster(reference, normalizeBox: true),
-              let current = raster(live, normalizeBox: true) else { return nil }
+        guard let target = raster(reference, normalizeBox: true) else { return nil }
+        return score(referenceMask: target, live: live)
+    }
+
+    static func score(referenceMask target: Mask, live: [CGPoint]) -> Int? {
+        guard let current = raster(live, normalizeBox: true) else { return nil }
         let overlap = intersectionOverUnion(target.pixels, current.pixels)
         let boundary = boundaryAgreement(target.pixels, current.pixels)
         return Int((100 * (0.65 * overlap + 0.35 * boundary)).rounded())
@@ -94,18 +123,18 @@ enum SilhouetteMatcher {
     /// Screen-space overlap for outlines already mapped into the same frame.
     /// Unlike `score`, this penalizes position and scale differences.
     static func frameOverlap(reference: [CGPoint], live: [CGPoint]) -> Int? {
-        guard let target = raster(reference, normalizeBox: false),
-              let current = raster(live, normalizeBox: false) else { return nil }
+        guard let target = raster(reference, normalizeBox: false) else { return nil }
+        return frameOverlap(referenceMask: target, live: live)
+    }
+
+    static func frameOverlap(referenceMask target: Mask, live: [CGPoint]) -> Int? {
+        guard let current = raster(live, normalizeBox: false) else { return nil }
         return Int((100 * intersectionOverUnion(target.pixels, current.pixels)).rounded())
     }
 
     private static let grid = 48
 
-    private struct Raster {
-        let pixels: [Bool]
-    }
-
-    private static func raster(_ points: [CGPoint], normalizeBox: Bool) -> Raster? {
+    private static func raster(_ points: [CGPoint], normalizeBox: Bool) -> Mask? {
         guard points.count >= 3, points.allSatisfy({ point in
             point.x.isFinite && point.y.isFinite &&
             (-0.05...1.05).contains(point.x) && (-0.05...1.05).contains(point.y)
@@ -129,7 +158,7 @@ enum SilhouetteMatcher {
             }
         }
         guard pixels.filter({ $0 }).count >= 4 else { return nil }
-        return Raster(pixels: pixels)
+        return Mask(pixels: pixels)
     }
 
     private static func intersectionOverUnion(_ a: [Bool], _ b: [Bool]) -> Double {

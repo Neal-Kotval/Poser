@@ -349,38 +349,6 @@ private extension PoseSkeleton {
     }
 }
 
-struct MiniPoseGuide: View {
-    let skeleton: PoseSkeleton
-    let geometry: ShotGeometry
-
-    private var distanceWidth: CGFloat {
-        9 + 18 * ShotDiagramLayout.distanceFraction(geometry.distanceMeters)
-    }
-
-    private var phoneOffset: CGFloat {
-        guard geometry.spec?.cameraHeightRatio != nil else { return 0 }
-        let subjectHeight = max(1.2, geometry.spec?.subjectHeightMeters ?? ShotSpecEstimator.defaultSubjectHeight)
-        return CGFloat(0.6 - geometry.cameraHeightMeters / subjectHeight) * 35
-    }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "iphone.gen3")
-                .font(.system(size: 21, weight: .ultraLight))
-                .rotationEffect(.degrees(-Double(geometry.tiltDegrees)))
-                .offset(y: phoneOffset)
-            Rectangle()
-                .fill(.white.opacity(0.55))
-                .frame(width: distanceWidth, height: 1)
-            AnimatedPoseFigure(skeleton: skeleton)
-                .frame(width: 48, height: 82)
-        }
-            .frame(width: 128, height: 110)
-            .poserGlass()
-            .accessibilityLabel("Animated setup: \(geometry.heightLabel), \(geometry.distanceLabel), \(geometry.angleLabel)")
-    }
-}
-
 private struct AnimatedPoseFigure: View {
     let skeleton: PoseSkeleton
     var illustrativeFallback: PoseSkeleton? = nil

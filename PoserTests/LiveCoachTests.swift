@@ -275,6 +275,42 @@ final class LiveCoachTests: XCTestCase {
                                     pitchDegrees: 0, rollDegrees: 0).kind, .checkSetup)
     }
 
+    func testBystanderMissingSilhouetteFallsBackToJointCoaching() {
+        let outline = [CGPoint(x: 0.35, y: 0.1), CGPoint(x: 0.65, y: 0.1),
+                       CGPoint(x: 0.65, y: 0.9), CGPoint(x: 0.35, y: 0.9)]
+        let referencePose = PoseSkeleton(points: [
+            .nose: CGPoint(x: 0.5, y: 0.1),
+            .leftShoulder: CGPoint(x: 0.65, y: 0.25), .rightShoulder: CGPoint(x: 0.35, y: 0.25),
+            .leftHip: CGPoint(x: 0.55, y: 0.55), .rightHip: CGPoint(x: 0.45, y: 0.55),
+            .rightWrist: CGPoint(x: 0.2, y: 0.3), .leftKnee: CGPoint(x: 0.55, y: 0.75)
+        ])
+        let reference = ShotSpec(source: .pose2D, subjectBox: box, silhouette: outline, imageAspect: 0.75)
+        let coach = LiveCoach(spec: reference, referencePose: referencePose, switchAfter: 1)
+
+        var matching = LiveReading(frameAspect: 0.75, subjectBox: box, pose: referencePose)
+        matching.silhouette = []
+        XCTAssertEqual(coach.update(reading: matching, pitchDegrees: 0, rollDegrees: 0).kind, .hold)
+
+        var loweredArmPoints = referencePose.points
+        loweredArmPoints[.rightWrist] = CGPoint(x: 0.2, y: 0.75)
+        var mismatched = LiveReading(frameAspect: 0.75, subjectBox: box, pose: PoseSkeleton(points: loweredArmPoints))
+        mismatched.silhouette = []
+        let result = coach.update(reading: mismatched, pitchDegrees: 0, rollDegrees: 0)
+        XCTAssertEqual(result.kind, .adjustPose)
+        XCTAssertEqual(result.text, "Raise your right arm")
+    }
+
+    func testFrameMappingGuardsZeroAndInvalidSizes() {
+        let point = CGPoint(x: 120, y: 240)
+        let translation = CGSize(width: 40, height: -20)
+        XCTAssertEqual(FrameMapping.framePoint(point, frameAspect: 0.75, viewSize: .zero), .zero)
+        XCTAssertEqual(FrameMapping.framePoint(point, frameAspect: 0, viewSize: CGSize(width: 393, height: 800)), .zero)
+        XCTAssertEqual(FrameMapping.framePoint(point, frameAspect: -0.75, viewSize: CGSize(width: 393, height: 800)), .zero)
+        XCTAssertEqual(FrameMapping.frameTranslation(translation, frameAspect: 0.75, viewSize: CGSize(width: 0, height: 800)), .zero)
+        XCTAssertEqual(FrameMapping.frameTranslation(translation, frameAspect: 0, viewSize: CGSize(width: 393, height: 800)), .zero)
+        XCTAssertEqual(FrameMapping.frameTranslation(translation, frameAspect: .nan, viewSize: CGSize(width: 393, height: 800)), .zero)
+    }
+
     func testLowOverlayOverlapCannotClaimMatchWhenBoxesAreClose() {
         let referenceOutline = [CGPoint(x: 0.35, y: 0.1), CGPoint(x: 0.65, y: 0.1),
                                 CGPoint(x: 0.65, y: 0.9), CGPoint(x: 0.35, y: 0.9)]

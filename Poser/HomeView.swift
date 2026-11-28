@@ -92,8 +92,14 @@ struct HomeView: View {
     @State private var flowID = UUID()
     @State private var showLiveCamera = true
     @State private var showShotDetails = false
+    private static let catalogByID: [UUID: ReferenceAsset] = Dictionary(
+        ReferenceCatalog.items.map { ($0.id, $0) },
+        uniquingKeysWith: { first, _ in first }
+    )
+
     @State private var selectedReferenceTags: Set<ReferenceTag> = []
     @State private var referenceQuery = ""
+    @State private var localReferences: [ReferenceAsset] = ReferenceCatalog.feedItems
     @State private var remoteReferences: [ReferenceAsset]?
     @State private var isRemoteSearching = false
     @State private var referenceSearchTask: Task<Void, Never>?
@@ -278,22 +284,8 @@ struct HomeView: View {
             isActive: activeTab == .camera || previewedTab == .camera || isCameraTransitioning,
             isGuideOverlayVisible: showingPoseTutorial
         ) { image in
-            if !shootQueue.isEmpty {
-                capturedImage = image
-                comparisonNote = nil
-                poseScore = nil
-                geminiShotFeedback = nil
-                geminiMessage = nil
-                withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
-                comparisonTask = Task { await compare(image) }
-            } else if selectedRecipe != nil, referenceImage != nil {
-                capturedImage = image
-                comparisonNote = nil
-                poseScore = nil
-                geminiShotFeedback = nil
-                geminiMessage = nil
-                withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
-                comparisonTask = Task { await compare(image) }
+            if !shootQueue.isEmpty || (selectedRecipe != nil && referenceImage != nil) {
+                handleCapturedShot(image)
             } else {
                 Task { await scanScene(image) }
             }
@@ -551,6 +543,7 @@ struct HomeView: View {
             selectedReferenceTags = []
             referenceQuery = ""
             referenceSearchTask?.cancel()
+            localReferences = ReferenceCatalog.feedItems
             remoteReferences = nil
             isRemoteSearching = false
             isEditingInspiration = false
@@ -702,7 +695,8 @@ struct HomeView: View {
                 .padding(.horizontal, PoserSpace.regular)
             }
 
-            if filteredReferences.isEmpty {
+            let references = filteredReferences
+            if references.isEmpty {
                 ContentUnavailableView {
                     Label("No references found", systemImage: "magnifyingglass")
                 } description: {
@@ -717,9 +711,9 @@ struct HomeView: View {
                 .padding(.top, PoserSpace.xLarge)
             } else {
                 LazyVStack(alignment: .leading, spacing: 22) {
-                    ForEach(Array(filteredReferences.enumerated()), id: \.element.id) { index, asset in
+                    ForEach(Array(references.enumerated()), id: \.element.id) { index, asset in
                         if let image = asset.preview {
-                            feedCard(asset, image: image, showCount: index == 0)
+                            feedCard(asset, image: image, totalCount: index == 0 ? references.count : nil)
                         }
                     }
                 }
@@ -748,14 +742,9 @@ struct HomeView: View {
     }
 
     private func quickFilterChip(_ tag: ReferenceTag?) -> some View {
-        let isSelected = tag.map { selectedReferenceTags.contains($0) } ?? selectedReferenceTags.isEmpty
+        let isSelected = isReferenceTagSelected(tag)
         return Button {
-            if let tag {
-                if selectedReferenceTags.contains(tag) { selectedReferenceTags.remove(tag) }
-                else { selectedReferenceTags.insert(tag) }
-            } else {
-                selectedReferenceTags = []
-            }
+            toggleReferenceTag(tag)
         } label: {
             Text(tag?.title ?? "All")
                 .font(.footnote.weight(.semibold))
@@ -768,16 +757,33 @@ struct HomeView: View {
         .buttonStyle(.plain)
         .frame(minHeight: 44)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityHint(tag.map { "\(isSelected ? "Remove" : "Add") \($0.title) filter" } ?? "Clear all category filters")
+        .accessibilityHint(referenceTagHint(tag, isSelected: isSelected))
+    }
+
+    private func isReferenceTagSelected(_ tag: ReferenceTag?) -> Bool {
+        tag.map { selectedReferenceTags.contains($0) } ?? selectedReferenceTags.isEmpty
+    }
+
+    private func toggleReferenceTag(_ tag: ReferenceTag?) {
+        if let tag {
+            if selectedReferenceTags.contains(tag) { selectedReferenceTags.remove(tag) }
+            else { selectedReferenceTags.insert(tag) }
+        } else {
+            selectedReferenceTags = []
+        }
+    }
+
+    private func referenceTagHint(_ tag: ReferenceTag?, isSelected: Bool) -> String {
+        tag.map { "\(isSelected ? "Remove" : "Add") \($0.title) filter" } ?? "Clear all category filters"
     }
 
     private var filteredReferences: [ReferenceAsset] {
-        if let remoteReferences { return remoteReferences }
-        return ReferenceCatalog.feed(matching: selectedReferenceTags, query: referenceQuery)
+        remoteReferences ?? localReferences
     }
 
     private func scheduleReferenceSearch() {
         referenceSearchTask?.cancel()
+        localReferences = ReferenceCatalog.feed(matching: selectedReferenceTags, query: referenceQuery)
         remoteReferences = nil
         isRemoteSearching = false
         let query = referenceQuery
@@ -871,14 +877,9 @@ struct HomeView: View {
     }
 
     private func referenceTagButton(_ tag: ReferenceTag?) -> some View {
-        let isSelected = tag.map { selectedReferenceTags.contains($0) } ?? selectedReferenceTags.isEmpty
+        let isSelected = isReferenceTagSelected(tag)
         return Button {
-            if let tag {
-                if selectedReferenceTags.contains(tag) { selectedReferenceTags.remove(tag) }
-                else { selectedReferenceTags.insert(tag) }
-            } else {
-                selectedReferenceTags = []
-            }
+            toggleReferenceTag(tag)
             isReferenceSearchFocused = false
         } label: {
             Text(tag?.title ?? "All")
@@ -889,7 +890,7 @@ struct HomeView: View {
                 .contentShape(Capsule())
         }
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
-        .accessibilityHint(tag.map { "\(isSelected ? "Remove" : "Add") \($0.title) filter" } ?? "Clear all category filters")
+        .accessibilityHint(referenceTagHint(tag, isSelected: isSelected))
     }
 
     private func openReferenceShoot(_ asset: ReferenceAsset) {
@@ -898,7 +899,7 @@ struct HomeView: View {
         }
     }
 
-    private func feedCard(_ asset: ReferenceAsset, image: UIImage, showCount: Bool) -> some View {
+    private func feedCard(_ asset: ReferenceAsset, image: UIImage, totalCount: Int?) -> some View {
         let post = asset.mockPost
         let isLiked = referenceLikes.isLiked(asset.assetName)
         return ReferenceFeedCard(
@@ -907,7 +908,7 @@ struct HomeView: View {
             post: post,
             isLiked: isLiked,
             likeCount: post.likeCount + (isLiked ? 1 : 0),
-            totalCount: showCount ? filteredReferences.count : nil,
+            totalCount: totalCount,
             onOpen: { openReferenceShoot(asset) },
             onToggleLike: { referenceLikes.toggle(asset.assetName) },
             onDoubleTapLike: {
@@ -1326,6 +1327,7 @@ struct HomeView: View {
                 .buttonStyle(.plain)
                 .disabled(isSavingShot)
                 Button("Retake") {
+                    comparisonTask?.cancel()
                     capturedImage = nil
                     comparisonNote = nil
                     poseScore = nil
@@ -1419,6 +1421,35 @@ struct HomeView: View {
             .padding(12)
     }
 
+    private func handleCapturedShot(_ image: UIImage) {
+        comparisonTask?.cancel()
+        capturedImage = image
+        comparisonNote = nil
+        poseScore = nil
+        geminiShotFeedback = nil
+        geminiMessage = nil
+        withAnimation(.easeOut(duration: 0.32)) { showLiveCamera = false }
+        comparisonTask = Task { await compare(image) }
+    }
+
+    private func applyAnalyzedReference(_ image: UIImage, imageData: Data?, requestID: UUID) async throws -> Bool {
+        let result = try await AnalysisService.analyze(image, imageData: imageData)
+        guard requestID == flowID else { return false }
+        let plan = await preprocessReference(image, analysis: result)
+        guard requestID == flowID else { return false }
+        referenceImage = image
+        liveGuidePlacement = .identity
+        analysis = result
+        referencePlan = plan
+        geminiShotFeedback = nil
+        geminiMessage = nil
+        startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
+                                               faceDistanceMeters: result.faceDistanceMeters)
+        if let plan { startingSetup.apply(plan, preserving: result.shotSpec) }
+        selectedRecipe = result.recipe
+        return true
+    }
+
     private func analyze(_ image: UIImage, scene: Bool, imageData: Data? = nil) async {
         let requestID = UUID()
         flowID = requestID
@@ -1440,20 +1471,12 @@ struct HomeView: View {
         selectedRecipe = nil
         isAnalyzing = true
         do {
-            let result = try await AnalysisService.analyze(image, imageData: imageData)
-            guard requestID == flowID else { return }
-            let plan = await preprocessReference(image, analysis: result)
-            guard requestID == flowID else { return }
-            analysis = result
-            startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
-                                                   faceDistanceMeters: result.faceDistanceMeters)
-            if let plan { startingSetup.apply(plan, preserving: result.shotSpec) }
-            referencePlan = plan
-            selectedRecipe = result.recipe
+            _ = try await applyAnalyzedReference(image, imageData: imageData, requestID: requestID)
         } catch {
             guard requestID == flowID else { return }
             errorMessage = error.localizedDescription
         }
+        guard requestID == flowID else { return }
         isAnalyzing = false
     }
 
@@ -1547,10 +1570,19 @@ struct HomeView: View {
         isAnalyzing = true
 
         var inspirationCandidates: [SceneCandidate] = []
-        for item in inspirationStore.items {
-            if let inspiration = inspirationStore.image(for: item) {
-                inspirationCandidates.append(SceneCandidate(id: item.id, image: inspiration))
+        inspirationCandidates.reserveCapacity(inspirationStore.items.count)
+        for (index, item) in inspirationStore.items.enumerated() {
+            autoreleasepool {
+                guard let full = inspirationStore.image(for: item) else { return }
+                let longest = max(full.size.width, full.size.height, 1)
+                let scale = min(1, 320 / longest)
+                let thumbSize = CGSize(width: max(1, (full.size.width * scale).rounded()),
+                                       height: max(1, (full.size.height * scale).rounded()))
+                let candidateImage = full.preparingThumbnail(of: thumbSize) ?? full
+                inspirationCandidates.append(SceneCandidate(id: item.id, image: candidateImage))
             }
+            if index % 16 == 15 { await Task.yield() }
+            guard requestID == flowID else { return }
         }
         let matches = await ReferenceSearch.sceneMatches(for: image, inspiration: inspirationCandidates)
         guard requestID == flowID else { return }
@@ -1563,7 +1595,15 @@ struct HomeView: View {
     }
 
     private func matchingImage(for id: UUID) -> UIImage? {
-        if let reference = ReferenceCatalog.items.first(where: { $0.id == id }) {
+        if let reference = Self.catalogByID[id] {
+            return reference.preview
+        }
+        guard let item = inspirationStore.items.first(where: { $0.id == id }) else { return nil }
+        return inspirationStore.image(for: item)
+    }
+
+    private func matchingFullImage(for id: UUID) -> UIImage? {
+        if let reference = Self.catalogByID[id] {
             return reference.image
         }
         guard let item = inspirationStore.items.first(where: { $0.id == id }) else { return nil }
@@ -1572,7 +1612,7 @@ struct HomeView: View {
     }
 
     private func matchingImageData(for id: UUID) -> Data? {
-        if let reference = ReferenceCatalog.items.first(where: { $0.id == id }) {
+        if let reference = Self.catalogByID[id] {
             return reference.imageData
         }
         guard let item = inspirationStore.items.first(where: { $0.id == id }) else { return nil }
@@ -1580,11 +1620,11 @@ struct HomeView: View {
     }
 
     private func matchingTags(for id: UUID) -> [ReferenceTag] {
-        ReferenceCatalog.items.first(where: { $0.id == id })?.tags ?? []
+        Self.catalogByID[id]?.tags ?? []
     }
 
     private func matchingTitle(for id: UUID) -> String {
-        if let reference = ReferenceCatalog.items.first(where: { $0.id == id }) {
+        if let reference = Self.catalogByID[id] {
             return reference.title
         }
         return inspirationStore.items.first(where: { $0.id == id })?.title ?? "Saved inspiration"
@@ -1605,26 +1645,14 @@ struct HomeView: View {
 
     private func prepareReference(_ id: UUID) async {
         let requestID = flowID
-        guard let image = matchingImage(for: id) else {
+        guard let image = matchingFullImage(for: id) else {
             errorMessage = "This reference is no longer available. Choose another shot."
             shootQueue = []
             return
         }
         do {
-            let result = try await AnalysisService.analyze(image, imageData: matchingImageData(for: id))
-            guard requestID == flowID else { return }
-            let plan = await preprocessReference(image, analysis: result)
-            guard requestID == flowID else { return }
-            referenceImage = image
-            liveGuidePlacement = .identity
-            analysis = result
-            referencePlan = plan
-            geminiShotFeedback = nil
-            geminiMessage = nil
-            startingSetup = ReferenceStartingSetup(spec: result.shotSpec,
-                                                   faceDistanceMeters: result.faceDistanceMeters)
-            if let plan { startingSetup.apply(plan, preserving: result.shotSpec) }
-            selectedRecipe = result.recipe
+            guard try await applyAnalyzedReference(image, imageData: matchingImageData(for: id),
+                                                   requestID: requestID) else { return }
             capturedImage = nil
             showLiveCamera = true
             withAnimation(.easeOut(duration: 0.32)) { activeTab = .camera }
@@ -1677,7 +1705,7 @@ struct HomeView: View {
 
     private func compare(_ image: UIImage) async {
         guard let result = try? await AnalysisService.analyze(image) else { return }
-        guard capturedImage === image else { return }
+        guard !Task.isCancelled, capturedImage === image else { return }
         guard let reference = analysis, reference.poseSkeleton != nil else {
             comparisonNote = "No measurable person pose was found in the reference photo. Choose a clearer reference to get a pose score."
             return
@@ -1734,6 +1762,7 @@ struct HomeView: View {
     }
 
     private func reset(returnToCamera: Bool = true) {
+        comparisonTask?.cancel()
         flowID = UUID()
         showLiveCamera = true
         if returnToCamera { activeTab = .camera }

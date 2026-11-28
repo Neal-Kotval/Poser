@@ -30,6 +30,16 @@ class PoseEvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(result["overall"]["yaw_deg"]["mae"], 2)
         self.assertEqual(result["slices"]["body=cropped"]["shots"], 2)
 
+    def test_bool_values_are_not_treated_as_numbers(self):
+        records = [
+            {"truth": {"distance_m": True, "height_m": 1.5},
+             "estimate": {"distance_m": 1.0, "height_m": False}},
+        ]
+        result = EVALUATOR.evaluate(records)
+        self.assertEqual(result["overall"]["distance_m"]["measured"], 0)
+        self.assertEqual(result["overall"]["height_m"]["measured"], 1)
+        self.assertEqual(result["overall"]["height_m"]["estimated"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

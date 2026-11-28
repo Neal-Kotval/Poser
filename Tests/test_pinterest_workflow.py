@@ -124,6 +124,17 @@ class PinterestWorkflowTests(unittest.TestCase):
         self.assertEqual(len(accepted), 1)
         self.assertEqual(errors, [])
 
+    def test_duplicate_image_content_rejected_within_same_import_batch(self):
+        first = self.candidate()
+        second = dict(first, id='pin-456', pinURL='https://www.pinterest.com/pin/456/')
+        pins.library.save(pins.discovery_path(self.work), [first, second])
+        args = SimpleNamespace(work=self.work, output=self.work.parent / 'library')
+        self.assertEqual(pins.import_local(args), 1)
+        imported = json.loads((args.output / 'records.json').read_text())
+        self.assertEqual([r['id'] for r in imported], ['pin-123'])
+        failures = json.loads((self.work / 'pinterest-local-import-errors.json').read_text())
+        self.assertEqual(failures[0]['reason'], 'Duplicate image content')
+
     def test_unapproved_or_missing_rights_never_import(self):
         record = self.candidate()
         record['approved'] = False

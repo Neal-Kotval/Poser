@@ -67,7 +67,7 @@ enum SceneMatcher {
         guard let cgImage = image.cgImage else { return nil }
         let request = VNGenerateImageFeaturePrintRequest()
         request.imageCropAndScaleOption = .scaleFit
-        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: image.cgOrientation)
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: CGImagePropertyOrientation(image.imageOrientation))
         guard (try? handler.perform([request])) != nil else { return nil }
         return request.results?.first
     }
@@ -141,21 +141,5 @@ private struct SceneSignature {
         let light = max(0, 1 - abs(meanLight - other.meanLight))
         let contrastScore = max(0, 1 - abs(contrast - other.contrast))
         return (0.62 * spatial + 0.25 * light + 0.13 * contrastScore, spatial, light)
-    }
-}
-
-private extension UIImage {
-    var cgOrientation: CGImagePropertyOrientation {
-        switch imageOrientation {
-        case .up: .up
-        case .down: .down
-        case .left: .left
-        case .right: .right
-        case .upMirrored: .upMirrored
-        case .downMirrored: .downMirrored
-        case .leftMirrored: .leftMirrored
-        case .rightMirrored: .rightMirrored
-        @unknown default: .up
-        }
     }
 }

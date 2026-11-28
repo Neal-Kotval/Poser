@@ -10,14 +10,6 @@ enum Palette {
     static let primaryText = Color.white
     static let secondaryText = Color(red: 0.68, green: 0.68, blue: 0.68)
     static let tertiaryText = Color(red: 0.48, green: 0.48, blue: 0.48)
-
-    // Keep the names used by the first MVP while screens move to semantic tokens.
-    static let ink = background
-    static let panel = surface
-    static let raised = elevated
-    static let cyan = primaryText
-    static let cream = primaryText
-    static let muted = secondaryText
 }
 
 enum PoserSpace {
@@ -62,7 +54,6 @@ extension View {
 
 enum PoserType {
     static let wordmark = Font.system(size: 25, weight: .bold, design: .rounded)
-    static let display = Font.system(.largeTitle, design: .rounded, weight: .bold)
     static let title = Font.system(.title2, design: .rounded, weight: .semibold)
     static let body = Font.system(.body)
     static let action = Font.system(.body, weight: .semibold)
@@ -96,71 +87,5 @@ struct PhotoTagPills: View {
                 .background(.regularMaterial, in: Capsule())
                 .fixedSize()
         }
-    }
-}
-
-struct PrimaryButton: View {
-    let title: String
-    let symbol: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: PoserSpace.medium) {
-                Image(systemName: symbol).accessibilityHidden(true)
-                Text(title)
-                Spacer(minLength: PoserSpace.small)
-                Image(systemName: "arrow.right").accessibilityHidden(true)
-            }
-            .font(PoserType.action)
-            .padding(PoserSpace.regular)
-            .frame(minHeight: 52)
-            .foregroundStyle(Palette.background)
-            .background(Palette.primaryText, in: RoundedRectangle(cornerRadius: PoserRadius.control))
-        }
-        .buttonStyle(PoserPressStyle())
-    }
-}
-
-struct SecondaryButton: View {
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(PoserType.action)
-                .foregroundStyle(Palette.primaryText)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .poserGlass(interactive: true)
-        }
-        .buttonStyle(PoserPressStyle())
-    }
-}
-
-struct SectionLabel: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(PoserType.caption)
-            .foregroundStyle(Palette.secondaryText)
-    }
-}
-
-struct PoserSurface<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        content
-            .padding(PoserSpace.regular)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: PoserRadius.surface))
-            .overlay(RoundedRectangle(cornerRadius: PoserRadius.surface).stroke(Palette.border))
-    }
-}
-
-private struct PoserPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.opacity(configuration.isPressed ? 0.72 : 1)
     }
 }

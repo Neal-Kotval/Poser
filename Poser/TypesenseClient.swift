@@ -32,11 +32,15 @@ actor TypesenseClient {
     static let shared = TypesenseClient()
 
     private let session: URLSession
-    private let encoder = JSONEncoder()
-    private let decoder = JSONDecoder()
+    private let baseURLOverride: URL?
+    private let apiKeyOverride: String?
+    private let collectionOverride: String?
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, baseURL: URL? = nil, apiKey: String? = nil, collection: String? = nil) {
         self.session = session
+        self.baseURLOverride = baseURL
+        self.apiKeyOverride = apiKey
+        self.collectionOverride = collection
     }
 
     /// Text search over titles/tags. Free-tier clusters use keyword search; CLIP image
@@ -45,13 +49,13 @@ actor TypesenseClient {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
         var search: [String: Any] = [
-            "collection": TypesenseConfig.collection,
+            "collection": collectionOverride ?? TypesenseConfig.collection,
             "q": trimmed,
             "query_by": "search_text,title,tags,setting,pose",
             "query_by_weights": "4,3,2,2,2",
             "per_page": limit
         ]
-        if let filter = filterBy(setting: setting, pose: pose) {
+        if let filter = Self.filterBy(setting: setting, pose: pose) {
             search["filter_by"] = filter
         }
         return try await multiSearch(search)
@@ -62,13 +66,13 @@ actor TypesenseClient {
     func searchSimilar(image: UIImage, setting: String? = nil, pose: String? = nil, limit: Int = 24) async throws -> [TypesenseHit] {
         let base64 = try jpegBase64(image, maxDimension: 512)
         var search: [String: Any] = [
-            "collection": TypesenseConfig.collection,
+            "collection": collectionOverride ?? TypesenseConfig.collection,
             "q": "*",
             "vector_query": "embedding:([], image:\(base64))",
             "exclude_fields": "embedding,image",
             "per_page": limit
         ]
-        if let filter = filterBy(setting: setting, pose: pose) {
+        if let filter = Self.filterBy(setting: setting, pose: pose) {
             search["filter_by"] = filter
         }
         return try await multiSearch(search)
@@ -88,7 +92,7 @@ actor TypesenseClient {
         let values = feature.data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
         let vector = values.map { String($0) }.joined(separator: ",")
         let search: [String: Any] = [
-            "collection": TypesenseConfig.collection,
+            "collection": collectionOverride ?? TypesenseConfig.collection,
             "q": "*",
             "vector_query": "vision_embedding:([\(vector)], k:\(limit))",
             "exclude_fields": "vision_embedding",
@@ -97,21 +101,27 @@ actor TypesenseClient {
         return try await multiSearch(search)
     }
 
-    private func filterBy(setting: String?, pose: String?) -> String? {
+    static func filterBy(setting: String?, pose: String?) -> String? {
         var parts: [String] = []
-        if let setting, !setting.isEmpty { parts.append("setting:=\(setting)") }
-        if let pose, !pose.isEmpty { parts.append("pose:=\(pose)") }
+        if let setting, !setting.isEmpty { parts.append("setting:=\(escapeFilterValue(setting))") }
+        if let pose, !pose.isEmpty { parts.append("pose:=\(escapeFilterValue(pose))") }
         return parts.isEmpty ? nil : parts.joined(separator: " && ")
     }
 
+    private static func escapeFilterValue(_ value: String) -> String {
+        "`\(value.replacingOccurrences(of: "`", with: "\\`"))`"
+    }
+
     private func multiSearch(_ search: [String: Any]) async throws -> [TypesenseHit] {
-        guard TypesenseConfig.isConfigured else { throw TypesenseError.notConfigured }
-        guard let base = TypesenseConfig.baseURL else { throw TypesenseError.badURL }
+        let apiKey = apiKeyOverride ?? TypesenseConfig.searchAPIKey
+        let configured = (baseURLOverride != nil && !apiKey.isEmpty) || TypesenseConfig.isConfigured
+        guard configured else { throw TypesenseError.notConfigured }
+        guard let base = baseURLOverride ?? TypesenseConfig.baseURL else { throw TypesenseError.badURL }
         let url = base.appendingPathComponent("multi_search")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(TypesenseConfig.searchAPIKey, forHTTPHeaderField: "X-TYPESENSE-API-KEY")
+        request.setValue(apiKey, forHTTPHeaderField: "X-TYPESENSE-API-KEY")
         request.timeoutInterval = 20
         request.httpBody = try JSONSerialization.data(withJSONObject: ["searches": [search]])
 
@@ -130,6 +140,7 @@ actor TypesenseClient {
               let first = results.first,
               let hits = first["hits"] as? [[String: Any]] else { throw TypesenseError.decoding }
 
+        let maxTextMatch = hits.compactMap { ($0["text_match"] as? NSNumber)?.doubleValue }.max() ?? 0
         return hits.compactMap { hit in
             guard let document = hit["document"] as? [String: Any],
                   let idString = document["id"] as? String, let id = UUID(uuidString: idString),
@@ -137,15 +148,11 @@ actor TypesenseClient {
             let title = document["title"] as? String ?? pinID
             let setting = document["setting"] as? String
             let pose = document["pose"] as? String
-            let distance = (hit["vector_distance"] as? Double)
-                ?? (hit["text_match"] as? Double).map { 1 / (1 + $0) }
-                ?? 0.5
-            // Typesense vector_distance is smaller when closer; text match is larger when closer.
             let score: Double
-            if hit["vector_distance"] is Double {
+            if let distance = (hit["vector_distance"] as? NSNumber)?.doubleValue {
                 score = 1 / (1 + max(0, distance))
-            } else if let textMatch = hit["text_match"] as? Double {
-                score = min(1, textMatch / 1_000_000)
+            } else if let textMatch = (hit["text_match"] as? NSNumber)?.doubleValue, maxTextMatch > 0 {
+                score = min(1, max(0, textMatch / maxTextMatch))
             } else {
                 score = 0.5
             }
@@ -154,13 +161,9 @@ actor TypesenseClient {
     }
 
     private func jpegBase64(_ image: UIImage, maxDimension: CGFloat) throws -> String {
-        let longest = max(image.size.width, image.size.height)
-        let scale = longest > maxDimension ? maxDimension / longest : 1
-        let size = CGSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
-        let rendered = UIGraphicsImageRenderer(size: size).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
+        guard let data = image.resizedJPEGData(maxDimension: maxDimension, quality: 0.72) else {
+            throw TypesenseError.decoding
         }
-        guard let data = rendered.jpegData(compressionQuality: 0.72) else { throw TypesenseError.decoding }
         return data.base64EncodedString()
     }
 }

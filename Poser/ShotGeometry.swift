@@ -11,16 +11,7 @@ struct ShotGeometry {
     var spec: ShotSpec? = nil
 
     var heightLabel: String {
-        if let bucket = spec?.heightBucket { return bucket.label }
-        // Framing alone cannot distinguish a low camera from a tilted or cropped shot.
-        // The neutral height below only places the photographer in the diagram.
-        if spec?.cameraHeightRatio == nil { return "Camera height unknown" }
-        switch cameraHeightMeters {
-        case ..<0.8: return "Knee height"
-        case ..<1.1: return "Waist height"
-        case ..<1.4: return "Chest height"
-        default: return "Eye height"
-        }
+        spec?.heightBucket?.label ?? "Camera height unknown"
     }
 
     var distanceLabel: String {

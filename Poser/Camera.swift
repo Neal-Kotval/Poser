@@ -20,6 +20,11 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     private var storedReferenceAspect: CGFloat = 3.0 / 4.0
     private var storedReferenceFocalRatio: CGFloat = 1
     private var storedCoachEnabled = false
+    private var storedTargetGeneration = 0
+    private var cachedMaskGeneration = -1
+    private var cachedNormalizedMask: SilhouetteMatcher.Mask?
+    private var cachedFrameMaskAspect: CGFloat?
+    private var cachedFrameMask: SilhouetteMatcher.Mask?
     private let analyzer = LiveFrameAnalyzer(minimumInterval: 0.3)
     private var coach: LiveCoach?
     private var pendingReading: LiveReading?
@@ -62,6 +67,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             } else {
                 storedReferenceFocalRatio = 1
             }
+            storedTargetGeneration += 1
             targetLock.unlock()
             coach = shotSpec.map { LiveCoach(spec: $0, referencePose: targetPose, liveAspect: liveFrameAspect,
                                              guidePlacement: guidePlacement) }
@@ -81,10 +87,30 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
         get { targetLock.lock(); defer { targetLock.unlock() }; return storedTargetPose }
         set { targetLock.lock(); storedTargetPose = newValue; targetLock.unlock() }
     }
-    private var referenceOutlineSnapshot: (points: [CGPoint], aspect: CGFloat, focalRatio: CGFloat, placement: PoseGuidePlacement) {
+    private struct TargetSnapshot {
+        let coachEnabled: Bool
+        let targetX: CGFloat
+        let targetPose: PoseSkeleton?
+        let outline: [CGPoint]
+        let aspect: CGFloat
+        let focalRatio: CGFloat
+        let placement: PoseGuidePlacement
+        let generation: Int
+    }
+
+    private var targetSnapshot: TargetSnapshot {
         targetLock.lock()
         defer { targetLock.unlock() }
-        return (storedTargetOutline, storedReferenceAspect, storedReferenceFocalRatio, storedGuidePlacement)
+        return TargetSnapshot(
+            coachEnabled: storedCoachEnabled,
+            targetX: storedTargetX,
+            targetPose: storedTargetPose,
+            outline: storedTargetOutline,
+            aspect: storedReferenceAspect,
+            focalRatio: storedReferenceFocalRatio,
+            placement: storedGuidePlacement,
+            generation: storedTargetGeneration
+        )
     }
     var onPhoto: ((UIImage) -> Void)?
 
@@ -187,7 +213,14 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             return
         }
         #endif
-        output.capturePhoto(with: AVCapturePhotoSettings(), delegate: self)
+        queue.async {
+            guard self.session.isRunning,
+                  self.output.connection(with: .video)?.isActive == true else {
+                DispatchQueue.main.async { self.isCapturing = false }
+                return
+            }
+            self.output.capturePhoto(with: AVCapturePhotoSettings(), delegate: self)
+        }
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
@@ -212,14 +245,30 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        if coachEnabled {
-            guard let reading = analyzer.analyze(sampleBuffer, targetX: targetX) else { return }
-            let outline = referenceOutlineSnapshot
-            let scores = Self.scoreLivePose(referencePose: targetPose, livePose: reading.pose,
-                                            referenceOutline: outline.points, liveOutline: reading.silhouette,
-                                            referenceAspect: outline.aspect,
-                                            liveAspect: reading.frameAspect ?? 3.0 / 4.0,
-                                            focalRatio: outline.focalRatio, placement: outline.placement)
+        let target = targetSnapshot
+        if target.coachEnabled {
+            guard let reading = analyzer.analyze(sampleBuffer, targetX: target.targetX) else { return }
+            let liveAspect = reading.frameAspect ?? 3.0 / 4.0
+            if cachedMaskGeneration != target.generation {
+                cachedMaskGeneration = target.generation
+                cachedNormalizedMask = SilhouetteMatcher.mask(for: target.outline, normalizeBox: true)
+                cachedFrameMaskAspect = nil
+                cachedFrameMask = nil
+            }
+            if cachedFrameMaskAspect != liveAspect {
+                let mapped = target.placement.applying(to: FrameMapping.mapOutline(
+                    target.outline, fromAspect: target.aspect, intoAspect: liveAspect, focalRatio: target.focalRatio
+                ))
+                cachedFrameMask = SilhouetteMatcher.mask(for: mapped, normalizeBox: false)
+                cachedFrameMaskAspect = liveAspect
+            }
+            let scores = Self.scoreLivePose(referencePose: target.targetPose, livePose: reading.pose,
+                                            referenceOutline: target.outline, liveOutline: reading.silhouette,
+                                            referenceAspect: target.aspect,
+                                            liveAspect: liveAspect,
+                                            focalRatio: target.focalRatio, placement: target.placement,
+                                            referenceNormalizedMask: cachedNormalizedMask,
+                                            referenceFrameMask: cachedFrameMask)
             DispatchQueue.main.async {
                 self.pendingReading = reading
                 if let aspect = reading.frameAspect { self.liveFrameAspect = aspect }
@@ -246,8 +295,8 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             }
             return
         }
-        let poseMatch = targetPose.flatMap { target in
-            PoseSkeleton.detected(from: person).flatMap { PoseMatcher.compare(reference: target, live: $0) }
+        let poseMatch = target.targetPose.flatMap { targetPose in
+            PoseSkeleton.detected(from: person).flatMap { PoseMatcher.compare(reference: targetPose, live: $0) }
         }
         DispatchQueue.main.async {
             self.poseScore = poseMatch?.score
@@ -268,7 +317,7 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
             DispatchQueue.main.async { self.subjectHint = "Place the subject inside the guide" }
             return
         }
-        let delta = subjectX - targetX
+        let delta = subjectX - target.targetX
         let hint = abs(delta) < 0.1 ? "Subject is in position" :
             (delta < 0 ? "Move subject a little right" : "Move subject a little left")
         DispatchQueue.main.async { self.subjectHint = hint }
@@ -277,12 +326,21 @@ final class CameraModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelega
     static func scoreLivePose(referencePose: PoseSkeleton?, livePose: PoseSkeleton?,
                               referenceOutline: [CGPoint], liveOutline: [CGPoint],
                               referenceAspect: CGFloat, liveAspect: CGFloat,
-                              focalRatio: CGFloat, placement: PoseGuidePlacement = .identity) -> (pose: PoseMatch?, frameOverlap: Int?) {
+                              focalRatio: CGFloat, placement: PoseGuidePlacement = .identity,
+                              referenceNormalizedMask: SilhouetteMatcher.Mask? = nil,
+                              referenceFrameMask: SilhouetteMatcher.Mask? = nil) -> (pose: PoseMatch?, frameOverlap: Int?) {
         let pose = PoseMatcher.compare(reference: referencePose, live: livePose,
-                                       referenceOutline: referenceOutline, liveOutline: liveOutline)
-        let mappedOutline = FrameMapping.mapOutline(referenceOutline, fromAspect: referenceAspect,
-                                                    intoAspect: liveAspect, focalRatio: focalRatio)
-        let frameOverlap = SilhouetteMatcher.frameOverlap(reference: placement.applying(to: mappedOutline), live: liveOutline)
+                                       referenceOutline: referenceOutline,
+                                       referenceMask: referenceNormalizedMask,
+                                       liveOutline: liveOutline)
+        let frameOverlap: Int?
+        if let referenceFrameMask {
+            frameOverlap = SilhouetteMatcher.frameOverlap(referenceMask: referenceFrameMask, live: liveOutline)
+        } else {
+            let mappedOutline = FrameMapping.mapOutline(referenceOutline, fromAspect: referenceAspect,
+                                                        intoAspect: liveAspect, focalRatio: focalRatio)
+            frameOverlap = SilhouetteMatcher.frameOverlap(reference: placement.applying(to: mappedOutline), live: liveOutline)
+        }
         return (pose, frameOverlap)
     }
 }

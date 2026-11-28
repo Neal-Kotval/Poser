@@ -119,13 +119,6 @@ struct ReferenceTag: Hashable, Identifiable {
     let value: String
     var id: String { "\(kind.rawValue):\(value)" }
     var title: String { value == "cafe" ? "Café" : value.capitalized }
-
-    func matches(_ asset: ReferenceAsset) -> Bool {
-        switch kind {
-        case .setting: asset.setting == value
-        case .pose: asset.pose == value
-        }
-    }
 }
 
 enum ReferenceCatalog {
@@ -159,6 +152,12 @@ enum ReferenceCatalog {
             )
         }
     }()
+
+    private static let itemsByID: [UUID: ReferenceAsset] = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+
+    static func asset(id: UUID) -> ReferenceAsset? {
+        itemsByID[id]
+    }
 
     // Mix once per launch, so taps, filtering, and re-rendering never reshuffle
     // the feed beneath the user.

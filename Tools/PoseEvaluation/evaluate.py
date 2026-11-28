@@ -42,10 +42,10 @@ def summarize(records):
         for record in records:
             truth = record.get("truth", {}).get(metric)
             estimate = record.get("estimate", {}).get(metric)
-            if not isinstance(truth, (int, float)) or not math.isfinite(truth):
+            if isinstance(truth, bool) or not isinstance(truth, (int, float)) or not math.isfinite(truth):
                 continue
             truth_count += 1
-            if not isinstance(estimate, (int, float)) or not math.isfinite(estimate):
+            if isinstance(estimate, bool) or not isinstance(estimate, (int, float)) or not math.isfinite(estimate):
                 continue
             error = difference(estimate, truth, metric)
             errors.append(error)

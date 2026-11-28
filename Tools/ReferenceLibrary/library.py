@@ -43,7 +43,11 @@ def request(url, data=None, headers=None, attempts=4, media=False):
             with opener(req, timeout=30) as response:
                 # Reject unexpectedly huge media before allocating it all.
                 limit = 25 * 1024 * 1024
-                if int(response.headers.get('Content-Length', '0')) > limit:
+                try:
+                    content_length = int(response.headers.get('Content-Length') or 0)
+                except ValueError:
+                    content_length = 0
+                if content_length > limit:
                     raise ValueError('Response exceeds 25 MB')
                 body = response.read(limit + 1)
                 if len(body) > limit:
@@ -178,7 +182,7 @@ def collect_candidate(candidate, records, work):
         (work / thumbnail).unlink(missing_ok=True)
         raise
     near = [record['id'] for record in records if record.get('perceptualHash') and
-            (int(record['perceptualHash'], 16) ^ int(perceptual, 16)).bit_count() <= 5]
+            bin(int(record['perceptualHash'], 16) ^ int(perceptual, 16)).count('1') <= 5]
     # Query hints are retained separately: search wording does not prove what is visible.
     record = dict(id=key, title=candidate.get('title') or 'Untitled reference', image=image, thumbnail=thumbnail,
                   settings=[], features=[], pose='standing', personCount=1, lighting='unknown',

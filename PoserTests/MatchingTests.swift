@@ -257,6 +257,62 @@ final class MatchingTests: XCTestCase {
         XCTAssertEqual(result?.cue, "Raise your right arm")
     }
 
+    func testArmCuesAccountForCameraFacingAndBackFacingOrientation() {
+        func skeleton(facingCamera: Bool, leftWristX: CGFloat, rightWristX: CGFloat) -> PoseSkeleton {
+            PoseSkeleton(points: [
+                .leftShoulder: CGPoint(x: facingCamera ? 0.65 : 0.35, y: 0.25),
+                .rightShoulder: CGPoint(x: facingCamera ? 0.35 : 0.65, y: 0.25),
+                .leftHip: CGPoint(x: 0.4, y: 0.55),
+                .rightHip: CGPoint(x: 0.6, y: 0.55),
+                .leftKnee: CGPoint(x: 0.42, y: 0.75),
+                .leftWrist: CGPoint(x: leftWristX, y: 0.45),
+                .rightWrist: CGPoint(x: rightWristX, y: 0.45)
+            ])
+        }
+
+        XCTAssertEqual(
+            PoseMatcher.compare(reference: skeleton(facingCamera: true, leftWristX: 0.90, rightWristX: 0.25),
+                                live: skeleton(facingCamera: true, leftWristX: 0.55, rightWristX: 0.25))?.cue,
+            "Move your left arm outward"
+        )
+        XCTAssertEqual(
+            PoseMatcher.compare(reference: skeleton(facingCamera: true, leftWristX: 0.55, rightWristX: 0.25),
+                                live: skeleton(facingCamera: true, leftWristX: 0.90, rightWristX: 0.25))?.cue,
+            "Bring your left arm inward"
+        )
+        XCTAssertEqual(
+            PoseMatcher.compare(reference: skeleton(facingCamera: true, leftWristX: 0.75, rightWristX: 0.10),
+                                live: skeleton(facingCamera: true, leftWristX: 0.75, rightWristX: 0.45))?.cue,
+            "Move your right arm outward"
+        )
+        XCTAssertEqual(
+            PoseMatcher.compare(reference: skeleton(facingCamera: true, leftWristX: 0.75, rightWristX: 0.45),
+                                live: skeleton(facingCamera: true, leftWristX: 0.75, rightWristX: 0.10))?.cue,
+            "Bring your right arm inward"
+        )
+
+        XCTAssertEqual(
+            PoseMatcher.compare(reference: skeleton(facingCamera: false, leftWristX: 0.10, rightWristX: 0.75),
+                                live: skeleton(facingCamera: false, leftWristX: 0.45, rightWristX: 0.75))?.cue,
+            "Move your left arm outward"
+        )
+        XCTAssertEqual(
+            PoseMatcher.compare(reference: skeleton(facingCamera: false, leftWristX: 0.45, rightWristX: 0.75),
+                                live: skeleton(facingCamera: false, leftWristX: 0.10, rightWristX: 0.75))?.cue,
+            "Bring your left arm inward"
+        )
+        XCTAssertEqual(
+            PoseMatcher.compare(reference: skeleton(facingCamera: false, leftWristX: 0.25, rightWristX: 0.90),
+                                live: skeleton(facingCamera: false, leftWristX: 0.25, rightWristX: 0.55))?.cue,
+            "Move your right arm outward"
+        )
+        XCTAssertEqual(
+            PoseMatcher.compare(reference: skeleton(facingCamera: false, leftWristX: 0.25, rightWristX: 0.55),
+                                live: skeleton(facingCamera: false, leftWristX: 0.25, rightWristX: 0.90))?.cue,
+            "Bring your right arm inward"
+        )
+    }
+
     func testPoseMatcherNeedsAtLeastFiveSharedJoints() {
         let reference = fiveJointPose(rightWristY: 0.3)
         let incomplete = PoseSkeleton(points: [

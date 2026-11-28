@@ -11,12 +11,10 @@ struct InspirationItem: Codable, Identifiable, Equatable {
 
 enum InspirationSource: Equatable {
     case photoLibrary
-    case link
 
     var label: String {
         switch self {
         case .photoLibrary: "Photo library"
-        case .link: "Photo link"
         }
     }
 }
@@ -31,12 +29,33 @@ enum InspirationStoreError: LocalizedError {
     }
 }
 
+extension UIImage {
+    func resized(maxDimension: CGFloat, pixelScale: Bool = false) -> UIImage {
+        let width = pixelScale ? CGFloat(cgImage?.width ?? Int(size.width * scale)) : size.width
+        let height = pixelScale ? CGFloat(cgImage?.height ?? Int(size.height * scale)) : size.height
+        let longest = max(max(width, height), 1)
+        if pixelScale && longest <= maxDimension { return self }
+        let ratio = min(1, maxDimension / longest)
+        let renderSize = CGSize(width: max(1, width * ratio), height: max(1, height * ratio))
+        let format = UIGraphicsImageRendererFormat()
+        if pixelScale { format.scale = 1 }
+        return UIGraphicsImageRenderer(size: renderSize, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: renderSize))
+        }
+    }
+
+    func resizedJPEGData(maxDimension: CGFloat, quality: CGFloat) -> Data? {
+        resized(maxDimension: maxDimension).jpegData(compressionQuality: quality)
+    }
+}
+
 @MainActor
 final class InspirationStore: ObservableObject {
     @Published private(set) var items: [InspirationItem] = []
 
     private let folder: URL
     private let indexURL: URL
+    private let fileManager: FileManager
     private let imageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 24
@@ -45,34 +64,28 @@ final class InspirationStore: ObservableObject {
     }()
 
     init(folder customFolder: URL? = nil, fileManager: FileManager = .default) {
+        self.fileManager = fileManager
         let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
         folder = customFolder ?? documents.appendingPathComponent("Inspiration", isDirectory: true)
         indexURL = folder.appendingPathComponent("library.json")
-        if let data = try? Data(contentsOf: indexURL),
-           let decoded = try? JSONDecoder().decode([InspirationItem].self, from: data) {
+        if let decoded = StorePersistence.decodeOrBackup([InspirationItem].self, from: indexURL, fileManager: fileManager) {
             items = decoded
         }
     }
 
     @discardableResult
     func add(_ image: UIImage, source: InspirationSource, originalData: Data? = nil) throws -> InspirationItem {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
         let id = UUID()
         let filename = "\(id.uuidString).jpg"
-        let size = image.size
-        let scale = min(1, 1600 / max(max(size.width, size.height), 1))
-        let renderSize = CGSize(width: max(1, size.width * scale), height: max(1, size.height * scale))
-        let normalized = UIGraphicsImageRenderer(size: renderSize).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: renderSize))
-        }
-        guard let data = normalized.jpegData(compressionQuality: 0.82) else {
+        guard let data = image.resizedJPEGData(maxDimension: 1600, quality: 0.82) else {
             throw InspirationStoreError.imageEncodingFailed
         }
         let imageURL = folder.appendingPathComponent(filename)
         let originalURL = folder.appendingPathComponent("\(id.uuidString).original")
         let item = InspirationItem(
             id: id,
-            title: source == .link ? "Linked photo \(items.count + 1)" : "Reference \(items.count + 1)",
+            title: "Reference \(items.count + 1)",
             source: source.label,
             createdAt: Date(),
             filename: filename
@@ -84,8 +97,8 @@ final class InspirationStore: ObservableObject {
             try JSONEncoder().encode(updated).write(to: indexURL, options: .atomic)
             items = updated
         } catch {
-            try? FileManager.default.removeItem(at: imageURL)
-            try? FileManager.default.removeItem(at: originalURL)
+            try? fileManager.removeItem(at: imageURL)
+            try? fileManager.removeItem(at: originalURL)
             throw error
         }
         return item
@@ -120,8 +133,16 @@ final class InspirationStore: ObservableObject {
         for item in removed {
             let imageURL = folder.appendingPathComponent(item.filename)
             let originalURL = folder.appendingPathComponent("\(item.id.uuidString).original")
-            for url in [imageURL, originalURL] where FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
+            for url in [imageURL, originalURL] {
+                do {
+                    try fileManager.removeItem(at: url)
+                } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                    continue
+                } catch {
+                    #if DEBUG
+                    print("[InspirationStore] Failed to remove \(url.lastPathComponent): \(error.localizedDescription)")
+                    #endif
+                }
             }
         }
     }

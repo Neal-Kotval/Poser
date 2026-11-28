@@ -49,7 +49,7 @@ enum ReferenceSearch {
                 }
                 let vectorSettings = SceneIntent.settings(for: await SceneIntent.labels(for: image))
                 remote = hits.compactMap { hit in
-                    guard ReferenceCatalog.items.contains(where: { $0.id == hit.id }) else { return nil }
+                    guard ReferenceCatalog.asset(id: hit.id) != nil else { return nil }
                     let boost = vectorSettings[hit.setting ?? ""] ?? 0
                     return SceneMatch(id: hit.id, score: hit.score + 0.2 * boost,
                                       explanation: "Visually similar")
@@ -125,49 +125,66 @@ enum ReferenceSearch {
                 })
             }
         }
-        var seen = Set<UUID>()
-        let candidates = references.compactMap { reference -> SceneCandidate? in
-            guard seen.insert(reference.id).inserted, let preview = reference.preview else { return nil }
-            return SceneCandidate(id: reference.id, image: preview)
-        }
-        if !candidates.isEmpty {
-            let visual = await SceneMatcher.rank(scene: image, candidates: candidates,
-                                                 allowFeaturePrints: false)
+        if !references.isEmpty {
             let settingByID = Dictionary(references.map { ($0.id, $0.setting ?? "") },
                                          uniquingKeysWith: { first, _ in first })
-            let ranked = visual.map { match in
+            let ranked = await rankCatalogReferences(references, against: image, limit: limit) { match in
                 let weight = max(settings[settingByID[match.id] ?? ""] ?? 0,
                                  termWeights[match.id] ?? 0)
                 return SceneMatch(id: match.id, score: 0.4 * match.score + 0.6 * weight,
                                   explanation: "Related environment idea")
             }
-            let saved = inspiration.isEmpty ? [] : await SceneMatcher.rank(scene: image, candidates: inspiration)
-            return Array((ranked + saved).sorted { $0.score > $1.score }.prefix(limit))
+            if !ranked.isEmpty {
+                let saved = inspiration.isEmpty ? [] : await SceneMatcher.rank(scene: image, candidates: inspiration)
+                return Array((ranked + saved).sorted { $0.score > $1.score }.prefix(limit))
+            }
         }
 
-        var fallbackCandidates = ReferenceCatalog.items.compactMap { reference -> SceneCandidate? in
-            guard let preview = reference.preview else { return nil }
-            return SceneCandidate(id: reference.id, image: preview)
+        let fallback = await rankCatalogReferences(ReferenceCatalog.items, against: image, limit: limit)
+        let saved = inspiration.isEmpty ? [] : await SceneMatcher.rank(scene: image, candidates: inspiration)
+        return Array((fallback + saved).sorted { $0.score > $1.score }.prefix(limit))
+    }
+
+    private static func rankCatalogReferences(
+        _ references: [ReferenceAsset],
+        against scene: UIImage,
+        limit: Int,
+        transform: (SceneMatch) -> SceneMatch = { $0 }
+    ) async -> [SceneMatch] {
+        var top: [SceneMatch] = []
+        var seen = Set<UUID>()
+        let batchSize = 24
+        var index = 0
+        while index < references.count {
+            let end = min(index + batchSize, references.count)
+            let slice = references[index..<end]
+            index = end
+            let batch: [SceneCandidate] = autoreleasepool {
+                slice.compactMap { reference in
+                    guard seen.insert(reference.id).inserted,
+                          let preview = reference.preview else { return nil }
+                    return SceneCandidate(id: reference.id, image: preview)
+                }
+            }
+            guard !batch.isEmpty else { continue }
+            let scored = await SceneMatcher.rank(scene: scene, candidates: batch, allowFeaturePrints: false)
+                .map(transform)
+            top.append(contentsOf: scored)
+            top.sort { left, right in
+                if abs(left.score - right.score) < 0.0001 {
+                    return left.id.uuidString < right.id.uuidString
+                }
+                return left.score > right.score
+            }
+            if top.count > limit {
+                top.removeSubrange(limit...)
+            }
         }
-        fallbackCandidates.append(contentsOf: inspiration)
-        return await SceneMatcher.rank(scene: image, candidates: fallbackCandidates)
+        return top
     }
 
     private static func asset(for hit: TypesenseHit) -> ReferenceAsset? {
-        if let existing = ReferenceCatalog.items.first(where: { $0.id == hit.id }) {
-            return existing
-        }
-        // Indexed pin may not be in the current catalog build; synthesize a catalog-compatible asset.
-        return ReferenceAsset(
-            id: hit.id,
-            title: hit.title,
-            assetName: hit.pinID,
-            credit: "Creator unverified",
-            license: "Rights unverified",
-            source: URL(string: "https://www.pinterest.com/pin/\(hit.pinID.replacingOccurrences(of: "pin-", with: ""))/"),
-            setting: hit.setting,
-            pose: hit.pose
-        )
+        ReferenceCatalog.asset(id: hit.id)
     }
 }
 

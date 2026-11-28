@@ -25,17 +25,6 @@ enum CameraHeightBucket: String, CaseIterable {
         case .overhead: "Above head"
         }
     }
-
-    var holdPhrase: String {
-        switch self {
-        case .ground: "near the ground"
-        case .knee: "at knee height"
-        case .hip: "at hip height"
-        case .chest: "at chest height"
-        case .eye: "at eye level"
-        case .overhead: "above your head"
-        }
-    }
 }
 
 /// Where the reference photo was taken from. Camera height and angles are relative to the

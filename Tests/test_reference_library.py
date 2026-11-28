@@ -157,6 +157,15 @@ class LibraryTests(unittest.TestCase):
                 lib.request('https://example.com')
             self.assertEqual(call.call_count, 1)
 
+    def test_non_numeric_content_length_is_ignored(self):
+        class FakeResponse:
+            headers = {'Content-Length': 'unknown'}
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, n=-1): return b'ok'
+        with patch.object(lib.urllib.request, 'urlopen', return_value=FakeResponse()):
+            self.assertEqual(lib.request('https://example.com'), b'ok')
+
     def test_review_escapes_metadata(self):
         lib.save(self.root / 'records.json', [self.record | {'title': '</textarea><script>bad()</script>'}])
         lib.review(SimpleNamespace(work=self.root))

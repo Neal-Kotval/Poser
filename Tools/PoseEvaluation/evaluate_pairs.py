@@ -10,7 +10,8 @@ from pathlib import Path
 
 def summarize(records, threshold=85):
     labeled = [item for item in records if item.get("match") in (True, False)]
-    scored = [item for item in labeled if isinstance(item.get("score"), (int, float))
+    scored = [item for item in labeled if not isinstance(item.get("score"), bool)
+              and isinstance(item.get("score"), (int, float))
               and math.isfinite(item["score"])]
     negatives = [item for item in scored if not item["match"]]
     by_reference = defaultdict(list)

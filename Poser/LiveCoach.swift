@@ -115,6 +115,7 @@ enum LiveSubjectSelector {
 
 final class LiveFrameAnalyzer {
     #if DEBUG
+    private static let failureReportLock = NSLock()
     private static var lastFailureReport: String?
     #endif
     let subjectHeightMeters: Double
@@ -165,8 +166,14 @@ final class LiveFrameAnalyzer {
             .compactMap { name, error in error.map { "\(name): \($0)" } }
         #if DEBUG
         let report = failures.joined(separator: " | ")
-        if report != lastFailureReport {
+        let shouldLog: Bool = {
+            failureReportLock.lock()
+            defer { failureReportLock.unlock() }
+            guard report != lastFailureReport else { return false }
             lastFailureReport = report
+            return true
+        }()
+        if shouldLog {
             print(report.isEmpty ? "[LiveCoach] Vision requests ok" : "[LiveCoach] Vision failed: \(report)")
         }
         #endif
@@ -354,12 +361,18 @@ final class LiveCoach {
     private let referencePose: PoseSkeleton?
     private let referenceFocalRatio: CGFloat
     private let guidePlacement: PoseGuidePlacement
+    private let referenceNormalizedMask: SilhouetteMatcher.Mask?
     private let smoothing = 0.35
     private var smoothed = LiveReading()
     private var roll: Double?
     private var pendingKind: CoachInstruction.Kind?
     private var pendingCount = 0
     private var lastReadingAt: Date?
+    private var poseEvaluated = false
+    private var overlapEvaluated = false
+    private var cachedFrameOverlap: Int?
+    private var cachedFrameMaskAspect: CGFloat?
+    private var cachedFrameMask: SilhouetteMatcher.Mask?
     private(set) var hasFreshReading = false
 
     init(spec: ShotSpec, referencePose: PoseSkeleton? = nil, liveAspect: CGFloat = 3.0 / 4.0,
@@ -378,6 +391,7 @@ final class LiveCoach {
             focalRatio = 1
         }
         referenceFocalRatio = focalRatio
+        referenceNormalizedMask = SilhouetteMatcher.mask(for: spec.silhouette, normalizeBox: true)
         targetBox = FrameMapping.mapTarget(silhouette: spec.silhouette, fallback: spec.subjectBox,
                                            fromAspect: spec.imageAspect, intoAspect: liveAspect,
                                            focalRatio: focalRatio).map { guidePlacement.applying(to: $0) }
@@ -395,6 +409,9 @@ final class LiveCoach {
         } else if let lastReadingAt, now.timeIntervalSince(lastReadingAt) > 1.5 {
             smoothed = LiveReading()
             poseMatch = nil
+            poseEvaluated = false
+            overlapEvaluated = false
+            cachedFrameOverlap = nil
             hasFreshReading = false
         }
         roll = blend(roll, rollDegrees)
@@ -417,19 +434,28 @@ final class LiveCoach {
             if size > 1 + limits.sizeFraction { return .stepBack(meters: nil) }
             if size < 1 - limits.sizeFraction { return .stepCloser(meters: nil) }
         }
-        poseMatch = nil
-        if referencePose != nil || spec.silhouette.count >= 3 {
-            poseMatch = PoseMatcher.compare(reference: referencePose, live: smoothed.pose,
-                                            referenceOutline: spec.silhouette, liveOutline: smoothed.silhouette)
-            if let poseMatch, poseMatch.score < limits.poseScore { return .adjustPose(poseMatch.cue) }
+        if !poseEvaluated {
+            poseEvaluated = true
+            if referencePose != nil || spec.silhouette.count >= 3 {
+                poseMatch = PoseMatcher.compare(reference: referencePose, live: smoothed.pose,
+                                                referenceOutline: spec.silhouette,
+                                                referenceMask: referenceNormalizedMask,
+                                                liveOutline: smoothed.silhouette)
+            } else {
+                poseMatch = nil
+            }
         }
-        if spec.silhouette.count >= 3 && smoothed.silhouette.count < 3 { return .checkSetup }
-        if spec.silhouette.count >= 3 {
-            let aspect = smoothed.frameAspect ?? 3.0 / 4.0
-            let mapped = guidePlacement.applying(to: FrameMapping.mapOutline(spec.silhouette, fromAspect: spec.imageAspect,
-                                                 intoAspect: aspect, focalRatio: referenceFocalRatio))
-            if let overlap = SilhouetteMatcher.frameOverlap(reference: mapped, live: smoothed.silhouette),
-               overlap < 65 {
+        if let poseMatch, poseMatch.score < limits.poseScore { return .adjustPose(poseMatch.cue) }
+        if spec.silhouette.count >= 3 && smoothed.silhouette.count < 3 && poseMatch == nil { return .checkSetup }
+        if spec.silhouette.count >= 3 && smoothed.silhouette.count >= 3 {
+            if !overlapEvaluated {
+                overlapEvaluated = true
+                let aspect = smoothed.frameAspect ?? 3.0 / 4.0
+                cachedFrameOverlap = frameMask(for: aspect).flatMap {
+                    SilhouetteMatcher.frameOverlap(referenceMask: $0, live: smoothed.silhouette)
+                }
+            }
+            if let overlap = cachedFrameOverlap, overlap < 65 {
                 return .adjustPose("Adjust your position to match the reference")
             }
         }
@@ -482,7 +508,20 @@ final class LiveCoach {
         return next
     }
 
+    private func frameMask(for aspect: CGFloat) -> SilhouetteMatcher.Mask? {
+        if cachedFrameMaskAspect == aspect { return cachedFrameMask }
+        let mapped = guidePlacement.applying(to: FrameMapping.mapOutline(spec.silhouette, fromAspect: spec.imageAspect,
+                                             intoAspect: aspect, focalRatio: referenceFocalRatio))
+        let mask = SilhouetteMatcher.mask(for: mapped, normalizeBox: false)
+        cachedFrameMaskAspect = aspect
+        cachedFrameMask = mask
+        return mask
+    }
+
     private func absorb(_ reading: LiveReading) {
+        poseEvaluated = false
+        overlapEvaluated = false
+        cachedFrameOverlap = nil
         if let aspect = reading.frameAspect, aspect.isFinite, aspect > 0 {
             targetBox = FrameMapping.mapTarget(silhouette: spec.silhouette, fallback: spec.subjectBox,
                                                fromAspect: spec.imageAspect, intoAspect: aspect,
@@ -614,12 +653,16 @@ enum FrameMapping {
     }
 
     static func framePoint(_ point: CGPoint, frameAspect: CGFloat, viewSize: CGSize) -> CGPoint {
+        guard viewSize.width.isFinite, viewSize.height.isFinite, frameAspect.isFinite,
+              viewSize.width > 0, viewSize.height > 0, frameAspect > 0 else { return .zero }
         let scale = max(viewSize.width / frameAspect, viewSize.height)
         return CGPoint(x: (point.x - (viewSize.width - frameAspect * scale) / 2) / (frameAspect * scale),
                        y: (point.y - (viewSize.height - scale) / 2) / scale)
     }
 
     static func frameTranslation(_ translation: CGSize, frameAspect: CGFloat, viewSize: CGSize) -> CGSize {
+        guard viewSize.width.isFinite, viewSize.height.isFinite, frameAspect.isFinite,
+              viewSize.width > 0, viewSize.height > 0, frameAspect > 0 else { return .zero }
         let scale = max(viewSize.width / frameAspect, viewSize.height)
         return CGSize(width: translation.width / (frameAspect * scale), height: translation.height / scale)
     }

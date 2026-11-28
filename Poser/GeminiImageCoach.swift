@@ -22,6 +22,9 @@ struct GeminiReferencePlan: Decodable, Equatable {
 /// Optional cloud descriptions. Vision remains the source of pose measurements and scores.
 @MainActor
 enum GeminiImageCoach {
+    private static let modelName = "gemini-3.5-flash-lite"
+    private static let requestOptions = RequestOptions(timeout: 12)
+
     static var isConfigured: Bool { FirebaseApp.app() != nil }
 
     static func planReference(_ image: UIImage, visionHasPerson: Bool,
@@ -41,8 +44,8 @@ enum GeminiImageCoach {
         let config = GenerationConfig(maxOutputTokens: 300,
                                       responseMIMEType: "application/json", responseSchema: schema)
         let model = FirebaseAI.firebaseAI(backend: .googleAI())
-            .generativeModel(modelName: "gemini-3.5-flash-lite", generationConfig: config,
-                             requestOptions: RequestOptions(timeout: 12))
+            .generativeModel(modelName: modelName, generationConfig: config,
+                             requestOptions: requestOptions)
         let prompt = """
         Prepare a concise plan for recreating this reference photograph. Describe only visible cues.
         summary: one short instruction about the overall shot. poseCue: one short instruction for
@@ -85,7 +88,7 @@ enum GeminiImageCoach {
     private static func generate(_ images: UIImage..., prompt: String) async throws -> String {
         guard isConfigured else { throw GeminiCoachError.notConfigured }
         let model = FirebaseAI.firebaseAI(backend: .googleAI())
-            .generativeModel(modelName: "gemini-3.5-flash-lite")
+            .generativeModel(modelName: modelName, requestOptions: requestOptions)
         let response: GenerateContentResponse
         switch images.count {
         case 1: response = try await model.generateContent(prepared(images[0]), prompt)
@@ -98,16 +101,7 @@ enum GeminiImageCoach {
     }
 
     private static func prepared(_ image: UIImage) -> UIImage {
-        let width = CGFloat(image.cgImage?.width ?? Int(image.size.width * image.scale))
-        let height = CGFloat(image.cgImage?.height ?? Int(image.size.height * image.scale))
-        let longest = max(width, height)
-        guard longest > 1600 else { return image }
-        let size = CGSize(width: width * 1600 / longest, height: height * 1600 / longest)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
-        }
+        image.resized(maxDimension: 1600, pixelScale: true)
     }
 }
 

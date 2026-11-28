@@ -222,7 +222,8 @@ enum AnalysisService {
                 summary = "We found a person in the frame. Match their position, then refine your angle and light."
             }
             let estimate = ShotSpecEstimator.estimate(cgImage: cgImage, orientation: orientation, imageData: imageData,
-                                                      subjectHeightMeters: ShotSpecEstimator.defaultSubjectHeight)
+                                                      subjectHeightMeters: ShotSpecEstimator.defaultSubjectHeight,
+                                                      pose2D: pose, reusePose2D: true)
             let orientedSize = orientation.swapsDimensions
                 ? CGSize(width: cgImage.height, height: cgImage.width)
                 : CGSize(width: cgImage.width, height: cgImage.height)
@@ -245,22 +246,6 @@ enum AnalysisService {
                                  geometry: geometry, shotSpec: estimate.spec,
                                  summary: summary, recipe: recipe)
         }.value
-    }
-}
-
-private extension CGImagePropertyOrientation {
-    init(_ orientation: UIImage.Orientation) {
-        switch orientation {
-        case .up: self = .up
-        case .down: self = .down
-        case .left: self = .left
-        case .right: self = .right
-        case .upMirrored: self = .upMirrored
-        case .downMirrored: self = .downMirrored
-        case .leftMirrored: self = .leftMirrored
-        case .rightMirrored: self = .rightMirrored
-        @unknown default: self = .up
-        }
     }
 }
 
